@@ -1,0 +1,171 @@
+{
+  "customers": [
+    {
+      "customer_id": "CUS001",
+      "first_name": "Ahmed",
+      "last_name": "Hassan",
+      "email": "ahmed.hassan@example.com",
+      "city": "Cairo",
+      "credit_score": 720,
+      "created_at": "2025-01-15T10:30:00"
+    },
+    {
+      "customer_id": "CUS002",
+      "first_name": "Mona",
+      "last_name": "Ali",
+      "email": "mona.ali@example.com",
+      "city": "Alexandria",
+      "credit_score": 680,
+      "created_at": "2025-02-03T12:15:00"
+    },
+    {
+      "customer_id": "CUS003",
+      "first_name": "Omar",
+      "last_name": "Khaled",
+      "email": "omar.khaled@example.com",
+      "city": "Giza",
+      "credit_score": 750,
+      "created_at": "2025-02-20T09:00:00"
+    }
+  ],
+  "branches": [
+    {
+      "branch_id": "BR001",
+      "branch_name": "Cairo Main",
+      "manager_name": "Sara Mahmoud",
+      "city": "Cairo",
+      "country": "Egypt"
+    },
+    {
+      "branch_id": "BR002",
+      "branch_name": "Alexandria Central",
+      "manager_name": "Omar Samir",
+      "city": "Alexandria",
+      "country": "Egypt"
+    }
+  ],
+  "accounts": [
+    {
+      "account_id": "ACC001",
+      "customer_id": "CUS001",
+      "branch_id": "BR001",
+      "account_type": "Checking",
+      "balance_usd": 12500.5,
+      "open_date": "2025-01-20"
+    },
+    {
+      "account_id": "ACC002",
+      "customer_id": "CUS002",
+      "branch_id": "BR002",
+      "account_type": "Savings",
+      "balance_usd": 8300.0,
+      "open_date": "2025-02-10"
+    },
+    {
+      "account_id": "ACC003",
+      "customer_id": "CUS001",
+      "branch_id": "BR001",
+      "account_type": "Savings",
+      "balance_usd": 4500.0,
+      "open_date": "2025-03-01"
+    },
+    {
+      "account_id": "ACC004",
+      "customer_id": "CUS003",
+      "branch_id": "BR001",
+      "account_type": "Checking",
+      "balance_usd": 17200.75,
+      "open_date": "2025-03-05"
+    }
+  ],
+  "cards": [
+    {
+      "card_id": "CRD001",
+      "account_id": "ACC001",
+      "card_type": "Debit",
+      "expiration_date": "2028-01-31"
+    },
+    {
+      "card_id": "CRD002",
+      "account_id": "ACC002",
+      "card_type": "Credit",
+      "expiration_date": "2029-02-28"
+    },
+    {
+      "card_id": "CRD003",
+      "account_id": "ACC003",
+      "card_type": "Debit",
+      "expiration_date": "2028-03-31"
+    }
+  ],
+  "merchants": [
+    {
+      "merchant_id": "MER001",
+      "merchant_name": "Example Supermarket",
+      "city": "Cairo"
+    },
+    {
+      "merchant_id": "MER002",
+      "merchant_name": "Example Electronics",
+      "city": "Alexandria"
+    },
+    {
+      "merchant_id": "MER003",
+      "merchant_name": "Example Travel",
+      "city": "Giza"
+    }
+  ],
+  "transactions": [
+    {
+      "transaction_id": "TXN001",
+      "account_id": "ACC001",
+      "merchant_id": "MER001",
+      "amount_usd": 125.75,
+      "transaction_date": "2025-03-01T14:25:00"
+    },
+    {
+      "transaction_id": "TXN002",
+      "account_id": "ACC001",
+      "merchant_id": "MER002",
+      "amount_usd": 450.0,
+      "transaction_date": "2025-03-03T18:10:00"
+    },
+    {
+      "transaction_id": "TXN003",
+      "account_id": "ACC002",
+      "merchant_id": "MER002",
+      "amount_usd": 820.5,
+      "transaction_date": "2025-03-05T11:45:00"
+    },
+    {
+      "transaction_id": "TXN004",
+      "account_id": "ACC003",
+      "merchant_id": "MER001",
+      "amount_usd": 75.25,
+      "transaction_date": "2025-03-06T16:20:00"
+    },
+    {
+      "transaction_id": "TXN005",
+      "account_id": "ACC004",
+      "merchant_id": "MER003",
+      "amount_usd": 1200.0,
+      "transaction_date": "2025-03-08T20:00:00"
+    }
+  ],
+  "loans": [
+    {
+      "loan_id": "LON001",
+      "customer_id": "CUS001",
+      "loan_amount": 25000.0,
+      "interest_rate": 7.5,
+      "start_date": "2025-03-15"
+    },
+    {
+      "loan_id": "LON002",
+      "customer_id": "CUS002",
+      "loan_amount": 12000.0,
+      "interest_rate": 8.25,
+      "start_date": "2025-04-01"
+    }
+  ]
+}

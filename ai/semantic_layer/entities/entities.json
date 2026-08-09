@@ -1,0 +1,53 @@
+{
+  "version": "1.0",
+  "database": "Synthetic Banking Database",
+  "source": [
+    "schema.json",
+    "documentation.md",
+    "business_glossary.md"
+  ],
+  "entities": [
+    {
+      "name": "Customer",
+      "table": "customers",
+      "description": "A person represented in the banking system.",
+      "key": "customer_id"
+    },
+    {
+      "name": "Branch",
+      "table": "branches",
+      "description": "A banking branch represented in the database.",
+      "key": "branch_id"
+    },
+    {
+      "name": "Account",
+      "table": "accounts",
+      "description": "A banking account owned by a customer.",
+      "key": "account_id"
+    },
+    {
+      "name": "Card",
+      "table": "cards",
+      "description": "A card associated with a bank account.",
+      "key": "card_id"
+    },
+    {
+      "name": "Merchant",
+      "table": "merchants",
+      "description": "A merchant referenced by transactions.",
+      "key": "merchant_id"
+    },
+    {
+      "name": "Transaction",
+      "table": "transactions",
+      "description": "A financial transaction associated with an account and merchant.",
+      "key": "transaction_id"
+    },
+    {
+      "name": "Loan",
+      "table": "loans",
+      "description": "A loan record associated with a customer.",
+      "key": "loan_id"
+    }
+  ]
+}

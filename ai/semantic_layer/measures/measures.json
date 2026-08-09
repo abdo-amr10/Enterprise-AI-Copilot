@@ -1,0 +1,27 @@
+{
+  "version": "1.0",
+  "database": "Synthetic Banking Database",
+  "source": [
+    "business_glossary.md"
+  ],
+  "measures": [
+    {
+      "name": "Transaction Volume",
+      "expression": "SUM(transactions.amount_usd)",
+      "source_column": "transactions.amount_usd",
+      "description": "Sum of transaction amounts over a selected population/time period."
+    },
+    {
+      "name": "Total Balance",
+      "expression": "SUM(accounts.balance_usd)",
+      "source_column": "accounts.balance_usd",
+      "description": "Sum of account balances over a selected population."
+    },
+    {
+      "name": "Loan Exposure",
+      "expression": "SUM(loans.loan_amount)",
+      "source_column": "loans.loan_amount",
+      "description": "Sum of loan amounts over a selected population."
+    }
+  ]
+}
