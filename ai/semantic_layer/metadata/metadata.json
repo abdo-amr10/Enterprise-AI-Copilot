@@ -1,0 +1,33 @@
+{
+  "version": "1.0",
+  "database": "Synthetic Banking Database",
+  "semantic_layer_id": "synthetic-banking-v1",
+  "sources": [
+    "schema.json",
+    "relationships.json",
+    "sample_data.json",
+    "documentation.md",
+    "business_glossary.md"
+  ],
+  "status": "approved_for_evaluation",
+  "human_review": {
+    "required_before_production": true,
+    "review_scope": [
+      "business meanings",
+      "business rules",
+      "metric definitions",
+      "join paths",
+      "synonyms/ambiguity rules"
+    ]
+  },
+  "runtime_policy": {
+    "query_time_schema_access": false,
+    "query_time_semantic_regeneration": false,
+    "semantic_layer_generated_on_dataset_load": true,
+    "replace_layer_when_dataset_changes": true
+  },
+  "retrieval_policy": {
+    "raw_database_access": false,
+    "raw_schema_access": false
+  }
+}
