@@ -45,3 +45,11 @@ QWEN_CONFIG =ModelConfig(
     context_length=32768,
     max_output_tokens=2048
 )
+
+SEMANTIC_LAYER_CONFIG = ModelConfig(
+    model_name="qwen2.5-coder:7b",
+    runtime="ollama",
+    temperature=0.3,
+    context_length=32768,
+    max_output_tokens=12288,
+)

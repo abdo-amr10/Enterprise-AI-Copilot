@@ -1,0 +1,172 @@
+{
+  "metadata": {
+    "status": "initial_draft",
+    "validated": false,
+    "human_review_required": true
+  },
+  "entities": [
+    {
+      "name": "Customer",
+      "description": "A person represented in the banking system.",
+      "source": "business_glossary"
+    },
+    {
+      "name": "Branch",
+      "description": "A banking branch represented in the database.",
+      "source": "business_glossary"
+    },
+    {
+      "name": "Account",
+      "description": "A banking account owned by a customer.",
+      "source": "business_glossary"
+    },
+    {
+      "name": "Card",
+      "description": "A card associated with a bank account.",
+      "source": "business_glossary"
+    },
+    {
+      "name": "Merchant",
+      "description": "A merchant referenced by transactions.",
+      "source": "business_glossary"
+    },
+    {
+      "name": "Transaction",
+      "description": "A financial transaction associated with an account and merchant.",
+      "source": "business_glossary"
+    },
+    {
+      "name": "Loan",
+      "description": "A loan record associated with a customer.",
+      "source": "business_glossary"
+    }
+  ],
+  "relationships": [
+    {
+      "name": "customers_accounts",
+      "from_table": "customers",
+      "from_column": "customer_id",
+      "to_table": "accounts",
+      "to_column": "customer_id",
+      "cardinality": "1:N",
+      "relationship_type": "foreign_key"
+    },
+    {
+      "name": "branches_accounts",
+      "from_table": "branches",
+      "from_column": "branch_id",
+      "to_table": "accounts",
+      "to_column": "branch_id",
+      "cardinality": "1:N",
+      "relationship_type": "foreign_key"
+    },
+    {
+      "name": "accounts_cards",
+      "from_table": "accounts",
+      "from_column": "account_id",
+      "to_table": "cards",
+      "to_column": "account_id",
+      "cardinality": "1:N",
+      "relationship_type": "foreign_key"
+    },
+    {
+      "name": "accounts_transactions",
+      "from_table": "accounts",
+      "from_column": "account_id",
+      "to_table": "transactions",
+      "to_column": "account_id",
+      "cardinality": "1:N",
+      "relationship_type": "foreign_key"
+    },
+    {
+      "name": "merchants_transactions",
+      "from_table": "merchants",
+      "from_column": "merchant_id",
+      "to_table": "transactions",
+      "to_column": "merchant_id",
+      "cardinality": "1:N",
+      "relationship_type": "foreign_key"
+    },
+    {
+      "name": "customers_loans",
+      "from_table": "customers",
+      "from_column": "customer_id",
+      "to_table": "loans",
+      "to_column": "customer_id",
+      "cardinality": "1:N",
+      "relationship_type": "foreign_key"
+    }
+  ],
+  "measures": [
+    {
+      "name": "Transaction Volume",
+      "description": "Sum of transaction amounts over a selected population/time period.",
+      "source": "business_glossary"
+    },
+    {
+      "name": "Total Balance",
+      "description": "Sum of account balances over a selected population.",
+      "source": "business_glossary"
+    },
+    {
+      "name": "Loan Exposure",
+      "description": "Sum of loan amounts over a selected population.",
+      "source": "business_glossary"
+    }
+  ],
+  "dimensions": [
+    {
+      "name": "Customer ID",
+      "description": "Unique identifier for a customer.",
+      "source": "schema"
+    },
+    {
+      "name": "Branch ID",
+      "description": "Unique identifier for a branch.",
+      "source": "schema"
+    },
+    {
+      "name": "Account ID",
+      "description": "Unique identifier for an account.",
+      "source": "schema"
+    },
+    {
+      "name": "Card ID",
+      "description": "Unique identifier for a card.",
+      "source": "schema"
+    },
+    {
+      "name": "Merchant ID",
+      "description": "Unique identifier for a merchant.",
+      "source": "schema"
+    },
+    {
+      "name": "Transaction ID",
+      "description": "Unique identifier for a transaction.",
+      "source": "schema"
+    },
+    {
+      "name": "Loan ID",
+      "description": "Unique identifier for a loan.",
+      "source": "schema"
+    }
+  ],
+  "business_rules": [
+    {
+      "name": "Customer Transactions",
+      "description": "Join through accounts when asking for customer transactions.",
+      "source": "documentation"
+    },
+    {
+      "name": "Customer Cards",
+      "description": "Join through accounts when asking for customer cards.",
+      "source": "documentation"
+    },
+    {
+      "name": "Customer Loans",
+      "description": "Use the direct loans.customer_id relationship when asking for customer loans.",
+      "source": "documentation"
+    }
+  ],
+  "validation_issues": []
+}
