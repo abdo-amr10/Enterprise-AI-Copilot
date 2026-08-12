@@ -595,31 +595,44 @@ Rules:
 21. FEW-SHOT EXAMPLES
 ==================================================
 
+The following examples demonstrate SQL generation patterns only.
+
+They are NOT part of the database schema.
+
+Do NOT assume that the example table names, column names,
+relationships, values, entities, measures, or business rules
+exist in the actual database.
+
+Use the examples only to learn the general pattern of translating
+natural-language requests into SQL using the supplied semantic context.
+
+--------------------------------------------------
+
 Example 1 — Simple aggregation
 
 Semantic context:
 
-Entity: Customer
-Table: dbo.Customers
+Entity: <ENTITY_A>
+Table: <TABLE_A>
 Columns:
-- CustomerID
-- CustomerName
-- Status
+- <ID_COLUMN>
+- <ATTRIBUTE_COLUMN>
+- <STATUS_COLUMN>
 
 Business rule:
-- Active customers have Status = 'Active'.
+- <ACTIVE_CONDITION>
 
 User question:
-"How many active customers are there?"
+"How many active <ENTITY_A> records are there?"
 
 Expected output:
 
 {{
   "status": "success",
-  "sql": "SELECT COUNT(*) AS ActiveCustomerCount FROM dbo.Customers WHERE Status = 'Active';",
+  "sql": "SELECT COUNT(*) AS ActiveCount FROM <TABLE_A> WHERE <STATUS_COLUMN> = '<ACTIVE_VALUE>';",
   "is_read_only": true,
-  "tables_used": ["dbo.Customers"],
-  "columns_used": ["Status"],
+  "tables_used": ["<TABLE_A>"],
+  "columns_used": ["<STATUS_COLUMN>"],
   "warnings": []
 }}
 
@@ -629,71 +642,86 @@ Example 2 — Relationship and aggregation
 
 Semantic context:
 
-Entity: Customer
-Table: dbo.Customers
+Entity: <ENTITY_A>
+Table: <TABLE_A>
 Columns:
-- CustomerID
-- CustomerName
+- <ID_A>
+- <NAME_COLUMN>
 
-Entity: Account
-Table: dbo.Accounts
+Entity: <ENTITY_B>
+Table: <TABLE_B>
 Columns:
-- AccountID
-- CustomerID
-- Balance
+- <ID_B>
+- <FOREIGN_KEY_TO_A>
+- <MEASURE_COLUMN>
 
 Relationship:
-dbo.Accounts.CustomerID -> dbo.Customers.CustomerID
+<TABLE_B>.<FOREIGN_KEY_TO_A> -> <TABLE_A>.<ID_A>
 
 User question:
-"Show each customer and the total balance of their accounts, ordered from highest to lowest."
+"Show each <ENTITY_A> and the total <MEASURE> associated with it,
+ordered from highest to lowest."
 
 Expected output:
 
 {{
   "status": "success",
-  "sql": "SELECT c.CustomerID, c.CustomerName, SUM(a.Balance) AS TotalBalance FROM dbo.Customers AS c INNER JOIN dbo.Accounts AS a ON a.CustomerID = c.CustomerID GROUP BY c.CustomerID, c.CustomerName ORDER BY TotalBalance DESC;",
+  "sql": "SELECT a.<ID_A>, a.<NAME_COLUMN>, SUM(b.<MEASURE_COLUMN>) AS TotalMeasure FROM <TABLE_A> AS a INNER JOIN <TABLE_B> AS b ON b.<FOREIGN_KEY_TO_A> = a.<ID_A> GROUP BY a.<ID_A>, a.<NAME_COLUMN> ORDER BY TotalMeasure DESC;",
   "is_read_only": true,
-  "tables_used": ["dbo.Customers", "dbo.Accounts"],
-  "columns_used": ["CustomerID", "CustomerName", "Balance"],
+  "tables_used": ["<TABLE_A>", "<TABLE_B>"],
+  "columns_used": ["<ID_A>", "<NAME_COLUMN>", "<MEASURE_COLUMN>", "<FOREIGN_KEY_TO_A>"],
   "warnings": []
 }}
 
 --------------------------------------------------
 
-Example 3 — More complex analytical query
+Example 3 — Top-N analytical query
 
 Semantic context:
 
-Entity: Customer
-Table: dbo.Customers
+Entity: <ENTITY_A>
+Table: <TABLE_A>
 Columns:
-- CustomerID
-- CustomerName
+- <ID_A>
+- <NAME_COLUMN>
 
-Entity: Account
-Table: dbo.Accounts
+Entity: <ENTITY_B>
+Table: <TABLE_B>
 Columns:
-- AccountID
-- CustomerID
-- Balance
+- <ID_B>
+- <FOREIGN_KEY_TO_A>
+- <MEASURE_COLUMN>
 
 Relationship:
-dbo.Accounts.CustomerID -> dbo.Customers.CustomerID
+<TABLE_B>.<FOREIGN_KEY_TO_A> -> <TABLE_A>.<ID_A>
 
 User question:
-"Find the top 5 customers with the highest total account balance."
+"Find the top N <ENTITY_A> records with the highest total <MEASURE>."
 
 Expected output:
 
 {{
   "status": "success",
-  "sql": "SELECT TOP 5 c.CustomerID, c.CustomerName, SUM(a.Balance) AS TotalBalance FROM dbo.Customers AS c INNER JOIN dbo.Accounts AS a ON a.CustomerID = c.CustomerID GROUP BY c.CustomerID, c.CustomerName ORDER BY TotalBalance DESC;",
+  "sql": "SELECT TOP <N> a.<ID_A>, a.<NAME_COLUMN>, SUM(b.<MEASURE_COLUMN>) AS TotalMeasure FROM <TABLE_A> AS a INNER JOIN <TABLE_B> AS b ON b.<FOREIGN_KEY_TO_A> = a.<ID_A> GROUP BY a.<ID_A>, a.<NAME_COLUMN> ORDER BY TotalMeasure DESC;",
   "is_read_only": true,
-  "tables_used": ["dbo.Customers", "dbo.Accounts"],
-  "columns_used": ["CustomerID", "CustomerName", "Balance"],
+  "tables_used": ["<TABLE_A>", "<TABLE_B>"],
+  "columns_used": ["<ID_A>", "<NAME_COLUMN>", "<MEASURE_COLUMN>", "<FOREIGN_KEY_TO_A>"],
   "warnings": []
 }}
+
+--------------------------------------------------
+
+Important:
+
+These examples are pattern demonstrations only.
+
+Do NOT copy example identifiers into the generated SQL unless the
+same identifiers are explicitly present in the retrieved semantic context.
+
+The actual semantic context always takes precedence over these examples.
+
+The model must generalize the demonstrated SQL patterns to any
+database schema provided at query time.
 
 ==================================================
 22. FINAL INSTRUCTION
