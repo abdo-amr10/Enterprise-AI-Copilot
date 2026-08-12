@@ -1,0 +1,6 @@
+{
+  "document_count": 26,
+  "embedding_dimension": 384,
+  "embedding_backend": "sentence-transformers",
+  "index_path": "outputs\\semantic_layer\\semantic_index.npz"
+}

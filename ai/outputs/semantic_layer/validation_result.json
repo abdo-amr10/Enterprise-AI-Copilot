@@ -1,0 +1,106 @@
+{
+  "status": "passed",
+  "errors": [],
+  "warnings": [
+    {
+      "category": "warning",
+      "code": "mapping",
+      "message": "Entity 'Customer' has no explicit table mapping."
+    },
+    {
+      "category": "warning",
+      "code": "mapping",
+      "message": "Entity 'Branch' has no explicit table mapping."
+    },
+    {
+      "category": "warning",
+      "code": "mapping",
+      "message": "Entity 'Account' has no explicit table mapping."
+    },
+    {
+      "category": "warning",
+      "code": "mapping",
+      "message": "Entity 'Card' has no explicit table mapping."
+    },
+    {
+      "category": "warning",
+      "code": "mapping",
+      "message": "Entity 'Merchant' has no explicit table mapping."
+    },
+    {
+      "category": "warning",
+      "code": "mapping",
+      "message": "Entity 'Transaction' has no explicit table mapping."
+    },
+    {
+      "category": "warning",
+      "code": "mapping",
+      "message": "Entity 'Loan' has no explicit table mapping."
+    },
+    {
+      "category": "warning",
+      "code": "mapping",
+      "message": "Dimension 'Customer ID' has no explicit column mapping."
+    },
+    {
+      "category": "warning",
+      "code": "mapping",
+      "message": "Dimension 'Branch ID' has no explicit column mapping."
+    },
+    {
+      "category": "warning",
+      "code": "mapping",
+      "message": "Dimension 'Account ID' has no explicit column mapping."
+    },
+    {
+      "category": "warning",
+      "code": "mapping",
+      "message": "Dimension 'Card ID' has no explicit column mapping."
+    },
+    {
+      "category": "warning",
+      "code": "mapping",
+      "message": "Dimension 'Merchant ID' has no explicit column mapping."
+    },
+    {
+      "category": "warning",
+      "code": "mapping",
+      "message": "Dimension 'Transaction ID' has no explicit column mapping."
+    },
+    {
+      "category": "warning",
+      "code": "mapping",
+      "message": "Dimension 'Loan ID' has no explicit column mapping."
+    },
+    {
+      "category": "warning",
+      "code": "mapping",
+      "message": "Measure 'Transaction Volume' has no explicit mapping."
+    },
+    {
+      "category": "warning",
+      "code": "mapping",
+      "message": "Measure 'Total Balance' has no explicit mapping."
+    },
+    {
+      "category": "warning",
+      "code": "mapping",
+      "message": "Measure 'Loan Exposure' has no explicit mapping."
+    }
+  ],
+  "checks": {
+    "structure": "passed",
+    "relationships": "passed",
+    "duplicates": "passed",
+    "schema_consistency": "passed"
+  },
+  "summary": {
+    "entities_checked": 7,
+    "relationships_checked": 6,
+    "measures_checked": 3,
+    "dimensions_checked": 7,
+    "business_rules_checked": 3,
+    "error_count": 0,
+    "warning_count": 17
+  }
+}

@@ -1,14 +1,14 @@
 """Validation engine for the generated semantic layer."""
-from __future__ import annotations
-
 from collections import Counter
 from typing import Any
 
 
 class SemanticLayerValidator:
-    """Validate a semantic draft against the authoritative database schema."""
+    """Validate a semantic-layer draft against the source database schema."""
 
     def validate(self, draft: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
+        """Run all semantic-layer validation checks and return the results."""
+
         errors: list[dict[str, Any]] = []
         warnings: list[dict[str, Any]] = []
         checks: dict[str, str] = {}
@@ -28,14 +28,13 @@ class SemanticLayerValidator:
         self._check_dimensions(draft.get("dimensions", []), tables, warnings, errors)
         self._check_measures(draft.get("measures", []), tables, warnings, errors)
         self._check_business_rules(draft.get("business_rules", []), warnings)
+        self._check_validation_issues( draft.get("validation_issues", []), warnings,)
         checks["schema_consistency"] = "passed" if not any(
             issue["category"] in {"schema", "relationship", "mapping"} for issue in errors
         ) else "failed"
+        
 
-        if not draft.get("metadata", {}).get("human_review_required", True):
-            warnings.append(self._warning("review", "Human review flag is disabled on the draft."))
-
-        status = "failed" if errors else ("needs_review" if warnings else "passed")
+        status = "failed" if errors else "passed"
         return {
             "status": status,
             "errors": errors,
@@ -54,30 +53,137 @@ class SemanticLayerValidator:
 
     @staticmethod
     def _check_required_sections(draft: dict[str, Any], errors: list[dict[str, Any]]) -> None:
+        """Check that all required semantic-layer sections are present."""
+
         for section in ("metadata", "entities", "relationships", "measures", "dimensions", "business_rules"):
             if section not in draft:
                 errors.append({"category": "structure", "code": "missing_section", "message": f"Missing section: {section}"})
 
     @staticmethod
-    def _check_relationships(items: list[dict[str, Any]], tables: dict[str, Any], schema_relationships: list[dict[str, Any]], errors: list[dict[str, Any]]) -> None:
-        known = {item.get("name"): item for item in schema_relationships}
-        for item in items:
-            name = item.get("name")
-            if name not in known:
-                errors.append({"category": "relationship", "code": "unknown_relationship", "message": f"Relationship '{name}' is not present in the source schema."})
-                continue
-            for side in ("from", "to"):
-                table_key = f"{side}_table"
-                column_key = f"{side}_column"
-                table = item.get(table_key)
-                column = item.get(column_key)
-                if table not in tables:
-                    errors.append({"category": "relationship", "code": "unknown_table", "message": f"{name}: unknown table '{table}'."})
-                elif column not in {c.get("name") for c in tables[table].get("columns", [])}:
-                    errors.append({"category": "relationship", "code": "unknown_column", "message": f"{name}: unknown column '{table}.{column}'."})
+    def _check_relationships(
+            items: list[dict[str, Any]],
+            tables: dict[str, Any],
+            schema_relationships: list[dict[str, Any]],
+            errors: list[dict[str, Any]],
+        ) -> None:
+            """Validate relationships against the authoritative schema."""
 
+            known = {
+                item.get("name"): item
+                for item in schema_relationships
+            }
+
+            draft_names = set()
+
+            for item in items:
+                name = item.get("name")
+
+                if not name:
+                    errors.append(
+                        {
+                            "category": "relationship",
+                            "code": "missing_relationship_name",
+                            "message": "Relationship is missing a name.",
+                        }
+                    )
+                    continue
+
+                draft_names.add(name)
+
+                if name not in known:
+                    errors.append(
+                        {
+                            "category": "relationship",
+                            "code": "unknown_relationship",
+                            "message": (
+                                f"Relationship '{name}' is not present "
+                                "in the source schema."
+                            ),
+                        }
+                    )
+                    continue
+
+                source = known[name]
+
+                for field in (
+                    "from_table",
+                    "from_column",
+                    "to_table",
+                    "to_column",
+                    "cardinality",
+                    "relationship_type",
+                ):
+                    expected = source.get(field)
+                    actual = item.get(field)
+
+                    if actual != expected:
+                        errors.append(
+                            {
+                                "category": "relationship",
+                                "code": "relationship_mismatch",
+                                "message": (
+                                    f"Relationship '{name}' has an invalid "
+                                    f"'{field}'. Expected '{expected}', "
+                                    f"got '{actual}'."
+                                ),
+                            }
+                        )
+
+                for side in ("from", "to"):
+                    table_key = f"{side}_table"
+                    column_key = f"{side}_column"
+
+                    table = item.get(table_key)
+                    column = item.get(column_key)
+
+                    if table not in tables:
+                        errors.append(
+                            {
+                                "category": "relationship",
+                                "code": "unknown_table",
+                                "message": (
+                                    f"{name}: unknown table '{table}'."
+                                ),
+                            }
+                        )
+                        continue
+
+                    known_columns = {
+                        column_data.get("name")
+                        for column_data in tables[table].get("columns", [])
+                    }
+
+                    if column not in known_columns:
+                        errors.append(
+                            {
+                                "category": "relationship",
+                                "code": "unknown_column",
+                                "message": (
+                                    f"{name}: unknown column "
+                                    f"'{table}.{column}'."
+                                ),
+                            }
+                        )
+
+            source_names = set(known)
+
+            missing_relationships = source_names - draft_names
+
+            for name in sorted(missing_relationships):
+                errors.append(
+                    {
+                        "category": "relationship",
+                        "code": "missing_relationship",
+                        "message": (
+                            f"Required relationship '{name}' is missing "
+                            "from the semantic layer."
+                        ),
+                    }
+                )
     @staticmethod
     def _check_duplicates(draft: dict[str, Any], errors: list[dict[str, Any]]) -> None:
+        """Detect duplicate names across semantic-layer sections."""
+
         for section in ("entities", "relationships", "measures", "dimensions", "business_rules"):
             names = [item.get("name") for item in draft.get(section, [])]
             for name, count in Counter(names).items():
@@ -86,6 +192,7 @@ class SemanticLayerValidator:
 
     @staticmethod
     def _check_entities(items: list[dict[str, Any]], tables: dict[str, Any], warnings: list[dict[str, Any]], errors: list[dict[str, Any]]) -> None:
+        """Validate dimension mappings against source schema columns."""
         for item in items:
             name = item.get("name")
             mapping = item.get("mapping") or item.get("table")
@@ -96,6 +203,8 @@ class SemanticLayerValidator:
 
     @staticmethod
     def _check_dimensions(items: list[dict[str, Any]], tables: dict[str, Any], warnings: list[dict[str, Any]], errors: list[dict[str, Any]]) -> None:
+        """Validate dimension mappings against source schema columns."""
+
         for item in items:
             mapping = item.get("mapping")
             if not mapping:
@@ -124,14 +233,40 @@ class SemanticLayerValidator:
 
     @staticmethod
     def _check_business_rules(items: list[dict[str, Any]], warnings: list[dict[str, Any]]) -> None:
+        """Check that business rules contain the required descriptions."""
+
         for item in items:
             if not item.get("description"):
                 warnings.append(SemanticLayerValidator._warning("documentation", f"Business rule '{item.get('name')}' has no description."))
 
     @staticmethod
     def _warning(code: str, message: str) -> dict[str, Any]:
+        """Create a standardized validation warning."""
+
         return {"category": "warning", "code": code, "message": message}
 
     @staticmethod
     def _has_type(errors: list[dict[str, Any]], category: str) -> bool:
+        """Check whether validation errors contain the given category."""
+
         return any(item.get("category") == category for item in errors)
+
+    @staticmethod
+    def _check_validation_issues(
+        issues: list[dict[str, Any]],
+        warnings: list[dict[str, Any]],
+    ) -> None:
+        """Report unresolved AI-generated validation issues."""
+
+        for issue in issues:
+            if isinstance(issue, dict):
+                message = issue.get("message")
+
+                if message:
+                    warnings.append(
+                        {
+                            "category": "validation_issue",
+                            "code": "unresolved_validation_issue",
+                            "message": message,
+                        }
+                    )

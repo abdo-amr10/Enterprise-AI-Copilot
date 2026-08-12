@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hashlib
 from typing import Sequence
-
+import sentence_transformers 
 import numpy as np
 
 
@@ -19,12 +19,13 @@ class EmbeddingService:
     def _get_model(self):
         if self._model is None:
             try:
-                from sentence_transformers import SentenceTransformer
-                self._model = SentenceTransformer(self._model_name)
+                
+                self._model = sentence_transformers.SentenceTransformer(self._model_name)
                 self.dimension = int(self._model.get_sentence_embedding_dimension())
                 self.backend = "sentence-transformers"
-            except ImportError:
-                self.backend = "deterministic-fallback"
+            except ImportError as exc:
+                raise RuntimeError (
+                "sentence-transformers is required to build the semantic index.") from exc
         return self._model
 
     def encode(self, texts: Sequence[str]) -> np.ndarray:
