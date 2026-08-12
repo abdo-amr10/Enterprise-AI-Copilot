@@ -5,7 +5,7 @@ from src.application.ports.semantic_repository import SemanticRepository
 
 
 class ContextRetrievalService:
-    """Retrieves persisted semantic context without accessing the raw schema."""
+    """Application service for query-time semantic context retrieval."""
 
     def __init__(self, semantic_repository: SemanticRepository, default_top_k: int = 8) -> None:
         self._semantic_repository = semantic_repository

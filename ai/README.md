@@ -1,167 +1,287 @@
-# Synthetic Banking Semantic Layer — Clean Architecture
+# Synthetic Banking AI — Clean Architecture
 
-This project contains the semantic-layer artifacts and the application/infrastructure code developed for the Synthetic Banking Text-to-SQL system.
+This project contains the AI-side implementation of the Synthetic Banking Text-to-SQL system.
 
-## Current Progress
+The implementation is organized into two main stages:
 
-The project currently covers:
+1. **Semantic Layer Build**
+2. **Runtime Text-to-SQL Pipeline**
 
-* Schema loading and normalization
-* Schema relationships
-* Semantic-layer artifact preparation
-* Initial semantic draft generation
-* Runtime semantic configuration
-* LLM integration
-* Clean Architecture separation between application and infrastructure
+The Semantic Layer is prepared and validated first.
+The runtime pipeline then consumes the approved Semantic Layer to retrieve relevant information and generate SQL from user questions.
 
-The semantic retrieval, vector-index construction, and final query-time integration are planned as the next stage.
+The current implementation reaches the **SQL Query / LLM Response** stage.
+
+SQL validation, correction/retry, and backend integration are the next development stages.
 
 ---
 
-# Architecture
+# Project Structure
 
 ```text
-Dataset
-   |
-   v
-SchemaLoader
-   |
-   v
-Normalized Schema
-   |
-   +--------------------+
-   |                    |
-   v                    v
-Relationships      Semantic Artifacts
-                         |
-                         v
-                  initial_draft.json
-                         |
-                         v
-                 Semantic Layer
-                    (in progress)
+ai/
+├── models/
+│   └── embeddings/
+│       └── all-MiniLM-L6-v2/
+│
+├── outputs/
+│
+├── scripts/
+│   └── run_text_to_sql_pipeline.py
+│
+├── src/
+│   ├── domain/
+│   ├── application/
+│   ├── infrastructure/
+│   └── config/
+│
+├── tests/
+│
+├── pytest.ini
+├── README.md
+└── requirements.txt
+```
+
+---
+
+# Architecture Overview
+
+The AI implementation is divided into a build stage and a runtime stage.
+
+```text
+                  SEMANTIC LAYER BUILD
+                  ====================
+
+Database Schema
+      |
+      v
+Schema Loading
+      |
+      v
+Schema Validation & Normalization
+      |
+      v
+Relationship Preparation
+      |
+      v
+Semantic Artifact Preparation
+      |
+      v
+Initial Semantic Draft
+      |
+      v
+Semantic Layer
+      |
+      v
+Human Review / Validation
+      |
+      v
+Approved Semantic Layer
+      |
+      |
+      | persisted and prepared for runtime
+      v
+================================================
+
+                  RUNTIME PIPELINE
+                  ================
 
 User Question
       |
       v
-Application Layer
+Semantic Retrieval
       |
       v
-LLM Integration
+Relevant Semantic Context
       |
       v
-Local LLM
+Prompt Construction
+      |
+      v
+SQL Generation
+      |
+      v
+LLM Response
+      |
+      v
+Generated SQL
 ```
 
----
+The two stages are intentionally separated.
 
-# Clean Architecture
-
-The project follows Clean Architecture principles.
-
-The main layers are:
-
-```text
-src/
-├── domain/
-├── application/
-├── infrastructure/
-└── config/
-```
-
-## Domain Layer
-
-Contains the core semantic-layer concepts and domain-level abstractions.
-
-The domain layer does not depend on infrastructure implementations.
+The Semantic Layer is not regenerated for every user question.
 
 ---
 
-## Application Layer
+# 1. Semantic Layer
 
-Contains application use cases and services.
+The Semantic Layer is the main knowledge representation used by the Text-to-SQL system.
 
-Application components depend on abstractions/interfaces rather than directly depending on infrastructure implementations.
+Its purpose is to provide the LLM with a structured and meaningful representation of the database instead of relying only on the raw database schema.
 
-Examples include:
+The Semantic Layer can represent:
 
-* Semantic-layer application services
-* LLM generation request/response handling
-* Application DTOs
-* Repository ports/interfaces
-
----
-
-## Infrastructure Layer
-
-Contains implementations that interact with external systems and files.
-
-Examples include:
-
-* Schema loading
-* Semantic-layer file loading
-* LLM/Ollama integration
-* Embedding-related infrastructure
-* File-based persistence
-
-Infrastructure implementations are kept separate from application business logic.
-
----
-
-# Semantic Layer
-
-The semantic layer is designed to provide the LLM with meaningful information about the database instead of exposing the entire raw database schema directly at query time.
-
-It can contain information such as:
-
+* Database entities
 * Tables
 * Columns
 * Data types
 * Relationships
-* Documentation
 * Business meanings
-* Business glossary
-* Semantic metadata
+* Business rules
+* Semantic descriptions
+* Other metadata required for SQL generation
 
-The semantic artifacts are treated as data rather than hard-coded business logic.
-
----
-
-# Schema Loading
-
-The schema-loading phase is responsible for reading the database schema and converting it into a normalized representation.
-
-The `SchemaLoader` is responsible for:
-
-1. Loading the schema artifact.
-2. Validating the expected structure.
-3. Normalizing the schema representation.
-4. Making the normalized schema available to the semantic-layer preparation process.
-
-Raw schema access belongs to the semantic-layer preparation/build phase and is not intended to be part of the query-time retrieval path.
+The Semantic Layer is prepared once and then reused during query-time retrieval.
 
 ---
 
-# Schema Relationships
+# 2. Semantic Layer Build Process
 
-Database relationships are represented separately so that the semantic layer can understand how entities are connected.
+The Semantic Layer is built as a separate preparation process.
 
-Relationships can be used to identify:
+The implemented flow is:
+
+```text
+Raw Database Schema
+        |
+        v
+Schema Loading
+        |
+        v
+Schema Validation
+        |
+        v
+Schema Normalization
+        |
+        v
+Relationship Preparation
+        |
+        v
+Semantic Artifact Preparation
+        |
+        v
+Initial Semantic Draft
+        |
+        v
+Semantic Layer
+        |
+        v
+Human Review / Validation
+        |
+        v
+Approved Semantic Layer
+```
+
+---
+
+# 3. Schema Loading
+
+The first part of the Semantic Layer build process is loading the database schema.
+
+The `SchemaLoader` is responsible for reading the schema information and making it available to the semantic preparation process.
+
+The schema-loading process includes:
+
+* Loading the schema artifact
+* Validating the expected structure
+* Reading database entities
+* Preparing the schema for normalization
+
+The raw schema is used during the Semantic Layer build process.
+
+It is not intended to be regenerated for every user question.
+
+---
+
+# 4. Schema Normalization
+
+After loading the schema, the schema representation is normalized into a consistent structure.
+
+Normalization provides a stable representation that can be used by the remaining Semantic Layer preparation steps.
+
+The normalized schema becomes the basis for:
+
+* Relationship preparation
+* Semantic artifact generation
+* Semantic descriptions
+* Runtime semantic information
+
+---
+
+# 5. Schema Relationships
+
+Relationships are prepared as part of the Semantic Layer because understanding the database structure is necessary for generating valid SQL.
+
+The relationship information represents how database entities are connected.
+
+It can describe:
 
 * Foreign-key relationships
 * Parent/child relationships
-* Join paths
-* Connected entities
+* Related entities
+* Valid join paths
 
-This information is important for Text-to-SQL generation because the LLM needs to understand which tables can be joined and how they are related.
+For the Synthetic Banking database, examples include:
+
+```text
+customers
+    |
+    +---- accounts
+             |
+             +---- cards
+             |
+             +---- transactions
+                         |
+                         +---- merchants
+
+customers
+    |
+    +---- loans
+
+branches
+    |
+    +---- accounts
+```
+
+This relationship information allows the Semantic Layer to provide the LLM with information about how entities can be connected when generating SQL.
 
 ---
 
-# Semantic Artifacts
+# 6. Semantic Artifact Preparation
 
-The semantic-layer preparation process produces structured artifacts containing the information required to describe the database semantically.
+After schema normalization and relationship preparation, the information is transformed into semantic artifacts.
 
-The current workflow reaches the initial semantic draft:
+The purpose of this stage is to move from a purely structural database representation to information that can be consumed semantically.
+
+The preparation process is:
+
+```text
+Normalized Schema
+       +
+Relationships
+       |
+       v
+Semantic Artifact Preparation
+       |
+       v
+Structured Semantic Information
+```
+
+The semantic artifacts contain the information required to describe the database semantically.
+
+---
+
+# 7. Initial Semantic Draft
+
+The semantic preparation process produces the initial semantic draft:
+
+```text
+initial_draft.json
+```
+
+The initial draft is generated from the available schema and semantic information.
+
+The process is:
 
 ```text
 Raw Schema
@@ -170,7 +290,7 @@ Raw Schema
 Schema Loading
     |
     v
-Schema Normalization
+Normalization
     |
     v
 Relationships
@@ -182,232 +302,698 @@ Semantic Artifact Preparation
 initial_draft.json
 ```
 
-`initial_draft.json` represents the current prepared semantic draft before the remaining semantic-layer build and retrieval stages.
+The initial draft is not automatically treated as the final approved Semantic Layer.
+
+It enters the review and validation stage first.
 
 ---
 
-# Semantic Settings
+# 8. Semantic Layer Review and Human Validation
 
-Runtime configuration for semantic retrieval and indexing is kept outside the application business logic.
+Human review is an important part of the Semantic Layer build process.
 
-Example:
+The generated semantic information is reviewed before it becomes the approved Semantic Layer used by the runtime system.
 
-```python
-from dataclasses import dataclass
+The review process is:
 
-
-@dataclass(frozen=True)
-class SemanticSettings:
-    default_top_k: int = 8
-    embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
-    vector_index_filename: str = "semantic_index.npz"
+```text
+Initial Semantic Draft
+        |
+        v
+Semantic Review
+        |
+        +------------------+
+        |                  |
+        v                  v
+     Valid              Invalid
+        |                  |
+        v                  v
+Approved Layer       Revision / Update
+                           |
+                           v
+                     Review Again
 ```
 
-The configuration defines values such as:
+The review verifies that the semantic representation correctly describes the database and its intended meaning.
 
-* Default number of retrieved semantic results
-* Embedding model
-* Vector-index filename
+This is especially important for:
 
-Keeping these values in configuration prevents infrastructure/runtime settings from being hard-coded into application logic.
+* Business meanings
+* Business rules
+* Definitions
+* Relationships
+* Semantic descriptions
+* Business-specific interpretation
 
----
+The LLM is not treated as the authority for defining or approving business semantics.
 
-# LLM Integration
-
-The local LLM is integrated as a separate infrastructure component.
-
-The integration is responsible for communicating with the local model runtime and generating responses from application requests.
-
-The LLM integration includes:
-
-* LLM client abstraction
-* Local Ollama implementation
-* Generation request DTO
-* Generation response DTO
-* Runtime configuration
-* Unit tests
-
-The LLM integration is intentionally kept separate from semantic retrieval.
-
-The architecture therefore allows the application to prepare semantic context first and then pass that context to the LLM/Text-to-SQL component.
+Only the reviewed and validated Semantic Layer is used by the runtime pipeline.
 
 ---
 
-# Current LLM Flow
+# 9. Approved Semantic Layer
 
-The current integration can be represented as:
+After successful review and validation, the Semantic Layer becomes the approved semantic representation.
+
+The lifecycle is:
+
+```text
+Schema
+   |
+   v
+Semantic Preparation
+   |
+   v
+Initial Draft
+   |
+   v
+Human Review
+   |
+   v
+Approved Semantic Layer
+```
+
+The approved Semantic Layer is then prepared for runtime retrieval.
+
+This creates a clear separation between:
+
+```text
+Build Time
+    |
+    v
+Create + Review Semantic Layer
+
+Runtime
+    |
+    v
+Retrieve + Use Semantic Layer
+```
+
+The runtime does not regenerate the Semantic Layer.
+
+---
+
+# 10. Semantic Layer Runtime Preparation
+
+Once the Semantic Layer has been approved, its semantic documents are prepared for runtime retrieval.
+
+The documents are converted into embeddings using:
+
+```text
+all-MiniLM-L6-v2
+```
+
+The model is stored locally under:
+
+```text
+models/embeddings/all-MiniLM-L6-v2/
+```
+
+The preparation flow is:
+
+```text
+Approved Semantic Layer
+        |
+        v
+Semantic Documents
+        |
+        v
+Embedding Generation
+        |
+        v
+Vector Representations
+        |
+        v
+Local Vector Index
+```
+
+The resulting vector index is used during runtime retrieval.
+
+A keyword-based retrieval fallback is also available.
+
+---
+
+# 11. Vector Index
+
+The semantic documents are indexed so that relevant semantic information can be retrieved for a user question.
+
+The current implementation uses local vector storage.
+
+The indexing flow is:
+
+```text
+Semantic Documents
+       |
+       v
+Embedding Generation
+       |
+       v
+Vector Representations
+       |
+       v
+Local Vector Index
+```
+
+No external vector database is required by the current implementation.
+
+The index is prepared from the approved Semantic Layer and reused during runtime.
+
+---
+
+# 12. Runtime Semantic Retrieval
+
+After the Semantic Layer has been prepared and indexed, the runtime pipeline can retrieve relevant semantic information for each user question.
+
+The retrieval flow is:
+
+```text
+User Question
+      |
+      v
+Query Embedding
+      |
+      v
+Vector Search
+      |
+      v
+Relevant Semantic Documents
+```
+
+Vector retrieval is the primary retrieval mechanism.
+
+A keyword-based fallback is available when vector retrieval cannot be used.
+
+```text
+Vector Retrieval
+       |
+       | unavailable
+       v
+Keyword Retrieval
+```
+
+The goal is to retrieve the semantic information relevant to the current question instead of passing the entire Semantic Layer to the LLM.
+
+---
+
+# 13. Semantic Context Construction
+
+The retrieved semantic documents are passed to the application layer to construct the context used by the LLM.
+
+The flow is:
+
+```text
+User Question
+      |
+      v
+Semantic Retrieval
+      |
+      v
+Relevant Documents
+      |
+      v
+Semantic Context
+```
+
+The semantic context provides the LLM with the information required to generate the SQL query.
+
+The context is designed to keep SQL generation grounded in the approved Semantic Layer.
+
+The LLM should not invent:
+
+* Tables
+* Columns
+* Relationships
+* Business rules
+* Measures
+* Semantic definitions
+
+when the required information is not supported by the supplied context.
+
+---
+
+# 14. SQL Generation
+
+SQL Generation is the stage where the natural-language question and the retrieved semantic context are passed to the local LLM to generate a SQL query.
+
+The current implementation separates SQL generation from semantic retrieval.
+
+The generation flow is:
+
+```text
+User Question
+      |
+      v
+Semantic Context
+      |
+      v
+Prompt Construction
+      |
+      v
+Generation Request
+      |
+      v
+LLM Abstraction
+      |
+      v
+Ollama
+      |
+      v
+qwen2.5-coder:7b
+      |
+      v
+Generation Response
+      |
+      v
+Generated SQL
+```
+
+## Prompt Construction
+
+Before calling the LLM, the application combines the required information into the generation prompt.
+
+The prompt provides the model with:
+
+* The user's natural-language question
+* The retrieved semantic context
+* The information needed to generate the SQL query
+* Instructions that keep the generated SQL grounded in the supplied semantic information
+
+The purpose of this step is to give the LLM only the relevant semantic information required for the current question.
+
+---
+
+## Generation Request
+
+The application does not call Ollama directly from the business logic.
+
+Instead, the generation request is passed through the LLM abstraction.
+
+The request contains the information required for generation, including the prompt and the configured generation parameters.
+
+The application therefore remains independent from the specific LLM runtime.
+
+---
+
+## Ollama Integration
+
+The generation request is sent through the Ollama infrastructure implementation.
+
+The current model is:
+
+```text
+qwen2.5-coder:7b
+```
+
+Ollama executes the model locally and returns the generation response to the application.
+
+The flow is:
 
 ```text
 Application
     |
     v
-Generation Request
-    |
-    v
 LLM Abstraction
     |
     v
-Ollama
+Ollama Client
     |
     v
-Local LLM
+qwen2.5-coder:7b
     |
     v
 Generation Response
 ```
 
-The LLM integration is complete as an infrastructure capability.
+---
 
-However, the complete Semantic Retrieval → Prompt Assembly → Text-to-SQL flow is not considered complete yet.
+## Generation Response
+
+The LLM returns a generation response to the application.
+
+The response contains the generated model output from which the SQL query is obtained.
+
+The current result is:
+
+```text
+Generated SQL Query
+```
+
+At this point, the generated SQL has **not yet passed through the SQL validation/correction stage**.
+
+Therefore, SQL Generation is considered complete when the LLM response containing the generated SQL is received.
 
 ---
 
-# Clean Architecture Decisions
+# 15. Current Runtime Text-to-SQL Flow
 
-The following architectural decisions are currently applied:
+Putting the implemented runtime components together:
 
-* Application code depends on ports/abstractions rather than infrastructure implementations.
-* Infrastructure-specific dependencies are isolated from application logic.
-* Raw schema access belongs to the semantic-layer preparation/build phase.
-* Semantic artifacts are treated as data, not hard-coded business rules.
-* Runtime configuration is kept under `src/config`.
-* LLM integration is isolated from semantic-layer orchestration.
-* Semantic retrieval is intended to be handled independently from LLM generation.
-* Query-time logic should consume the persisted semantic layer rather than regenerate semantic information.
+```text
+User Question
+      |
+      v
+Semantic Retrieval
+      |
+      v
+Relevant Semantic Documents
+      |
+      v
+Semantic Context
+      |
+      v
+Prompt Construction
+      |
+      v
+Generation Request
+      |
+      v
+LLM Abstraction
+      |
+      v
+Ollama
+      |
+      v
+qwen2.5-coder:7b
+      |
+      v
+Generation Response
+      |
+      v
+Generated SQL Query
+```
+
+This is the current stopping point of the AI implementation.
 
 ---
 
-# Current Status
+# 16. LLM Integration
 
-## Completed
+The LLM is integrated as a separate infrastructure component.
+
+The implementation includes:
+
+* LLM client abstraction
+* Ollama implementation
+* Model configuration
+* Generation request
+* Generation response
+* Unit tests
+* Integration testing
+
+The LLM integration is intentionally separated from Semantic Layer retrieval.
+
+This allows the application to retrieve and prepare the semantic context before passing it to the LLM.
+
+---
+
+# 17. Clean Architecture
+
+The project follows Clean Architecture principles.
+
+The main source structure is:
 
 ```text
-Schema Loading                 ✅
-Schema Normalization           ✅
-Schema Relationships           ✅ / prepared
-Semantic Artifact Preparation  ✅
-initial_draft.json             ✅
-Semantic Settings              ✅
-Clean Architecture             ✅
-LLM Integration                ✅
-LLM Integration Tests          ✅
+src/
+├── domain/
+├── application/
+├── infrastructure/
+└── config/
 ```
 
-## Not Completed Yet
+## Domain Layer
+
+Contains the core domain concepts and abstractions.
+
+The domain layer does not depend on infrastructure implementations.
+
+## Application Layer
+
+Contains application-level services and use cases.
+
+Application components depend on abstractions rather than directly depending on infrastructure implementations.
+
+Current responsibilities include:
+
+* Semantic context retrieval
+* LLM generation handling
+* Application DTOs
+* Repository interfaces
+
+## Infrastructure Layer
+
+Contains implementations that interact with external systems and local resources.
+
+Current responsibilities include:
+
+* Schema loading
+* Semantic Layer persistence
+* Embedding generation
+* Vector storage
+* Semantic retrieval
+* Ollama integration
+
+## Configuration
+
+Contains runtime configuration used by application and infrastructure components.
+
+---
+
+# 18. Architectural Decisions
+
+The current implementation follows these main decisions:
+
+* The Semantic Layer is built separately from the runtime query pipeline.
+* The Semantic Layer is reviewed and validated before runtime use.
+* The approved Semantic Layer is persisted and reused.
+* Runtime questions do not regenerate the Semantic Layer.
+* Semantic retrieval is separated from SQL generation.
+* Prompt construction is separated from the LLM infrastructure.
+* Application code depends on abstractions rather than infrastructure implementations.
+* Infrastructure-specific dependencies remain inside the infrastructure layer.
+* Local models are used for embeddings and LLM execution.
+* Semantic context is retrieved before SQL generation.
+* The current pipeline stops after receiving the generated SQL from the LLM.
+
+---
+
+# 19. Testing
+
+The implemented components include unit and integration tests.
+
+The test suite can be executed from the `ai` directory:
+
+```bash
+pytest
+```
+
+Testing currently covers implemented components such as:
+
+* Application components
+* Semantic retrieval components
+* LLM request/response handling
+* Ollama integration
+* LLM generation
+
+The LLM infrastructure also has an integration test that verifies generation through the local Ollama runtime.
+
+---
+
+# 20. Local Models
+
+The project uses two local models for different purposes.
+
+## Embedding Model
 
 ```text
-Final Semantic Layer Build     ⏳
-SemanticLayerBuildService      ⏳
-SemanticLayerLoader            ⏳
-Persisted Active Snapshot      ⏳
-Embedding Generation           ⏳
-Vector Index                   ⏳
-SemanticRepository             ⏳
-ContextRetrievalService        ⏳
-Keyword Fallback               ⏳
-Prompt Assembly                ⏳
-Full Text-to-SQL Integration   ⏳
+all-MiniLM-L6-v2
+```
+
+Used for semantic retrieval.
+
+Stored under:
+
+```text
+models/embeddings/all-MiniLM-L6-v2/
+```
+
+## LLM
+
+```text
+qwen2.5-coder:7b
+```
+
+Used for SQL generation through Ollama.
+
+---
+
+# 21. Current Status
+
+## Semantic Layer
+
+```text
+Schema Loading                    ✅
+Schema Validation                 ✅
+Schema Normalization              ✅
+Schema Relationships              ✅
+Semantic Artifact Preparation     ✅
+Initial Semantic Draft            ✅
+Semantic Layer Build              ✅
+Human Review                      ✅
+Human Validation                  ✅
+Approved Semantic Layer           ✅
+```
+
+## Runtime Semantic Pipeline
+
+```text
+Semantic Layer Loading            ✅
+Embedding Generation              ✅
+Local Vector Index                ✅
+Semantic Retrieval                ✅
+Keyword Retrieval Fallback        ✅
+Context Construction              ✅
+Prompt Construction               ✅
+```
+
+## SQL Generation
+
+```text
+Generation Request                ✅
+LLM Abstraction                   ✅
+Ollama Integration                ✅
+qwen2.5-coder:7b                  ✅
+Generation Response                ✅
+Generated SQL Query                ✅
+```
+
+## Testing
+
+```text
+LLM Unit Tests                    ✅
+LLM Integration Test              ✅
+Semantic Retrieval Tests          ✅
 ```
 
 ---
 
-# Next Development Stage
+# 22. Not Implemented Yet
 
-The next stage starts from the current semantic artifacts.
-
-The planned flow is:
+The following stages are the next development steps:
 
 ```text
-Prepared Semantic Artifacts
-          |
-          v
-SemanticLayerBuildService
-          |
-          v
-Final Semantic Layer
-          |
-          v
-Persisted Active Snapshot
-          |
-          v
-Embedding / Vector Index
-          |
-          v
-SemanticRepository
-          |
-          v
-ContextRetrievalService
-          |
-          v
-Relevant Semantic Context
-          |
-          v
-Prompt Assembly
-          |
-          v
-LLM / Text-to-SQL
+SQL Validation                    ⏳
+SQL Correction / Retry            ⏳
+Human Approval / Rejection        ⏳
+Backend Integration                ⏳
+Secure SQL Execution               ⏳
+Full End-to-End Pipeline           ⏳
 ```
 
-The important architectural rule is that the query-time path should not call:
+The next flow will extend the current implementation:
 
 ```text
-SchemaRepository
-SchemaLoader
-Semantic Generation
+Generated SQL
+      |
+      v
+SQL Validation
+      |
+      +------------------+
+      |                  |
+    Valid              Invalid
+      |                  |
+      |                  v
+      |             Correction
+      |                  |
+      |                  v
+      |                Retry
+      |                  |
+      +--------<---------+
+      |
+      v
+Human Approval / Rejection
+      |
+      v
+Backend Integration
+      |
+      v
+Secure SQL Execution
 ```
-
-Instead, the query-time path should retrieve information from the already-built and persisted semantic layer.
-
----
-
-# Semantic Layer Replacement Lifecycle
-
-When a new database/schema is loaded, the intended lifecycle is:
-
-```text
-New Dataset
-    |
-    v
-Load & Validate Schema
-    |
-    v
-Prepare Semantic Artifacts
-    |
-    v
-Build New Semantic Snapshot
-    |
-    v
-Build New Vector Index
-    |
-    v
-Replace Active Semantic Layer
-```
-
-The old semantic snapshot is removed/replaced when the new semantic layer becomes active.
-
-This ensures that subsequent user questions operate against the semantic representation of the currently active dataset.
-
----
-
-# Human Review
-
-Human review is required before treating the semantic layer as production-ready.
-
-Business documentation and the business glossary are considered authoritative sources for business meanings and business rules.
-
-The LLM is not treated as the authority for defining or approving business semantics.
-
-The LLM should consume the approved semantic information rather than inventing business definitions.
 
 ---
 
 # Current Milestone
 
-The current milestone is:
+**Approved Semantic Layer + Runtime Semantic Retrieval + SQL Generation**
 
-> **Semantic Layer Preparation + LLM Integration**
+The current AI implementation has completed the Semantic Layer build and validation process and connected the approved Semantic Layer to the runtime Text-to-SQL flow.
 
-At this point, the project has successfully prepared the initial semantic artifacts and established the local LLM integration.
+The implemented system currently provides:
 
-The next milestone is to complete the persisted semantic layer and its retrieval mechanism, then connect the retrieved semantic context to the Text-to-SQL generation pipeline.
+```text
+Database Schema
+      |
+      v
+Schema Preparation
+      |
+      v
+Semantic Layer Preparation
+      |
+      v
+Initial Semantic Draft
+      |
+      v
+Human Review / Validation
+      |
+      v
+Approved Semantic Layer
+      |
+      v
+Embedding / Vector Index
+      |
+      v
+Semantic Retrieval
+      |
+      v
+Semantic Context
+      |
+      v
+Prompt Construction
+      |
+      v
+SQL Generation
+      |
+      v
+Local LLM / Ollama
+      |
+      v
+Generation Response
+      |
+      v
+Generated SQL Query
+```
+
+The current stopping point is:
+
+```text
+SQL Query / LLM Response
+```
+
+The immediate next development stage is:
+
+```text
+SQL Validation
+      |
+      v
+Correction / Retry
+      |
+      v
+Human Approval / Rejection
+      |
+      v
+Backend Integration
+      |
+      v
+Secure SQL Execution
+```
+
+The complete end-to-end Text-to-SQL pipeline is therefore still under development.
