@@ -997,3 +997,63 @@ Secure SQL Execution
 ```
 
 The complete end-to-end Text-to-SQL pipeline is therefore still under development.
+
+
+# How to Run
+
+## 1. Install Dependencies
+
+From the `ai` directory:
+
+pip install -r requirements.txt
+
+
+## 2. Prepare Local LLM
+
+Make sure Ollama is installed and the required model is available:
+
+ollama list
+
+If the model is not available:
+
+ollama pull qwen2.5-coder:7b
+
+
+## 3. Run the Text-to-SQL Pipeline
+
+From the `ai` directory:
+
+python scripts/run_text_to_sql_pipeline.py
+
+
+## 4. Pipeline Execution
+
+The script executes the runtime flow:
+
+User Question
+    |
+    v
+Semantic Retrieval
+    |
+    v
+Semantic Context
+    |
+    v
+Prompt Construction
+    |
+    v
+SQL Generation
+    |
+    v
+Ollama / qwen2.5-coder:7b
+    |
+    v
+Generated SQL
+
+
+## 5. Current Output
+
+The current pipeline stops after receiving the generated SQL from the LLM.
+
+SQL validation, correction/retry, human approval, and backend integration
+are not implemented yet.
