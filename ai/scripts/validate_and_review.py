@@ -6,10 +6,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from src.application.services.semantic_layer_validator import (
+from ai.src.application.services.semantic_layer.semantic_layer_validator import (
     SemanticLayerValidator,
 )
-from src.application.services.semantic_layer.review.review_manager import (
+from ai.src.application.services.semantic_layer.review_manager import (
     AIDataReviewManager,
 )
 

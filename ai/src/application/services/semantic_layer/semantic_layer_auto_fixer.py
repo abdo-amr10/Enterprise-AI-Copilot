@@ -6,9 +6,9 @@ from copy import deepcopy
 from typing import Any
 
 from src.application.ports.llm_client import LLMClient
-from src.application.dto.generation_request import GenerationRequest
-from src.application.dto.generation_response import GenerationResponse
-from src.application.prompts.semantic_layer_auto_fixer_prompt import (
+from ai.src.application.dto.llm.generation_request import GenerationRequest
+from ai.src.application.dto.llm.generation_response import GenerationResponse
+from ai.src.prompts.semantic_layer_auto_fixer_prompt import (
     SEMANTIC_LAYER_AUTO_FIXER_PROMPT,
 )
 from src.infrastructure.semantic_layer.builders.semantic_layer_output_parser import (

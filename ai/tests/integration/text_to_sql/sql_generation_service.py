@@ -1,6 +1,6 @@
 import pytest
 
-from src.application.dto.generation_request import GenerationRequest
+from ai.src.application.dto.llm.generation_request import GenerationRequest
 from src.application.services.text_to_sql.sql_generation_service import (
     SQLGenerationService,
 )

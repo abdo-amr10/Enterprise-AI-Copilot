@@ -1,7 +1,7 @@
 from ollama import Client
 
-from src.application.dto.generation_request import GenerationRequest
-from src.application.dto.generation_response import GenerationResponse
+from ai.src.application.dto.llm.generation_request import GenerationRequest
+from ai.src.application.dto.llm.generation_response import GenerationResponse
 from src.application.ports.llm_client import LLMClient
 from src.infrastructure.llm.model_config import ModelConfig
 

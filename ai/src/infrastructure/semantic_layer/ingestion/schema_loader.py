@@ -39,6 +39,7 @@ class SchemaLoader:
             "database": schema["database"],
             "source": schema.get("source"),
             "tables": self._load_tables(schema["tables"]),
+            "relationships": schema.get("relationships", []),
         }
 
     @classmethod
@@ -58,6 +59,10 @@ class SchemaLoader:
 
         if not isinstance(schema["tables"], dict) or not schema["tables"]:
             raise ValueError("Schema must contain at least one table.")
+        
+        relationships = schema.get("relationships", [])  
+        if not isinstance(relationships, list):
+           raise ValueError("Schema relationships must be a list.")
 
     @staticmethod
     def _load_tables(

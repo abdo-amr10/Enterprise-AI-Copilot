@@ -3,7 +3,7 @@
 from unittest.mock import Mock
 import json
 
-from src.application.dto.generation_response import GenerationResponse
+from ai.src.application.dto.llm.generation_response import GenerationResponse
 from src.application.dto.semantic_layer.semantic_layer_build_input import (
     SemanticLayerBuildInput,
 )

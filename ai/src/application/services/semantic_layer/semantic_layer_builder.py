@@ -2,8 +2,8 @@
 import json
 
 
-from src.application.dto.generation_request import GenerationRequest
-from src.application.dto.generation_response import GenerationResponse
+from ai.src.application.dto.llm.generation_request import GenerationRequest
+from ai.src.application.dto.llm.generation_response import GenerationResponse
 from src.application.dto.semantic_layer.semantic_layer_build_input import (
     SemanticLayerBuildInput,
 )
@@ -11,7 +11,7 @@ from src.application.dto.semantic_layer.semantic_layer_build_response import (
     SemanticLayerBuildResponse,
 )
 from src.application.ports.llm_client import LLMClient
-from src.application.prompts.semantic_layer_builder_prompt import (
+from ai.src.prompts.semantic_layer_builder_prompt import (
     SEMANTIC_LAYER_BUILDER_PROMPT,
 )
 from src.infrastructure.semantic_layer.builders.semantic_layer_output_parser import (

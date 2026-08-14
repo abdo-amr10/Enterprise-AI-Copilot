@@ -4,8 +4,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.application.dto.generation_request import GenerationRequest
-from src.application.dto.generation_response import GenerationResponse
+from ai.src.application.dto.llm.generation_request import GenerationRequest
+from ai.src.application.dto.llm.generation_response import GenerationResponse
 from src.application.services.text_to_sql.sql_generation_service import SQLGenerationService
 
 
