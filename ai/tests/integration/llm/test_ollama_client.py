@@ -1,5 +1,5 @@
-from ai.src.application.dto.llm.generation_request import GenerationRequest
-from ai.src.application.dto.llm.generation_response import GenerationResponse
+from src.application.dto.llm.generation_request import GenerationRequest
+from src.application.dto.llm.generation_response import GenerationResponse
 from src.infrastructure.llm.model_config import QWEN_CONFIG
 from src.infrastructure.llm.ollama_client import OllamaClient
 

@@ -71,7 +71,12 @@ def main() -> None:
     )
 
     semantic_layer_id = upload_res["semanticLayerId"]
-    source_file_ids = list(upload_res["sources"].values())
+    source_file_ids = {
+        "schema": upload_res["sources"]["schemaFileId"],
+        "documentation": upload_res["sources"]["documentationFileId"],
+        "glossary": upload_res["sources"]["glossaryFileId"],
+        "sampleData": upload_res["sources"]["sampleDataFileId"],
+    }
 
     # ---------------------------------------------------------------
     # 2.2 Retrieve one uploaded source file (schema)
@@ -167,7 +172,10 @@ def main() -> None:
     incr_req = {
         "semanticLayerId": semantic_layer_id,
         "triggerType": "Incremental",
-        "sourceFileIds": source_file_ids[:3],
+        "sourceFileIds": {
+            key: source_file_ids[key]
+            for key in ("schema", "documentation", "glossary")
+        },
         "baseRevisionId": revision_id,
         "affectedObjects": [
             {

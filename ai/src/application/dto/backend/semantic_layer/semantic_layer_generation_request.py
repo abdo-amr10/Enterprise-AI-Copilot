@@ -96,11 +96,12 @@ class SemanticLayerGenerationRequest:
           for FullRebuild.
 
         `source_file_ids` is likewise Backend-owned: the AI never
-        generates or manages it, only uses it as a reference.
+        generates or manages it, only uses it as a named mapping from
+        source type (schema, documentation, glossary, sampleData) to file ID.
     """
 
     trigger_type: str
-    source_file_ids: tuple[str, ...]
+    source_file_ids: dict[str, str]
     semantic_layer_id: str | None = None
     base_revision_id: str | None = None
     affected_objects: tuple[AffectedObject, ...] = field(default_factory=tuple)
@@ -111,8 +112,28 @@ class SemanticLayerGenerationRequest:
                 "trigger_type must be 'FullRebuild' or 'Incremental'."
             )
 
-        if not isinstance(self.source_file_ids, tuple) or not self.source_file_ids:
-            raise ValueError("source_file_ids cannot be empty.")
+        if not isinstance(self.source_file_ids, dict):
+            raise ValueError("source_file_ids must be an object.")
+
+        allowed_source_types = {
+            "schema",
+            "documentation",
+            "glossary",
+            "sampleData",
+        }
+        unknown_source_types = set(self.source_file_ids) - allowed_source_types
+        if unknown_source_types:
+            raise ValueError(
+                "source_file_ids contains unknown source types: "
+                f"{sorted(unknown_source_types)}."
+            )
+        if not isinstance(self.source_file_ids.get("schema"), str) or not self.source_file_ids["schema"].strip():
+            raise ValueError("source_file_ids.schema is required.")
+        if any(
+            not isinstance(file_id, str) or not file_id.strip()
+            for file_id in self.source_file_ids.values()
+        ):
+            raise ValueError("source_file_ids values must be non-empty file IDs.")
 
         if self.trigger_type == "Incremental":
             if not self.semantic_layer_id:

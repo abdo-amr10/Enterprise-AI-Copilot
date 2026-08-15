@@ -2,10 +2,10 @@
 
 from datetime import date
 
-from ai.src.application.dto.llm.generation_request import GenerationRequest
-from ai.src.application.dto.llm.generation_response import GenerationResponse
-from ai.src.prompts.text_to_sql_prompt import TEXT_TO_SQL_PROMPT
-from ai.src.application.services.context_retrieval.context_retrieval_service import (
+from src.application.dto.llm.generation_request import GenerationRequest
+from src.application.dto.llm.generation_response import GenerationResponse
+from src.prompts.text_to_sql_prompt import TEXT_TO_SQL_PROMPT
+from src.application.services.context_retrieval.context_retrieval_service import (
     ContextRetrievalService,
 )
 from src.application.services.text_to_sql.sql_generation_service import (

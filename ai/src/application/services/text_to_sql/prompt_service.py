@@ -1,5 +1,5 @@
-from ai.src.application.dto.llm.generation_request import GenerationRequest
-from ai.src.prompts.text_to_sql_prompt import TEXT_TO_SQL_PROMPT
+from src.application.dto.llm.generation_request import GenerationRequest
+from src.prompts.text_to_sql_prompt import TEXT_TO_SQL_PROMPT
 
 
 class PromptService:

@@ -5,7 +5,7 @@ are mapped into semantic-layer build inputs without modification
 or inferred metadata.
 """
 
-from ai.src.infrastructure.semantic_layer.ingestion.schema_mapper import SchemaMapper
+from src.infrastructure.semantic_layer.ingestion.schema_mapper import SchemaMapper
 
 
 class TestSchemaMapper:

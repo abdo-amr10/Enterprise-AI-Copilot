@@ -37,7 +37,7 @@ class SemanticLayerGenerationClientImpl:
         payload = {
             "semanticLayerId": request.semantic_layer_id,
             "triggerType": request.trigger_type,
-            "sourceFileIds": request.source_file_ids,
+            "sourceFileIds": dict(request.source_file_ids),
         }
 
         if request.trigger_type == "Incremental":

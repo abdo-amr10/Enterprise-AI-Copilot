@@ -11,7 +11,7 @@ from src.application.dto.semantic_layer.semantic_layer_build_response import (
     SemanticLayerBuildResponse,
 )
 from src.application.ports.llm_client import LLMClient
-from ai.src.prompts.full_build_prompt import (
+from src.prompts.full_build_prompt import (
     FULL_BUILD_PROMPT,
 )
 from src.infrastructure.semantic_layer.builders.semantic_layer_output_parser import (

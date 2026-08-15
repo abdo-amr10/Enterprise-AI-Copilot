@@ -1,6 +1,6 @@
 import pytest
 
-from ai.src.infrastructure.semantic_layer.ingestion.schema_loader import SchemaLoader
+from src.infrastructure.semantic_layer.ingestion.schema_loader import SchemaLoader
 
 
 class TestSchemaLoader:

@@ -3,7 +3,7 @@
 from pathlib import Path
 from src.infrastructure.llm.model_config import QWEN_CONFIG
 
-from ai.src.application.services.context_retrieval.context_retrieval_service import (
+from src.application.services.context_retrieval.context_retrieval_service import (
     ContextRetrievalService,
 )
 from src.application.services.text_to_sql.sql_generation_service import (

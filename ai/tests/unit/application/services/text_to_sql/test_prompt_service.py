@@ -1,6 +1,6 @@
 import pytest
 
-from ai.src.application.dto.llm.generation_request import GenerationRequest
+from src.application.dto.llm.generation_request import GenerationRequest
 from src.application.services.text_to_sql.prompt_service import PromptService
 
 

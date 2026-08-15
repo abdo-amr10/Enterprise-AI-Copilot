@@ -1,0 +1,16 @@
+"""AI-runtime input for the Backend's public copilot ask endpoint."""
+
+from dataclasses import dataclass
+from typing import Any
+
+
+@dataclass(frozen=True)
+class CopilotAskRequest:
+    question: str
+    conversation: tuple[dict[str, Any], ...]
+
+    def __post_init__(self) -> None:
+        if not self.question.strip():
+            raise ValueError("question cannot be empty.")
+        if not isinstance(self.conversation, tuple):
+            raise ValueError("conversation must be a tuple.")

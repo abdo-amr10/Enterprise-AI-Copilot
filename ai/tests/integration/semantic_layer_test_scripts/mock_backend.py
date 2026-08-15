@@ -194,7 +194,7 @@ class MockSemanticLayerBackend:
     def generate_draft(self, request: dict[str, Any]) -> dict[str, Any]:
         semantic_layer_id = request.get("semanticLayerId")
         trigger_type = request["triggerType"]
-        source_file_ids = tuple(request["sourceFileIds"])
+        source_file_ids = request["sourceFileIds"]
 
         affected_objects = tuple(
             AffectedObject(
@@ -438,13 +438,18 @@ class MockSemanticLayerBackend:
 
     # ------------------------------------------------------------------
     def _resolve_sources(
-        self, source_file_ids: tuple[str, ...]
+        self, source_file_ids: dict[str, str]
     ) -> dict[str, Any]:
         sources: dict[str, Any] = {}
 
-        for file_id in source_file_ids:
+        for source_kind, file_id in source_file_ids.items():
             record = self._sources[file_id]
             kind = record["fileType"]
+
+            if kind != source_kind:
+                raise ValueError(
+                    f"Source file '{file_id}' is '{kind}', not '{source_kind}'."
+                )
 
             if kind == "schema":
                 sources["schema"] = self._schema["tables"]

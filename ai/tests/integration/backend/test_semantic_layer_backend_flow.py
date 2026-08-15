@@ -25,7 +25,7 @@ from src.infrastructure.backend.clients.semantic_layer_source_client import (
 from src.infrastructure.backend.clients.semantic_layer_status_client import (
     SemanticLayerStatusClientImpl,
 )
-from ai.src.infrastructure.backend.clients.semantic_layer_revision_update_client import (
+from src.infrastructure.backend.clients.semantic_layer_revision_update_client import (
     SemanticLayerSubmitClientImpl,
 )
 

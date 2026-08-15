@@ -2,7 +2,7 @@
 
 import json
 
-from ai.src.infrastructure.semantic_layer.ingestion.json_schema_repository import (
+from src.infrastructure.semantic_layer.ingestion.json_schema_repository import (
     JsonSchemaRepository,
 )
 

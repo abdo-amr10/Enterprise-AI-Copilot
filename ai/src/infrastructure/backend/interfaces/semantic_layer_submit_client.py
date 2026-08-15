@@ -1,6 +1,6 @@
 from typing import Protocol
 
-from ai.src.application.dto.backend.semantic_layer.semantic_layer_revision_update_response import (
+from src.application.dto.backend.semantic_layer.semantic_layer_revision_update_response import (
     SemanticLayerSubmitResponse,
 )
 
