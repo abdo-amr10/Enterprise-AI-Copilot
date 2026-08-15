@@ -1,0 +1,567 @@
+[
+  {
+    "step": "2.1 Upload Data Sources",
+    "method": "POST",
+    "path": "/api/v1/semantic-layer/upload",
+    "request": {
+      "name": "ERP Semantic Layer",
+      "description": "Semantic layer for ERP database",
+      "sources": {
+        "schema": {
+          "fileName": "schema.json",
+          "content": {
+            "tables": {
+              "Customers": {
+                "columns": [
+                  {
+                    "name": "CustomerId",
+                    "type": "int"
+                  },
+                  {
+                    "name": "Name",
+                    "type": "varchar"
+                  },
+                  {
+                    "name": "Status",
+                    "type": "int"
+                  }
+                ]
+              },
+              "Sales": {
+                "columns": [
+                  {
+                    "name": "SaleId",
+                    "type": "int"
+                  },
+                  {
+                    "name": "CustomerId",
+                    "type": "int"
+                  },
+                  {
+                    "name": "Amount",
+                    "type": "decimal"
+                  },
+                  {
+                    "name": "SaleDate",
+                    "type": "datetime"
+                  }
+                ]
+              }
+            },
+            "relationships": [
+              {
+                "name": "Sales_Customers",
+                "from_table": "Sales",
+                "from_column": "CustomerId",
+                "to_table": "Customers",
+                "to_column": "CustomerId",
+                "cardinality": "many_to_one",
+                "relationship_type": "foreign_key"
+              }
+            ]
+          }
+        },
+        "documentation": {
+          "fileName": "documentation.md",
+          "content": "ERP sales/customer subject area used by the Copilot demo."
+        },
+        "glossary": {
+          "fileName": "glossary.md",
+          "content": "Active customer: Status = 1."
+        },
+        "sampleData": {
+          "fileName": "sample.csv",
+          "content": {
+            "Customers": [
+              {
+                "CustomerId": 1,
+                "Name": "Acme Co",
+                "Status": 1
+              }
+            ],
+            "Sales": [
+              {
+                "SaleId": 10,
+                "CustomerId": 1,
+                "Amount": 500.0,
+                "SaleDate": "2026-08-01"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "response": {
+      "status": "SourcesLoaded",
+      "message": "Sources loaded successfully.",
+      "semanticLayerId": "sl-db9857f7",
+      "name": "ERP Semantic Layer",
+      "description": "Semantic layer for ERP database",
+      "sources": {
+        "schemaFileId": "file-61a93ba8",
+        "documentationFileId": "file-cf3044d9",
+        "glossaryFileId": "file-1cbef0f4",
+        "sampleDataFileId": "file-7303ac7b"
+      },
+      "hasDocumentation": true,
+      "hasGlossary": true,
+      "hasSampleData": true
+    }
+  },
+  {
+    "step": "2.2 Retrieve Semantic Layer Source File",
+    "method": "GET",
+    "path": "/api/v1/semantic-layer/files/file-61a93ba8",
+    "request": null,
+    "response": {
+      "status": "Success",
+      "fileId": "file-61a93ba8",
+      "fileType": "schema",
+      "fileName": "schema.json",
+      "content": {
+        "tables": {
+          "Customers": {
+            "columns": [
+              {
+                "name": "CustomerId",
+                "type": "int"
+              },
+              {
+                "name": "Name",
+                "type": "varchar"
+              },
+              {
+                "name": "Status",
+                "type": "int"
+              }
+            ]
+          },
+          "Sales": {
+            "columns": [
+              {
+                "name": "SaleId",
+                "type": "int"
+              },
+              {
+                "name": "CustomerId",
+                "type": "int"
+              },
+              {
+                "name": "Amount",
+                "type": "decimal"
+              },
+              {
+                "name": "SaleDate",
+                "type": "datetime"
+              }
+            ]
+          }
+        },
+        "relationships": [
+          {
+            "name": "Sales_Customers",
+            "from_table": "Sales",
+            "from_column": "CustomerId",
+            "to_table": "Customers",
+            "to_column": "CustomerId",
+            "cardinality": "many_to_one",
+            "relationship_type": "foreign_key"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "step": "2.3 Generate Draft (FullRebuild)",
+    "method": "POST",
+    "path": "/api/v1/semantic-layer/generate-draft",
+    "request": {
+      "triggerType": "FullRebuild",
+      "sourceFileIds": [
+        "file-61a93ba8",
+        "file-cf3044d9",
+        "file-1cbef0f4",
+        "file-7303ac7b"
+      ]
+    },
+    "response": {
+      "status": "DraftGenerated",
+      "semanticLayerId": "sl-74943df8e47a43689fe29cf1a31583c3",
+      "revisionId": "rev-a16c793935484af89222df227f47e20b",
+      "baseRevisionId": null,
+      "regeneratedObjectsCount": 6,
+      "buildTimestamp": "2026-08-15T16:02:49.774713+00:00",
+      "lastRegenerationType": "FullRebuild"
+    }
+  },
+  {
+    "step": "2.4 Retrieve Semantic Revision",
+    "method": "GET",
+    "path": "/api/v1/semantic-layer/sl-74943df8e47a43689fe29cf1a31583c3/revisions/rev-a16c793935484af89222df227f47e20b",
+    "request": null,
+    "response": {
+      "semanticLayerId": "sl-74943df8e47a43689fe29cf1a31583c3",
+      "revisionId": "rev-a16c793935484af89222df227f47e20b",
+      "status": "PendingReview",
+      "version": "draft",
+      "buildTimestamp": "2026-08-15T16:02:49.774713+00:00",
+      "lastRegenerationType": "FullRebuild",
+      "content": {
+        "entities": [
+          {
+            "name": "Customer",
+            "mapping": "Customers",
+            "description": "A customer account.",
+            "objectId": "712758b7-b5c7-49c4-b957-fc3efd93bb92"
+          },
+          {
+            "name": "Sale",
+            "mapping": "Sales",
+            "description": "A single sales transaction.",
+            "objectId": "8ed8d26c-6c1a-460c-b572-80a27b677a08"
+          }
+        ],
+        "relationships": [
+          {
+            "name": "Sales_Customers",
+            "fromTable": "Sales",
+            "fromColumn": "CustomerId",
+            "toTable": "Customers",
+            "toColumn": "CustomerId",
+            "cardinality": "many_to_one",
+            "relationshipType": "foreign_key",
+            "objectId": "777ed579-cf82-49ce-9b99-351e7ef68b04"
+          }
+        ],
+        "measures": [
+          {
+            "name": "TotalRevenue",
+            "mapping": "Sales.Amount",
+            "aggregation": "sum",
+            "description": "Sum of sale amounts.",
+            "objectId": "311d9ce3-1773-4443-a225-4666a4299c09"
+          }
+        ],
+        "dimensions": [
+          {
+            "name": "CustomerStatus",
+            "mapping": "Customers.Status",
+            "description": "Active/inactive status of a customer.",
+            "objectId": "24e4ba7f-a5d0-4f2d-9d7e-a9a55c496a06"
+          }
+        ],
+        "businessRules": [
+          {
+            "name": "ActiveCustomers",
+            "description": "Active customers have Status = 1.",
+            "objectId": "76830aa5-006a-438d-9cca-e460eb4f308a"
+          }
+        ],
+        "validationIssues": []
+      },
+      "createdAt": "2026-08-15T16:02:49.774713+00:00"
+    }
+  },
+  {
+    "step": "2.5 Human Review & Approval (Approve)",
+    "method": "POST",
+    "path": "/api/v1/semantic-layer/review",
+    "request": {
+      "semanticLayerId": "sl-74943df8e47a43689fe29cf1a31583c3",
+      "revisionId": "rev-a16c793935484af89222df227f47e20b",
+      "decision": "Approve"
+    },
+    "response": {
+      "semanticLayerId": "sl-74943df8e47a43689fe29cf1a31583c3",
+      "revisionId": "rev-a16c793935484af89222df227f47e20b",
+      "status": "Approved",
+      "version": "v1.0",
+      "approvedBy": "usr-123",
+      "approvedAt": "2026-08-15T16:02:49.774713+00:00"
+    }
+  },
+  {
+    "step": "2.7 Semantic Layer Status (after approval)",
+    "method": "GET",
+    "path": "/api/v1/semantic-layer/sl-74943df8e47a43689fe29cf1a31583c3/status",
+    "request": null,
+    "response": {
+      "semanticLayerId": "sl-74943df8e47a43689fe29cf1a31583c3",
+      "status": "Approved",
+      "version": "v1.0",
+      "revisionId": "rev-a16c793935484af89222df227f47e20b",
+      "buildTimestamp": "2026-08-15T16:02:49.774713+00:00",
+      "lastRegenerationType": "FullRebuild"
+    }
+  },
+  {
+    "step": "2.3 Generate Draft (Incremental)",
+    "method": "POST",
+    "path": "/api/v1/semantic-layer/generate-draft",
+    "request": {
+      "semanticLayerId": "sl-74943df8e47a43689fe29cf1a31583c3",
+      "triggerType": "Incremental",
+      "sourceFileIds": [
+        "file-61a93ba8",
+        "file-cf3044d9",
+        "file-1cbef0f4"
+      ],
+      "baseRevisionId": "rev-a16c793935484af89222df227f47e20b",
+      "affectedObjects": [
+        {
+          "objectId": "obj-temp-001",
+          "section": "measures",
+          "name": "AverageOrderValue",
+          "action": "upsert"
+        },
+        {
+          "objectId": "obj-temp-002",
+          "section": "business_rules",
+          "name": "ActiveCustomers",
+          "action": "upsert"
+        }
+      ]
+    },
+    "response": {
+      "status": "DraftGenerated",
+      "semanticLayerId": "sl-74943df8e47a43689fe29cf1a31583c3",
+      "revisionId": "rev-a998b7deb1c4424c9b105f83d5056e53",
+      "baseRevisionId": "rev-a16c793935484af89222df227f47e20b",
+      "regeneratedObjectsCount": 2,
+      "buildTimestamp": "2026-08-15T16:02:49.774713+00:00",
+      "lastRegenerationType": "Incremental"
+    }
+  },
+  {
+    "step": "2.4 Retrieve Semantic Revision (Incremental draft)",
+    "method": "GET",
+    "path": "/api/v1/semantic-layer/sl-74943df8e47a43689fe29cf1a31583c3/revisions/rev-a998b7deb1c4424c9b105f83d5056e53",
+    "request": null,
+    "response": {
+      "semanticLayerId": "sl-74943df8e47a43689fe29cf1a31583c3",
+      "revisionId": "rev-a998b7deb1c4424c9b105f83d5056e53",
+      "status": "PendingReview",
+      "version": "v1.0",
+      "buildTimestamp": "2026-08-15T16:02:49.774713+00:00",
+      "lastRegenerationType": "Incremental",
+      "content": {
+        "entities": [
+          {
+            "name": "Customer",
+            "mapping": "Customers",
+            "description": "A customer account.",
+            "objectId": "712758b7-b5c7-49c4-b957-fc3efd93bb92"
+          },
+          {
+            "name": "Sale",
+            "mapping": "Sales",
+            "description": "A single sales transaction.",
+            "objectId": "8ed8d26c-6c1a-460c-b572-80a27b677a08"
+          }
+        ],
+        "relationships": [
+          {
+            "name": "Sales_Customers",
+            "fromTable": "Sales",
+            "fromColumn": "CustomerId",
+            "toTable": "Customers",
+            "toColumn": "CustomerId",
+            "cardinality": "many_to_one",
+            "relationshipType": "foreign_key",
+            "objectId": "777ed579-cf82-49ce-9b99-351e7ef68b04"
+          }
+        ],
+        "measures": [
+          {
+            "name": "TotalRevenue",
+            "mapping": "Sales.Amount",
+            "aggregation": "sum",
+            "description": "Sum of sale amounts.",
+            "objectId": "311d9ce3-1773-4443-a225-4666a4299c09"
+          },
+          {
+            "name": "AverageOrderValue",
+            "mapping": "Sales.Amount",
+            "aggregation": "avg",
+            "description": "Average sale amount per transaction.",
+            "objectId": "d36dee4a-1e81-48a5-ad76-ee7254fd4827"
+          }
+        ],
+        "dimensions": [
+          {
+            "name": "CustomerStatus",
+            "mapping": "Customers.Status",
+            "description": "Active/inactive status of a customer.",
+            "objectId": "24e4ba7f-a5d0-4f2d-9d7e-a9a55c496a06"
+          }
+        ],
+        "businessRules": [
+          {
+            "name": "ActiveCustomers",
+            "description": "Active customers have Status = 1 and have placed at least one order.",
+            "objectId": "43d9c993-59e2-4cfa-9944-b6b6e9712776"
+          }
+        ],
+        "validationIssues": []
+      },
+      "createdAt": "2026-08-15T16:02:49.774713+00:00"
+    }
+  },
+  {
+    "step": "2.5 Human Review & Approval (Reject)",
+    "method": "POST",
+    "path": "/api/v1/semantic-layer/review",
+    "request": {
+      "semanticLayerId": "sl-74943df8e47a43689fe29cf1a31583c3",
+      "revisionId": "rev-a998b7deb1c4424c9b105f83d5056e53",
+      "decision": "Reject",
+      "comments": "AverageOrderValue description should mention it excludes refunds."
+    },
+    "response": {
+      "semanticLayerId": "sl-74943df8e47a43689fe29cf1a31583c3",
+      "revisionId": "rev-a998b7deb1c4424c9b105f83d5056e53",
+      "status": "Rejected",
+      "comments": "AverageOrderValue description should mention it excludes refunds.",
+      "rejectedBy": "usr-123",
+      "rejectedAt": "2026-08-15T16:02:49.774713+00:00"
+    }
+  },
+  {
+    "step": "2.6 Update & Submit Revision",
+    "method": "PUT",
+    "path": "/api/v1/semantic-layer/sl-74943df8e47a43689fe29cf1a31583c3/revisions/rev-a998b7deb1c4424c9b105f83d5056e53",
+    "request": {
+      "content": {
+        "measures": [
+          {
+            "name": "TotalRevenue",
+            "mapping": "Sales.Amount",
+            "aggregation": "sum",
+            "description": "Sum of sale amounts."
+          },
+          {
+            "name": "AverageOrderValue",
+            "mapping": "Sales.Amount",
+            "aggregation": "avg",
+            "description": "Average sale amount per transaction, excluding refunds."
+          }
+        ]
+      }
+    },
+    "response": {
+      "status": "Submitted",
+      "semanticLayerId": "sl-74943df8e47a43689fe29cf1a31583c3",
+      "revisionId": "rev-a998b7deb1c4424c9b105f83d5056e53",
+      "message": "Revision updated and submitted for validation."
+    }
+  },
+  {
+    "step": "2.5 Human Review & Approval (Approve after edit)",
+    "method": "POST",
+    "path": "/api/v1/semantic-layer/review",
+    "request": {
+      "semanticLayerId": "sl-74943df8e47a43689fe29cf1a31583c3",
+      "revisionId": "rev-a998b7deb1c4424c9b105f83d5056e53",
+      "decision": "Approve"
+    },
+    "response": {
+      "semanticLayerId": "sl-74943df8e47a43689fe29cf1a31583c3",
+      "revisionId": "rev-a998b7deb1c4424c9b105f83d5056e53",
+      "status": "Approved",
+      "version": "v1.1",
+      "approvedBy": "usr-123",
+      "approvedAt": "2026-08-15T16:02:49.774713+00:00"
+    }
+  },
+  {
+    "step": "2.3 Generate Draft (FullRebuild, auto-fix demo)",
+    "method": "POST",
+    "path": "/api/v1/semantic-layer/generate-draft",
+    "request": {
+      "triggerType": "FullRebuild",
+      "sourceFileIds": [
+        "file-61a93ba8",
+        "file-cf3044d9",
+        "file-1cbef0f4",
+        "file-7303ac7b"
+      ]
+    },
+    "response": {
+      "status": "DraftGenerated",
+      "semanticLayerId": "sl-d596b538b1904d4abbdeddcd59673d61",
+      "revisionId": "rev-47097d28e50840e9bcaeb7e1e65d33c5",
+      "baseRevisionId": null,
+      "regeneratedObjectsCount": 6,
+      "buildTimestamp": "2026-08-15T16:02:49.781313+00:00",
+      "lastRegenerationType": "FullRebuild"
+    }
+  },
+  {
+    "step": "2.4 Retrieve Semantic Revision (post auto-fix)",
+    "method": "GET",
+    "path": "/api/v1/semantic-layer/sl-d596b538b1904d4abbdeddcd59673d61/revisions/rev-47097d28e50840e9bcaeb7e1e65d33c5",
+    "request": null,
+    "response": {
+      "semanticLayerId": "sl-d596b538b1904d4abbdeddcd59673d61",
+      "revisionId": "rev-47097d28e50840e9bcaeb7e1e65d33c5",
+      "status": "PendingReview",
+      "version": "draft",
+      "buildTimestamp": "2026-08-15T16:02:49.781313+00:00",
+      "lastRegenerationType": "FullRebuild",
+      "content": {
+        "entities": [
+          {
+            "name": "Customer",
+            "mapping": "Customers",
+            "description": "A customer account.",
+            "objectId": "800c1bd0-cfff-4869-a9d1-e05ee618b553"
+          },
+          {
+            "name": "Sale",
+            "mapping": "Sales",
+            "description": "A single sales transaction.",
+            "objectId": "56651aa7-b447-4cf4-9dd1-d379d5ffb432"
+          }
+        ],
+        "relationships": [
+          {
+            "name": "Sales_Customers",
+            "fromTable": "Sales",
+            "fromColumn": "CustomerId",
+            "toTable": "Customers",
+            "toColumn": "CustomerId",
+            "cardinality": "many_to_one",
+            "relationshipType": "foreign_key",
+            "objectId": "e9b98146-d212-4173-9f5d-568f14d7ad71"
+          }
+        ],
+        "measures": [
+          {
+            "name": "TotalRevenue",
+            "mapping": "Sales.Amount",
+            "aggregation": "sum",
+            "description": "Sum of sale amounts.",
+            "objectId": "d4c3acb4-73db-44d7-acaf-c5570d1e865b"
+          }
+        ],
+        "dimensions": [
+          {
+            "name": "CustomerStatus",
+            "mapping": "Customers.Status",
+            "description": "Active/inactive status of a customer.",
+            "objectId": "247b2677-6830-435f-b430-2b7a463cd049"
+          }
+        ],
+        "businessRules": [
+          {
+            "name": "ActiveCustomers",
+            "description": "Active customers have Status = 1.",
+            "objectId": "c42ec270-7fdd-4b7e-80be-0331d88490f7"
+          }
+        ],
+        "validationIssues": []
+      },
+      "createdAt": "2026-08-15T16:02:49.781313+00:00"
+    }
+  }
+]

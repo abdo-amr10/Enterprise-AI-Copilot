@@ -1,27 +1,49 @@
-"""Application use case for activating a prepared semantic layer."""
+from src.application.dto.backend.semantic_layer.semantic_layer_generation_request import (
+    SemanticLayerGenerationRequest,
+)
+from src.application.dto.semantic_layer.semantic_layer_build_response import (
+    SemanticLayerBuildResponse,
+)
+from src.application.services.semantic_layer.strategy.full_rebuild_strategy import (
+    FullRebuildStrategy,
+)
+from src.application.services.semantic_layer.strategy.incremental_build_strategy import (
+    IncrementalBuildStrategy,
+)
 from typing import Any
-
-from src.application.ports.schema_repository import SchemaRepository
 
 
 class SemanticLayerBuildService:
-    """Coordinates dataset-load validation and semantic-layer activation.
+    """Selects the appropriate Semantic Layer build strategy."""
 
-    The actual filesystem/index implementations stay in infrastructure.
-    """
+    def __init__(
+        self,
+        full_rebuild_strategy: FullRebuildStrategy,
+        incremental_strategy: IncrementalBuildStrategy,
+    ) -> None:
+        self._full_rebuild_strategy = full_rebuild_strategy
+        self._incremental_strategy = incremental_strategy
 
-    def __init__(self, schema_repository: SchemaRepository, semantic_loader: Any) -> None:
-        self._schema_repository = schema_repository
-        self._semantic_loader = semantic_loader
+    def build(
+        self,
+        request: SemanticLayerGenerationRequest,
+        sources: dict[str, Any],
+        base_semantic_layer: dict[str, Any] | None = None,
+    ) -> SemanticLayerBuildResponse:
 
-    def activate(self, source_semantic_root: str) -> None:
-        schema = self._schema_repository.load()
-        self._validate_schema(schema)
-        self._semantic_loader.replace(source_semantic_root)
+        if request.trigger_type == "FullRebuild":
+            return self._full_rebuild_strategy.build(
+                request=request,
+                sources=sources,
+            )
 
-    @staticmethod
-    def _validate_schema(schema: dict[str, Any]) -> None:
-        if not schema.get("database"):
-            raise ValueError("Schema must contain a database name.")
-        if not schema.get("tables"):
-            raise ValueError("Schema must contain tables.")
+        if base_semantic_layer is None:
+            raise ValueError(
+                "base_semantic_layer is required for Incremental generation."
+            )
+
+        return self._incremental_strategy.build(
+            request=request,
+            sources=sources,
+            base_semantic_layer=base_semantic_layer,
+        )

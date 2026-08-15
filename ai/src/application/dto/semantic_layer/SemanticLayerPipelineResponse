@@ -1,0 +1,20 @@
+from dataclasses import dataclass
+from typing import Any
+
+
+@dataclass(frozen=True)
+class SemanticLayerPipelineResponse:
+    """Represents the result of the Semantic Layer build pipeline."""
+
+    semantic_layer: dict[str, Any]
+    validation: dict[str, Any]
+    auto_fix_applied: bool
+
+    def __post_init__(self) -> None:
+        """Validate the pipeline response."""
+
+        if not isinstance(self.semantic_layer, dict):
+            raise ValueError("semantic_layer must be a dictionary.")
+
+        if not isinstance(self.validation, dict):
+            raise ValueError("validation must be a dictionary.")
