@@ -33,10 +33,12 @@ class SemanticLayerMetadataService:
     def initialize(
         self,
         semantic_layer: dict[str, Any],
+        semantic_layer_id: str,
     ) -> dict[str, Any]:
-        """Initialize identity metadata for a brand-new Semantic Layer
-        (FullRebuild: a new lineage, so semantic_layer_id is freshly
-        minted and there is no base_revision_id)."""
+        """Initialize a FullRebuild revision for an uploaded Semantic Layer."""
+
+        if not semantic_layer_id.strip():
+            raise ValueError("semantic_layer_id cannot be empty.")
 
         result = dict(semantic_layer)
 
@@ -44,9 +46,7 @@ class SemanticLayerMetadataService:
 
         metadata.update(
             {
-                "semantic_layer_id": (
-                    self._id_generator.generate_semantic_layer_id()
-                ),
+                "semantic_layer_id": semantic_layer_id,
                 "revision_id": (
                     self._id_generator.generate_revision_id()
                 ),

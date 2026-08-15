@@ -19,9 +19,6 @@ _VALID_SECTIONS = {
     "business_rules",
 }
 
-_VALID_ACTIONS = {"upsert", "delete"}
-
-
 @dataclass(frozen=True)
 class AffectedObject:
     """Identifies a single semantic-layer object touched by an
@@ -39,27 +36,17 @@ class AffectedObject:
     into "upsert".
     """
 
-    object_id: str
     section: str
-    name: str
-    action: str
+    id: str
 
     def __post_init__(self) -> None:
-        if not self.object_id.strip():
-            raise ValueError("object_id cannot be empty.")
-
         if self.section not in _VALID_SECTIONS:
             raise ValueError(
                 f"section must be one of {sorted(_VALID_SECTIONS)}."
             )
 
-        if not self.name.strip():
-            raise ValueError("name cannot be empty.")
-
-        if self.action not in _VALID_ACTIONS:
-            raise ValueError(
-                f"action must be one of {sorted(_VALID_ACTIONS)}."
-            )
+        if not self.id.strip():
+            raise ValueError("id cannot be empty.")
 
     def to_dict(self) -> dict[str, str]:
         """Plain-dict form, used by IncrementalBuilder's prompt and by
@@ -67,10 +54,8 @@ class AffectedObject:
         than this dataclass directly."""
 
         return {
-            "object_id": self.object_id,
             "section": self.section,
-            "name": self.name,
-            "action": self.action,
+            "id": self.id,
         }
 
 
@@ -88,9 +73,10 @@ class SemanticLayerGenerationRequest:
         The Backend only supplies identifiers it already holds because
         the AI returned them on a previous call:
 
-        - `semantic_layer_id`: required for Incremental (identifies the
-          existing Semantic Layer being updated). Must be omitted for
-          FullRebuild, since a brand-new semantic_layer_id is minted.
+        - `semantic_layer_id`: required for every generation request.
+          It identifies the Semantic Layer created when the sources were
+          uploaded, and is retained by both FullRebuild and Incremental
+          revisions.
         - `base_revision_id`: required for Incremental (the previously
           issued revision_id this update is based on). Must be omitted
           for FullRebuild.
@@ -150,9 +136,9 @@ class SemanticLayerGenerationRequest:
                 )
 
         if self.trigger_type == "FullRebuild":
-            if self.semantic_layer_id:
+            if not self.semantic_layer_id:
                 raise ValueError(
-                    "semantic_layer_id must not be set for FullRebuild requests."
+                    "semantic_layer_id is required for FullRebuild requests."
                 )
             if self.base_revision_id:
                 raise ValueError(

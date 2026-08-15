@@ -1,0 +1,60 @@
+﻿[
+  {
+    "step": "3.4 Internal Semantic Retrieval",
+    "method": "POST",
+    "path": "/internal/semantic/retrieve",
+    "request": {
+      "question": "Show total revenue for active customers.",
+      "conversation": []
+    },
+    "response": {
+      "status": "Success",
+      "context": {
+        "tables": [
+          "Customers",
+          "Sales"
+        ],
+        "businessRules": [
+          "Active customers have Status = 1."
+        ]
+      }
+    }
+  },
+  {
+    "step": "3.1 Main Copilot Interface (success)",
+    "method": "POST",
+    "path": "/api/v1/copilot/ask",
+    "request": {
+      "question": "Show total revenue for active customers.",
+      "conversation": []
+    },
+    "response": {
+      "queryId": "req-990",
+      "status": "Completed",
+      "report": {
+        "textSummary": "The total revenue for active customers this month is $145,000.",
+        "presentationType": "SummaryCard",
+        "data": [
+          {
+            "TotalAmount": 145000.0
+          }
+        ]
+      }
+    }
+  },
+  {
+    "step": "3.1 Main Copilot Interface (write SQL rejected)",
+    "method": "POST",
+    "path": "/api/v1/copilot/ask",
+    "request": {
+      "question": "Delete all customers",
+      "conversation": []
+    },
+    "response": {
+      "queryId": "req-991",
+      "status": "Failed",
+      "errorCode": "SQL_VALIDATION_FAILED",
+      "message": "The system could not generate a safe read-only query for this request."
+    }
+  }
+]

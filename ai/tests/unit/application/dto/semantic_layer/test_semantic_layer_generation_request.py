@@ -13,6 +13,7 @@ def test_generation_request_uses_named_source_file_ids() -> None:
             "documentation": "file-002",
             "glossary": "file-003",
         },
+        semantic_layer_id="sl-001",
     )
 
     assert request.source_file_ids["schema"] == "file-001"
@@ -23,4 +24,13 @@ def test_generation_request_requires_schema_file_id() -> None:
         SemanticLayerGenerationRequest(
             trigger_type="FullRebuild",
             source_file_ids={"glossary": "file-003"},
+            semantic_layer_id="sl-001",
+        )
+
+
+def test_generation_request_requires_semantic_layer_id_for_full_rebuild() -> None:
+    with pytest.raises(ValueError, match="semantic_layer_id"):
+        SemanticLayerGenerationRequest(
+            trigger_type="FullRebuild",
+            source_file_ids={"schema": "file-001"},
         )

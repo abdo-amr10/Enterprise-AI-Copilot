@@ -93,7 +93,7 @@ FULL_REBUILD_DRAFT = {
 FULL_REBUILD_DRAFT_TEXT = json.dumps(FULL_REBUILD_DRAFT, indent=2)
 
 # ---------------------------------------------------------------------------
-# Scenario B: Incremental -- regenerates only the two affected objects.
+# Scenario B: Incremental -- updates two existing affected objects.
 # ---------------------------------------------------------------------------
 
 INCREMENTAL_DRAFT = {
@@ -108,18 +108,18 @@ INCREMENTAL_DRAFT = {
     "metadata": {},
     "measures": [
         {
-            "name": "AverageOrderValue",
+            "name": "TotalRevenue",
             "mapping": "Sales.Amount",
-            "aggregation": "avg",
-            "description": "Average sale amount per transaction.",
+            "aggregation": "sum",
+            "description": "Sum of sale amounts, excluding refunds.",
         }
     ],
     "business_rules": [
         {
             "name": "ActiveCustomers",
             "description": (
-                "Active customers have Status = 1 and have placed "
-                "at least one order."
+                "Active customers have Status = 1 and are eligible for "
+                "revenue reporting."
             ),
         }
     ],

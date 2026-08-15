@@ -198,10 +198,8 @@ class MockSemanticLayerBackend:
 
         affected_objects = tuple(
             AffectedObject(
-                object_id=obj["objectId"],
                 section=obj["section"],
-                name=obj["name"],
-                action=obj["action"],
+                id=obj["id"],
             )
             for obj in request.get("affectedObjects", [])
         )
@@ -209,9 +207,7 @@ class MockSemanticLayerBackend:
         gen_request = SemanticLayerGenerationRequest(
             trigger_type=trigger_type,
             source_file_ids=source_file_ids,
-            semantic_layer_id=(
-                semantic_layer_id if trigger_type == "Incremental" else None
-            ),
+            semantic_layer_id=semantic_layer_id,
             base_revision_id=(
                 request.get("baseRevisionId")
                 if trigger_type == "Incremental"
@@ -266,12 +262,21 @@ class MockSemanticLayerBackend:
             "status": "DraftGenerated",
             "semanticLayerId": final_semantic_layer_id,
             "revisionId": revision_id,
-            "baseRevisionId": request.get("baseRevisionId"),
             "regeneratedObjectsCount": regenerated_count,
             "buildTimestamp": self._revisions[
                 (final_semantic_layer_id, revision_id)
             ]["build_timestamp"],
             "lastRegenerationType": trigger_type,
+            **(
+                {
+                    "affectedObjects": [
+                        {"section": obj.section, "id": obj.id}
+                        for obj in affected_objects
+                    ]
+                }
+                if trigger_type == "Incremental"
+                else {}
+            ),
         }
 
     # ------------------------------------------------------------------
@@ -320,6 +325,11 @@ class MockSemanticLayerBackend:
         decision = request["decision"]
         comments = request.get("comments", "")
 
+        if decision not in {"Approve", "Reject"}:
+            raise ValueError("decision must be Approve or Reject.")
+        if decision == "Reject" and not comments.strip():
+            raise ValueError("comments are required when rejecting a revision.")
+
         record = self._revisions[(semantic_layer_id, revision_id)]
 
         reviewed_draft, review_result = self._review_pipeline.run(
@@ -360,27 +370,34 @@ class MockSemanticLayerBackend:
         }
 
     # ------------------------------------------------------------------
-    # 2.6 Update & Submit Revision
+    # 2.6 Submit Revision
     # ------------------------------------------------------------------
-    def update_revision(
+    def edit_revision(
         self,
         semantic_layer_id: str,
         revision_id: str,
-        request: dict[str, Any],
-    ) -> dict[str, Any]:
+        content: dict[str, Any],
+    ) -> None:
+        """Apply UI edits before the documented submit endpoint is called."""
+
         record = self._revisions[(semantic_layer_id, revision_id)]
         draft = record["draft"]
 
-        # SPEC GAP: the doc's 2.6 example content uses the key "tables"
-        # where every other module uses "entities" for this section.
-        # Treated as a documentation typo and mapped to "entities" here.
-        edited = to_snake(request.get("content", {}))
+        edited = to_snake(content)
         if "tables" in edited:
             edited["entities"] = edited.pop("tables")
 
         for section in _CONTENT_SECTIONS:
             if section in edited:
                 draft[section] = edited[section]
+
+    def submit_revision(
+        self,
+        semantic_layer_id: str,
+        revision_id: str,
+    ) -> dict[str, Any]:
+        record = self._revisions[(semantic_layer_id, revision_id)]
+        draft = record["draft"]
 
         final_draft, validation = self._validation_pipeline.run(
             draft=draft,
@@ -399,7 +416,7 @@ class MockSemanticLayerBackend:
             "status": "Submitted",
             "semanticLayerId": semantic_layer_id,
             "revisionId": revision_id,
-            "message": "Revision updated and submitted for validation.",
+            "message": "Revision submitted for validation.",
         }
 
     # ------------------------------------------------------------------

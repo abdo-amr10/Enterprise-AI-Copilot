@@ -64,7 +64,8 @@ class SemanticLayerGenerationPipeline:
         if request.trigger_type == "FullRebuild":
 
             draft = self._metadata_service.initialize(
-                build_result.semantic_layer
+                build_result.semantic_layer,
+                request.semantic_layer_id,
             )
 
         else:

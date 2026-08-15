@@ -42,7 +42,10 @@ class SemanticLayerGenerationClientImpl:
 
         if request.trigger_type == "Incremental":
             payload["baseRevisionId"] = request.base_revision_id
-            payload["affectedObjects"] = request.affected_objects
+            payload["affectedObjects"] = [
+                affected_object.to_dict()
+                for affected_object in request.affected_objects
+            ]
 
         response = self._http_client.post(
             "/api/v1/semantic-layer/generate-draft",
@@ -60,4 +63,5 @@ class SemanticLayerGenerationClientImpl:
             last_regeneration_type=response[
                 "lastRegenerationType"
             ],
+            affected_objects=tuple(response.get("affectedObjects", ())),
         )

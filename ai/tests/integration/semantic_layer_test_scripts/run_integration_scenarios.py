@@ -98,7 +98,7 @@ def main() -> None:
     llm._queue.append(fx.FULL_REBUILD_DRAFT_TEXT)
 
     gen_req = {
-        "semanticLayerId": None,
+        "semanticLayerId": semantic_layer_id,
         "triggerType": "FullRebuild",
         "sourceFileIds": source_file_ids,
     }
@@ -106,26 +106,19 @@ def main() -> None:
         "2.3 Generate Draft (FullRebuild)",
         "POST",
         "/api/v1/semantic-layer/generate-draft",
-        {k: v for k, v in gen_req.items() if v is not None},
+        gen_req,
         backend.generate_draft,
         gen_req,
     )
 
     revision_id = gen_res["revisionId"]
 
-    # NOTE / SPEC GAP: SemanticLayerMetadataService.initialize() mints a
-    # brand-new semantic_layer_id for every FullRebuild, regardless of
-    # what was assigned at upload time (2.1). The spec's examples all
-    # reuse "sl-001" across 2.1 -> 2.7 as if it were the same ID
-    # throughout, but the current code never reuses the upload-time ID
-    # for a FullRebuild draft -- the ID returned by 2.3 is the one that
-    # must be used from here on, not the one from 2.1. Using it below.
-    semantic_layer_id = gen_res["semanticLayerId"]
+    assert gen_res["semanticLayerId"] == semantic_layer_id
 
     # ---------------------------------------------------------------
     # 2.4 Retrieve Semantic Revision, for Admin review
     # ---------------------------------------------------------------
-    call(
+    full_revision = call(
         "2.4 Retrieve Semantic Revision",
         "GET",
         f"/api/v1/semantic-layer/{semantic_layer_id}/revisions/{revision_id}",
@@ -169,6 +162,17 @@ def main() -> None:
     # ---------------------------------------------------------------
     llm._queue.append(fx.INCREMENTAL_DRAFT_TEXT)
 
+    affected_measure_id = next(
+        measure["objectId"]
+        for measure in full_revision["content"]["measures"]
+        if measure["name"] == "TotalRevenue"
+    )
+    affected_rule_id = next(
+        rule["objectId"]
+        for rule in full_revision["content"]["businessRules"]
+        if rule["name"] == "ActiveCustomers"
+    )
+
     incr_req = {
         "semanticLayerId": semantic_layer_id,
         "triggerType": "Incremental",
@@ -179,16 +183,12 @@ def main() -> None:
         "baseRevisionId": revision_id,
         "affectedObjects": [
             {
-                "objectId": "obj-temp-001",
                 "section": "measures",
-                "name": "AverageOrderValue",
-                "action": "upsert",
+                "id": affected_measure_id,
             },
             {
-                "objectId": "obj-temp-002",
                 "section": "business_rules",
-                "name": "ActiveCustomers",
-                "action": "upsert",
+                "id": affected_rule_id,
             },
         ],
     }
@@ -220,7 +220,7 @@ def main() -> None:
         "semanticLayerId": semantic_layer_id,
         "revisionId": incr_revision_id,
         "decision": "Reject",
-        "comments": "AverageOrderValue description should mention it excludes refunds.",
+        "comments": "TotalRevenue description should mention it excludes refunds.",
     }
     call(
         "2.5 Human Review & Approval (Reject)",
@@ -231,41 +231,35 @@ def main() -> None:
         reject_req,
     )
 
-    # NOTE: update_revision replaces a whole section wholesale (it
-    # mirrors the spec's 2.6 example, which shows full section arrays,
-    # not a partial patch) -- so the resubmitted content below repeats
-    # TotalRevenue unchanged alongside the corrected AverageOrderValue,
-    # otherwise TotalRevenue would be dropped from the revision.
-    update_req = {
+    # The Admin edits the rejected draft in the UI. The documented API
+    # call that follows is the empty-body submit endpoint.
+    edited_content = {
         "content": {
             "measures": [
                 {
                     "name": "TotalRevenue",
                     "mapping": "Sales.Amount",
                     "aggregation": "sum",
-                    "description": "Sum of sale amounts.",
-                },
-                {
-                    "name": "AverageOrderValue",
-                    "mapping": "Sales.Amount",
-                    "aggregation": "avg",
                     "description": (
-                        "Average sale amount per transaction, "
-                        "excluding refunds."
+                        "Sum of sale amounts, excluding refunds."
                     ),
                 },
             ]
         }
     }
-    call(
-        "2.6 Update & Submit Revision",
-        "PUT",
-        f"/api/v1/semantic-layer/{semantic_layer_id}/revisions/{incr_revision_id}",
-        update_req,
-        backend.update_revision,
+    backend.edit_revision(
         semantic_layer_id,
         incr_revision_id,
-        update_req,
+        edited_content["content"],
+    )
+    call(
+        "2.6 Submit Revision",
+        "POST",
+        f"/api/v1/semantic-layer/{semantic_layer_id}/revisions/{incr_revision_id}/submit",
+        {},
+        backend.submit_revision,
+        semantic_layer_id,
+        incr_revision_id,
     )
 
     reapprove_req = {
@@ -290,7 +284,7 @@ def main() -> None:
     llm._queue.append(fx.FIXED_DRAFT_TEXT)
 
     broken_req = {
-        "semanticLayerId": None,
+        "semanticLayerId": semantic_layer_id,
         "triggerType": "FullRebuild",
         "sourceFileIds": source_file_ids,
     }
@@ -298,7 +292,7 @@ def main() -> None:
         "2.3 Generate Draft (FullRebuild, auto-fix demo)",
         "POST",
         "/api/v1/semantic-layer/generate-draft",
-        {k: v for k, v in broken_req.items() if v is not None},
+        broken_req,
         backend.generate_draft,
         broken_req,
     )

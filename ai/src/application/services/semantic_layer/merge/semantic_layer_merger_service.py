@@ -49,8 +49,8 @@ class SemanticLayerMergeService:
             affected_objects:
                 Explicit list of semantic objects affected by the
                 incremental generation. Each dict matches
-                AffectedObject.to_dict(): object_id, section, name,
-                action ("upsert" or "delete").
+                AffectedObject.to_dict(): section and id. The id must
+                identify an object in the approved base revision.
 
         Returns:
             A new Semantic Layer dict containing the approved base
@@ -80,6 +80,7 @@ class SemanticLayerMergeService:
         merged_layer = deepcopy(approved_layer)
 
         affected_by_section = self._group_affected_objects(
+            approved_layer,
             affected_objects,
         )
 
@@ -105,7 +106,7 @@ class SemanticLayerMergeService:
         cls,
         merged_layer: dict[str, Any],
         changes: list[dict[str, Any]],
-        affected_objects: dict[str, str],
+        affected_objects: set[str],
         section: str,
     ) -> None:
         """Apply affected incremental changes to one semantic section."""
@@ -140,24 +141,12 @@ class SemanticLayerMergeService:
             if name not in affected_objects:
                 continue
 
-            action = affected_objects[name]
-
-            if action == "delete":
-                cls._delete_item(
-                    existing_items=existing_items,
-                    existing_by_name=existing_by_name,
-                    name=name,
-                    section=section,
-                )
-                continue
-
-            if action == "upsert":
-                cls._upsert_item(
-                    existing_items=existing_items,
-                    existing_by_name=existing_by_name,
-                    change=change,
-                    name=name,
-                )
+            cls._upsert_item(
+                existing_items=existing_items,
+                existing_by_name=existing_by_name,
+                change=change,
+                name=name,
+            )
 
     @staticmethod
     def _upsert_item(
@@ -194,18 +183,31 @@ class SemanticLayerMergeService:
     @classmethod
     def _group_affected_objects(
         cls,
+        approved_layer: dict[str, Any],
         affected_objects: list[dict[str, Any]],
-    ) -> dict[str, dict[str, str]]:
-        """Group affected objects by semantic-layer section."""
+    ) -> dict[str, set[str]]:
+        """Resolve affected IDs to their approved object names by section."""
 
-        grouped: dict[str, dict[str, str]] = {}
+        grouped: dict[str, set[str]] = {}
 
         for item in affected_objects:
             section = item["section"]
-            name = item["name"]
-            action = item.get("action", "upsert")
+            object_id = item["id"]
+            name = next(
+                (
+                    object_.get("name")
+                    for object_ in approved_layer.get(section, [])
+                    if isinstance(object_, dict)
+                    and object_.get("object_id") == object_id
+                ),
+                None,
+            )
+            if not name:
+                raise ValueError(
+                    f"Affected object '{object_id}' was not found in {section}."
+                )
 
-            grouped.setdefault(section, {})[name] = action
+            grouped.setdefault(section, set()).add(name)
 
         return grouped
 
@@ -233,22 +235,16 @@ class SemanticLayerMergeService:
                 )
 
             section = item.get("section")
-            name = item.get("name")
-            action = item.get("action", "upsert")
+            object_id = item.get("id")
 
             if section not in cls._MERGEABLE_SECTIONS:
                 raise ValueError(
                     f"Unsupported affected-object section: '{section}'."
                 )
 
-            if not isinstance(name, str) or not name.strip():
+            if not isinstance(object_id, str) or not object_id.strip():
                 raise ValueError(
-                    "Affected object name cannot be empty."
-                )
-
-            if action not in {"upsert", "delete"}:
-                raise ValueError(
-                    "Affected object action must be 'upsert' or 'delete'."
+                    "Affected object id cannot be empty."
                 )
 
     @staticmethod

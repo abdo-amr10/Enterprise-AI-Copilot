@@ -11,6 +11,7 @@ class SemanticLayerGenerationResponse:
     regenerated_objects_count: int
     build_timestamp: str
     last_regeneration_type: str
+    affected_objects: tuple[dict[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         """Validate the generation response."""
@@ -39,4 +40,9 @@ class SemanticLayerGenerationResponse:
             raise ValueError(
                 "last_regeneration_type must be "
                 "'FullRebuild' or 'Incremental'."
+            )
+
+        if self.last_regeneration_type == "FullRebuild" and self.affected_objects:
+            raise ValueError(
+                "affected_objects is only returned for Incremental generation."
             )
