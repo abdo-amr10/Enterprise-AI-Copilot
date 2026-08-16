@@ -6,11 +6,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ai.src.application.services.semantic_layer.validation.semantic_layer_validator import (
+from src.application.services.semantic_layer.validation.semantic_layer_validator import (
     SemanticLayerValidator,
 )
-from ai.src.application.services.semantic_layer.review_manager import (
-    AIDataReviewManager,
+from src.application.services.semantic_layer.review_manager import (
+    HumanReviewManager,
 )
 
 AI_ROOT = Path(__file__).resolve().parents[1]
@@ -59,7 +59,7 @@ def main() -> None:
     """Run semantic-layer validation, auto-fix, and human review."""
 
     validator = SemanticLayerValidator()
-    review_manager = AIDataReviewManager()
+    review_manager = HumanReviewManager()
 
     schema = _load_json(SCHEMA_PATH)
 

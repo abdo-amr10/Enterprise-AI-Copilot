@@ -9,6 +9,9 @@ from src.application.dto.backend.copilot.copilot_ask_request import CopilotAskRe
 from src.application.dto.backend.copilot.text_to_sql_runtime_response import (
     TextToSQLRuntimeResponse,
 )
+from src.application.services.self_correction.self_correction_service import (
+    SelfCorrectionService,
+)
 from src.application.services.text_to_sql.text_to_sql_pipeline import TextToSQLPipeline
 
 
@@ -24,8 +27,18 @@ class CopilotRuntimePipeline:
         re.IGNORECASE,
     )
 
-    def __init__(self, text_to_sql_pipeline: TextToSQLPipeline) -> None:
+    def __init__(
+        self,
+        text_to_sql_pipeline: TextToSQLPipeline,
+        self_correction_service: SelfCorrectionService | None = None,
+    ) -> None:
         self._text_to_sql_pipeline = text_to_sql_pipeline
+        # Optional so existing callers/tests that build this pipeline with
+        # only a TextToSQLPipeline keep working unchanged (see
+        # tests/unit/application/pipelines/text_to_sql/test_copilot_runtime_pipeline.py).
+        # Real runtime wiring (src/api/dependencies.py) always supplies a
+        # real instance, so Self-Correction always runs after generate.
+        self._self_correction_service = self_correction_service
 
     def run(self, request: CopilotAskRequest) -> TextToSQLRuntimeResponse:
         try:
@@ -62,4 +75,20 @@ class CopilotRuntimePipeline:
                 "The system could not generate a safe read-only query for this request.",
             )
 
-        return TextToSQLRuntimeResponse.success(sql.strip())
+        sql = sql.strip()
+
+        if self._self_correction_service is None:
+            return TextToSQLRuntimeResponse.success(sql)
+
+        outcome = self._self_correction_service.run(
+            question=request.question,
+            sql=sql,
+        )
+
+        if not outcome.is_valid:
+            return TextToSQLRuntimeResponse.failure(
+                "MAX_RETRIES_EXCEEDED",
+                "The system could not generate a valid read-only SQL query.",
+            )
+
+        return TextToSQLRuntimeResponse.success(outcome.sql)

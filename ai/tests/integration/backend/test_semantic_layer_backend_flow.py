@@ -109,7 +109,7 @@ def test_semantic_layer_backend_clients_flow() -> None:
     )
     assert review_response.status == "Approved"
 
-    status_response = status_client.get_status(semantic_layer_id)
+    status_response = status_client.get_status()
     assert status_response.status == "Approved"
 
     http_client.get.assert_any_call(
@@ -120,5 +120,5 @@ def test_semantic_layer_backend_clients_flow() -> None:
         {},
     )
     http_client.get.assert_any_call(
-        f"/api/v1/semantic-layer/{semantic_layer_id}/status"
+        "/api/v1/semantic-layer/status"
     )

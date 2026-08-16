@@ -1,7 +1,12 @@
+import pytest
+
 from src.application.dto.llm.generation_request import GenerationRequest
 from src.application.dto.llm.generation_response import GenerationResponse
 from src.infrastructure.llm.model_config import QWEN_CONFIG
 from src.infrastructure.llm.ollama_client import OllamaClient
+
+
+pytestmark = pytest.mark.integration
 
 
 def test_qwen_genration_through_ollama():

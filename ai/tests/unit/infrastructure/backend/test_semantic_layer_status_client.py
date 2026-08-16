@@ -10,6 +10,8 @@ def test_get_status() -> None:
     http_client = Mock(spec=BackendHttpClient)
 
     http_client.get.return_value = {
+        "semanticLayerId": "sl-001",
+        "revisionId": "rev-001",
         "status": "Approved",
         "version": "v1",
         "buildTimestamp": "2026-08-15T00:00:00Z",

@@ -81,7 +81,7 @@ def main() -> None:
 
     # 4. Initialize embedding service.
     embedding_service = EmbeddingService(
-        settings.embedding_model_name
+        settings.embedding_model_path
     )
 
     # 5. Initialize local vector store.

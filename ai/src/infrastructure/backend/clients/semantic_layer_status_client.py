@@ -17,29 +17,16 @@ class SemanticLayerStatusClientImpl:
 
         self._http_client = http_client
 
-    def get_status(
-        self,
-        semantic_layer_id: str,
-    ) -> SemanticLayerStatusResponse:
+    def get_status(self) -> SemanticLayerStatusResponse:
         """Retrieve the current status of a Semantic Layer.
 
         Args:
-            semantic_layer_id: Identifier of the Semantic Layer.
-
         Returns:
             The current Semantic Layer status.
 
-        Raises:
-            ValueError: If the Semantic Layer ID is empty.
         """
 
-        if not semantic_layer_id.strip():
-            raise ValueError("semantic_layer_id cannot be empty.")
-
-        response = self._http_client.get(
-            f"/api/v1/semantic-layer/"
-            f"{semantic_layer_id}/status"
-        )
+        response = self._http_client.get("/api/v1/semantic-layer/status")
 
         return SemanticLayerStatusResponse(
             semantic_layer_id=response["semanticLayerId"],

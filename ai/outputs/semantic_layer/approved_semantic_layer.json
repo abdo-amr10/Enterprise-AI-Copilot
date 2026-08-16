@@ -1,5 +1,9 @@
 {
   "metadata": {
+    "semantic_layer_id": "sl-local-approved",
+    "revision_id": "rev-local-approved",
+    "version": "v1.0",
+    "trigger_type": "FullRebuild",
     "status": "approved",
     "validated": true,
     "human_review_required": false,

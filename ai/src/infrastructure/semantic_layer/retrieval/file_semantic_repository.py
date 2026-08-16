@@ -43,7 +43,18 @@ class FileSemanticRepository:
         with self._semantic_layer_path.open(
             encoding="utf-8"
         ) as file:
-            return json.load(file)
+            layer = json.load(file)
+
+        if not isinstance(layer, dict):
+            raise ValueError("Semantic Layer artifact must be a JSON object.")
+
+        metadata = layer.get("metadata")
+        if not isinstance(metadata, dict) or metadata.get("status") != "approved":
+            raise ValueError(
+                "Runtime retrieval requires a human-approved Semantic Layer."
+            )
+
+        return layer
 
     def retrieve(
         self,

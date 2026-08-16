@@ -1,5 +1,6 @@
 """Run the semantic-layer ingestion and initial-draft build flow."""
 
+import argparse
 import json
 from pathlib import Path
 from typing import Any
@@ -10,12 +11,21 @@ from src.application.dto.semantic_layer.semantic_layer_build_input import (
 from src.application.services.semantic_layer.semantic_layer_builder import (
     SemanticLayerBuilder,
 )
+from src.application.services.semantic_layer.semantic_layer_identity_service import (
+    SemanticLayerIdentityService,
+)
+from src.application.services.semantic_layer.semantic_layer_metadata_generator import (
+    SemanticLayerMetadataService,
+)
 from src.infrastructure.llm.model_config import SEMANTIC_LAYER_CONFIG
 from src.infrastructure.llm.ollama_client import OllamaClient
 from src.infrastructure.semantic_layer.ingestion.schema_loader import SchemaLoader
 from src.infrastructure.semantic_layer.ingestion.schema_mapper import SchemaMapper
 from src.infrastructure.semantic_layer.ingestion.sources.optional_source_loader import (
     OptionalSourceLoader,
+)
+from src.infrastructure.semantic_layer.persistence.semantic_layer_id_generator import (
+    SemanticLayerIdGenerator,
 )
 
 
@@ -69,7 +79,7 @@ def _load_sample_data(path: Path) -> dict[str, Any] | None:
         return json.load(file)
 
 
-def main() -> None:
+def main(semantic_layer_id: str | None = None) -> None:
     """Build the initial semantic-layer draft from database metadata."""
 
     # 1. Load the required schema source.
@@ -119,6 +129,12 @@ def main() -> None:
 
     # 9. Generate the initial semantic-layer draft.
     result = builder.build(build_input)
+    id_generator = SemanticLayerIdGenerator()
+    draft = SemanticLayerMetadataService(id_generator).initialize(
+        result.semantic_layer,
+        semantic_layer_id or id_generator.generate_semantic_layer_id(),
+    )
+    draft = SemanticLayerIdentityService().assign_object_ids(draft)
 
     # 10. Save the generated draft.
     output_path = Path("outputs/semantic_layer/initial_draft.json")
@@ -127,7 +143,7 @@ def main() -> None:
 
     output_path.write_text(
         json.dumps(
-            result.semantic_layer,
+            draft,
             indent=2,
             ensure_ascii=False,
         ),
@@ -138,4 +154,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--semantic-layer-id")
+    args = parser.parse_args()
+    main(args.semantic_layer_id)
