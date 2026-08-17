@@ -1005,7 +1005,7 @@ The complete end-to-end Text-to-SQL pipeline is therefore still under developmen
 
 From the `ai` directory:
 
-pip install -r requirements.txt
+python -m pip install -e ".[dev]"
 
 
 ## 2. Prepare Local LLM
