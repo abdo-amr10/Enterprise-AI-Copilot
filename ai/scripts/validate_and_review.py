@@ -12,6 +12,9 @@ from src.application.services.semantic_layer.validation.semantic_layer_validator
 from src.application.services.semantic_layer.review_manager import (
     HumanReviewManager,
 )
+from src.application.services.semantic_layer.validation.semantic_layer_auto_fixer import SemanticLayerAutoFixer
+from src.infrastructure.llm.model_config import SEMANTIC_LAYER_CONFIG
+from src.infrastructure.llm.ollama_client import OllamaClient
 
 AI_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = AI_ROOT.parent
@@ -60,6 +63,7 @@ def main() -> None:
 
     validator = SemanticLayerValidator()
     review_manager = HumanReviewManager()
+    auto_fixer = SemanticLayerAutoFixer(OllamaClient(SEMANTIC_LAYER_CONFIG))
 
     schema = _load_json(SCHEMA_PATH)
 
@@ -122,25 +126,11 @@ def main() -> None:
                 f"{max_auto_fix_attempts}"
             )
 
-            # NOTE:
-            # The actual AutoFixer will be wired here.
-            #
-            # corrected_draft = auto_fixer.fix(
-            #     draft=draft,
-            #     validation=validation,
-            #     schema=schema,
-            # )
-            #
-            # _write_json(
-            #     CURRENT_DRAFT_PATH,
-            #     corrected_draft,
-            # )
-
             auto_fix_attempt += 1
-
-            raise NotImplementedError(
-                "SemanticLayerAutoFixer wiring is pending."
-            )
+            corrected_draft = auto_fixer.fix(draft=draft, validation=validation, schema=schema)
+            _write_json(CURRENT_DRAFT_PATH, corrected_draft)
+            draft_path = CURRENT_DRAFT_PATH
+            continue
 
         # ---------------------------------------------------------
         # 3. Validation passed

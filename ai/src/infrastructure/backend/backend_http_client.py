@@ -110,6 +110,23 @@ class BackendHttpClient:
 
         return data
 
+    def post_multipart(self, endpoint: str, data: dict[str, str], files: dict[str, Any]) -> dict[str, Any]:
+        """Send authenticated multipart form data for optional future backend use."""
+        if not endpoint.strip():
+            raise ValueError("endpoint cannot be empty.")
+        response = requests.post(
+            self._build_url(endpoint),
+            headers={"Authorization": f"Bearer {self._token}", "Accept": "application/json"},
+            data=data,
+            files=files,
+            timeout=self._timeout,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise ValueError("Backend response must be a JSON object.")
+        return payload
+
     def get_file(self, endpoint: str) -> bytes:
         """Retrieve raw file content from the Backend.
 

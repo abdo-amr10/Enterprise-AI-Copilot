@@ -18,36 +18,50 @@
   "entities": [
     {
       "name": "Customer",
+      "object_id": "obj-entity-customer",
+      "mapping": "customers",
       "description": "A person represented in the banking system.",
       "source": "business_glossary"
     },
     {
       "name": "Branch",
+      "object_id": "obj-entity-branch",
+      "mapping": "branches",
       "description": "A banking branch represented in the database.",
       "source": "business_glossary"
     },
     {
       "name": "Account",
+      "object_id": "obj-entity-account",
+      "mapping": "accounts",
       "description": "A banking account owned by a customer.",
       "source": "business_glossary"
     },
     {
       "name": "Card",
+      "object_id": "obj-entity-card",
+      "mapping": "cards",
       "description": "A card associated with a bank account.",
       "source": "business_glossary"
     },
     {
       "name": "Merchant",
+      "object_id": "obj-entity-merchant",
+      "mapping": "merchants",
       "description": "A merchant referenced by transactions.",
       "source": "business_glossary"
     },
     {
       "name": "Transaction",
+      "object_id": "obj-entity-transaction",
+      "mapping": "transactions",
       "description": "A financial transaction associated with an account and merchant.",
       "source": "business_glossary"
     },
     {
       "name": "Loan",
+      "object_id": "obj-entity-loan",
+      "mapping": "loans",
       "description": "A loan record associated with a customer.",
       "source": "business_glossary"
     }
@@ -55,6 +69,7 @@
   "relationships": [
     {
       "name": "customers_accounts",
+      "object_id": "obj-relationship-customers-accounts",
       "from_table": "customers",
       "from_column": "customer_id",
       "to_table": "accounts",
@@ -64,6 +79,7 @@
     },
     {
       "name": "branches_accounts",
+      "object_id": "obj-relationship-branches-accounts",
       "from_table": "branches",
       "from_column": "branch_id",
       "to_table": "accounts",
@@ -73,6 +89,7 @@
     },
     {
       "name": "accounts_cards",
+      "object_id": "obj-relationship-accounts-cards",
       "from_table": "accounts",
       "from_column": "account_id",
       "to_table": "cards",
@@ -82,6 +99,7 @@
     },
     {
       "name": "accounts_transactions",
+      "object_id": "obj-relationship-accounts-transactions",
       "from_table": "accounts",
       "from_column": "account_id",
       "to_table": "transactions",
@@ -91,6 +109,7 @@
     },
     {
       "name": "merchants_transactions",
+      "object_id": "obj-relationship-merchants-transactions",
       "from_table": "merchants",
       "from_column": "merchant_id",
       "to_table": "transactions",
@@ -100,6 +119,7 @@
     },
     {
       "name": "customers_loans",
+      "object_id": "obj-relationship-customers-loans",
       "from_table": "customers",
       "from_column": "customer_id",
       "to_table": "loans",
@@ -111,16 +131,22 @@
   "measures": [
     {
       "name": "Transaction Volume",
+      "object_id": "obj-measure-transaction-volume",
+      "mapping": "transactions.amount_usd",
       "description": "Sum of transaction amounts over a selected population/time period.",
       "source": "business_glossary"
     },
     {
       "name": "Total Balance",
+      "object_id": "obj-measure-total-balance",
+      "mapping": "accounts.balance_usd",
       "description": "Sum of account balances over a selected population.",
       "source": "business_glossary"
     },
     {
       "name": "Loan Exposure",
+      "object_id": "obj-measure-loan-exposure",
+      "mapping": "loans.loan_amount",
       "description": "Sum of loan amounts over a selected population.",
       "source": "business_glossary"
     }
@@ -128,36 +154,50 @@
   "dimensions": [
     {
       "name": "Customer ID",
+      "object_id": "obj-dimension-customer-id",
+      "mapping": "customers.customer_id",
       "description": "Unique identifier for a customer.",
       "source": "schema"
     },
     {
       "name": "Branch ID",
+      "object_id": "obj-dimension-branch-id",
+      "mapping": "branches.branch_id",
       "description": "Unique identifier for a branch.",
       "source": "schema"
     },
     {
       "name": "Account ID",
+      "object_id": "obj-dimension-account-id",
+      "mapping": "accounts.account_id",
       "description": "Unique identifier for an account.",
       "source": "schema"
     },
     {
       "name": "Card ID",
+      "object_id": "obj-dimension-card-id",
+      "mapping": "cards.card_id",
       "description": "Unique identifier for a card.",
       "source": "schema"
     },
     {
       "name": "Merchant ID",
+      "object_id": "obj-dimension-merchant-id",
+      "mapping": "merchants.merchant_id",
       "description": "Unique identifier for a merchant.",
       "source": "schema"
     },
     {
       "name": "Transaction ID",
+      "object_id": "obj-dimension-transaction-id",
+      "mapping": "transactions.transaction_id",
       "description": "Unique identifier for a transaction.",
       "source": "schema"
     },
     {
       "name": "Loan ID",
+      "object_id": "obj-dimension-loan-id",
+      "mapping": "loans.loan_id",
       "description": "Unique identifier for a loan.",
       "source": "schema"
     }
@@ -165,16 +205,19 @@
   "business_rules": [
     {
       "name": "Customer Transactions",
+      "object_id": "obj-business_rule-customer-transactions",
       "description": "Join through accounts when asking for customer transactions.",
       "source": "documentation"
     },
     {
       "name": "Customer Cards",
+      "object_id": "obj-business_rule-customer-cards",
       "description": "Join through accounts when asking for customer cards.",
       "source": "documentation"
     },
     {
       "name": "Customer Loans",
+      "object_id": "obj-business_rule-customer-loans",
       "description": "Use the direct loans.customer_id relationship when asking for customer loans.",
       "source": "documentation"
     }

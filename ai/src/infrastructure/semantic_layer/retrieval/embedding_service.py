@@ -18,9 +18,9 @@ class EmbeddingService:
     def _get_model(self) -> SentenceTransformer:
         if self._model is None:
             self._model = SentenceTransformer(
-                self._model_path,
-                local_files_only=True,
-            )
+                    str(self._model_path),
+                    local_files_only=True,
+                )
 
             self.dimension = int(
                 self._model.get_embedding_dimension()

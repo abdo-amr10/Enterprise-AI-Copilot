@@ -13,13 +13,15 @@ class LocalVectorStore:
         self._index_path = Path(index_path)
         self._vectors: np.ndarray | None = None
         self._documents: list[dict[str, Any]] = []
+        self._metadata: dict[str, Any] = {}
 
-    def build(self, documents: Sequence[dict[str, Any]], embeddings: Any) -> None:
+    def build(self, documents: Sequence[dict[str, Any]], embeddings: Any, metadata: dict[str, Any] | None = None) -> None:
         vectors = np.asarray(embeddings, dtype="float32")
         if vectors.ndim != 2 or len(vectors) != len(documents):
             raise ValueError("Embeddings must be a 2-D matrix with one row per document.")
         self._documents = list(documents)
         self._vectors = vectors
+        self._metadata = metadata or {}
         self.save()
 
     def save(self) -> None:
@@ -30,12 +32,23 @@ class LocalVectorStore:
             self._index_path,
             vectors=self._vectors,
             documents=np.array([json.dumps(doc, ensure_ascii=False) for doc in self._documents], dtype=object),
+            metadata=np.array(json.dumps(self._metadata, ensure_ascii=False), dtype=object),
         )
 
     def load(self) -> None:
         data = np.load(self._index_path, allow_pickle=True)
         self._vectors = np.asarray(data["vectors"], dtype="float32")
         self._documents = [json.loads(item) for item in data["documents"].tolist()]
+        self._metadata = json.loads(data["metadata"].item()) if "metadata" in data else {}
+
+    def validate_metadata(self, expected: dict[str, Any]) -> None:
+        if self._vectors is None:
+            self.load()
+        if not self._metadata:
+            raise ValueError("Semantic index has no compatibility metadata; rebuild it.")
+        for key, value in expected.items():
+            if self._metadata.get(key) != value:
+                raise ValueError(f"Semantic index metadata mismatch for '{key}'; rebuild it.")
 
     def search(self, query_embedding: Any, top_k: int) -> list[dict[str, Any]]:
         if self._vectors is None:

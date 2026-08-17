@@ -29,15 +29,15 @@ class AffectedObject:
     and SemanticLayerMergeService all use this same dataclass / its
     dict form).
 
-    action vocabulary is intentionally just {"upsert", "delete"} to
-    match SemanticLayerMergeService's merge semantics: "upsert" adds
-    or replaces an object, "delete" removes it. There is no separate
-    "add" vs "update" — the merge is keyed by name, so both collapse
-    into "upsert".
+    ``add`` creates a named object, while ``update`` and ``delete`` address
+    an existing stable object ID. This makes the requested mutation explicit
+    and prevents a generated draft from changing unrelated objects.
     """
 
     section: str
-    id: str
+    action: str = "update"
+    id: str | None = None
+    name: str | None = None
 
     def __post_init__(self) -> None:
         if self.section not in _VALID_SECTIONS:
@@ -45,18 +45,27 @@ class AffectedObject:
                 f"section must be one of {sorted(_VALID_SECTIONS)}."
             )
 
-        if not self.id.strip():
-            raise ValueError("id cannot be empty.")
+        if self.action not in {"add", "update", "delete"}:
+            raise ValueError("action must be add, update, or delete.")
+        if self.action in {"update", "delete"} and (not self.id or not self.id.strip()):
+            raise ValueError("id is required for update and delete operations.")
+        if self.action == "add" and (not self.name or not self.name.strip()):
+            raise ValueError("name is required for add operations.")
 
     def to_dict(self) -> dict[str, str]:
         """Plain-dict form, used by IncrementalBuilder's prompt and by
         SemanticLayerMergeService, which both operate on dicts rather
         than this dataclass directly."""
 
-        return {
+        result = {
             "section": self.section,
-            "id": self.id,
+            "action": self.action,
         }
+        if self.id:
+            result["id"] = self.id
+        if self.name:
+            result["name"] = self.name
+        return result
 
 
 @dataclass(frozen=True)

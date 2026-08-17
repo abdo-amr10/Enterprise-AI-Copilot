@@ -65,6 +65,14 @@ class SemanticIndexBuilder:
         self._vector_store.build(
             documents,
             embeddings,
+            metadata={
+                "index_version": 1,
+                "semantic_layer_id": semantic_layer_id,
+                "revision_id": revision_id,
+                "document_count": len(documents),
+                "embedding_dimension": int(embeddings.shape[1]) if len(embeddings) else 0,
+                "embedding_backend": self._embedding_service.backend,
+            },
         )
 
         return {
@@ -77,6 +85,7 @@ class SemanticIndexBuilder:
                 else 0
             ),
             "embedding_backend": self._embedding_service.backend,
+            "index_version": 1,
         }
 
     @classmethod

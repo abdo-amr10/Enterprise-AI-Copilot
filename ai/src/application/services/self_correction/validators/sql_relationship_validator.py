@@ -51,6 +51,13 @@ class SQLRelationshipValidator:
         for join in tree.find_all(exp.Join):
             on_condition = join.args.get("on")
             if on_condition is None:
+                issues.append(
+                    ValidationIssue(
+                        type="MISSING_JOIN_CONDITION",
+                        message="Every table join must have a column-to-column ON condition matching an approved relationship.",
+                        source=_SOURCE,
+                    )
+                )
                 continue
 
             for eq in on_condition.find_all(exp.EQ):

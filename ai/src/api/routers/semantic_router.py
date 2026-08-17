@@ -37,20 +37,24 @@ from src.application.pipelines.semantic_layer.semantic_layer_review_pipeline imp
 from src.application.pipelines.semantic_layer.semantic_layer_validation_pipeline import (
     SemanticLayerValidationPipeline,
 )
+from src.api.contracts import (
+    SemanticGenerateRequest,
+    SemanticRetrieveRequest,
+    SemanticReviewRequest,
+    SemanticValidateRequest,
+)
 
 router = APIRouter(prefix="/internal/semantic", tags=["semantic"])
 
 
 @router.post("/retrieve")
 def retrieve(
-    request: dict,
+    request: SemanticRetrieveRequest,
     pipeline: SemanticRetrievalPipeline = Depends(get_semantic_retrieval_pipeline),
 ):
-    retrieval_request = SemanticRetrievalRequest(
-        question=request["question"],
-        conversation=tuple(request.get("conversation", [])),
-        top_k=request.get("top_k"),
-    )
+    if request.conversation:
+        raise HTTPException(status_code=422, detail="conversation is not supported by the current semantic retrieval runtime.")
+    retrieval_request = SemanticRetrievalRequest(question=request.question, conversation=(), top_k=request.top_k)
 
     return pipeline.run(retrieval_request).to_dict()
 
@@ -83,7 +87,7 @@ def _handle_contract_error(error: ValueError) -> None:
 
 @router.post("/generate-draft")
 def generate_draft(
-    request: dict[str, Any],
+    request: SemanticGenerateRequest,
     pipeline: SemanticLayerGenerationPipeline = Depends(
         get_semantic_generation_pipeline
     ),
@@ -98,22 +102,26 @@ def generate_draft(
     """
 
     try:
+        body = request.model_dump()
         affected_objects = tuple(
             AffectedObject(
                 section=_required_string(item, "section"),
-                id=_required_string(item, "id"),
+                action=item.get("action", "update"),
+                id=item.get("id"),
+                name=item.get("name"),
             )
-            for item in request.get("affectedObjects", [])
+            for item in body.get("affectedObjects", [])
         )
         generation_request = SemanticLayerGenerationRequest(
-            trigger_type=_required_string(request, "triggerType"),
-            semantic_layer_id=_required_string(request, "semanticLayerId"),
-            source_file_ids=_required_object(request, "sourceFileIds"),
-            base_revision_id=request.get("baseRevisionId"),
+            trigger_type=_required_string(body, "triggerType"),
+            semantic_layer_id=_required_string(body, "semanticLayerId"),
+            source_file_ids=_required_object(body, "sourceFileIds"),
+            base_revision_id=body.get("baseRevisionId"),
             affected_objects=affected_objects,
         )
-        sources = _required_object(request, "resolvedSources")
-        base_semantic_layer = request.get("baseSemanticLayer")
+        sources = _required_object(body, "resolvedSources")
+        _validate_resolved_sources(generation_request.trigger_type, sources)
+        base_semantic_layer = body.get("baseSemanticLayer")
         if base_semantic_layer is not None and not isinstance(
             base_semantic_layer, dict
         ):
@@ -142,15 +150,15 @@ def generate_draft(
 
 @router.post("/validate")
 def validate_draft(
-    request: dict[str, Any],
+    request: SemanticValidateRequest,
     pipeline: SemanticLayerValidationPipeline = Depends(
         get_semantic_validation_pipeline
     ),
 ) -> dict[str, Any]:
     """Validate and, when needed, auto-fix an unpersisted draft."""
 
-    draft = _required_object(request, "draft")
-    schema = _required_object(request, "schema")
+    draft = request.draft
+    schema = request.schema
     final_draft, validation = pipeline.run(draft=draft, schema=schema)
     return {
         "status": "Success",
@@ -161,18 +169,19 @@ def validate_draft(
 
 @router.post("/review")
 def review_draft(
-    request: dict[str, Any],
+    request: SemanticReviewRequest,
     pipeline: SemanticLayerReviewPipeline = Depends(get_semantic_review_pipeline),
 ) -> dict[str, Any]:
     """Apply a Backend-authenticated human decision to a validated draft."""
 
     try:
-        draft = _required_object(request, "draft")
-        validation = _required_object(request, "validation")
-        decision = _required_string(request, "decision")
+        body = request.model_dump()
+        draft = body["draft"]
+        validation = body["validation"]
+        decision = body["decision"]
         if decision not in {"Approve", "Reject"}:
             raise ValueError("decision must be Approve or Reject.")
-        comments = request.get("comments", "")
+        comments = body.get("comments", "")
         if not isinstance(comments, str):
             raise ValueError("comments must be a string when provided.")
         if decision == "Reject" and not comments.strip():
@@ -181,7 +190,7 @@ def review_draft(
             draft=draft,
             validation=validation,
             decision=decision,
-            reviewer=_required_string(request, "reviewerId"),
+            reviewer=_required_string(body, "reviewerId"),
             comments=comments,
         )
     except KeyError as error:
@@ -197,3 +206,12 @@ def review_draft(
         "draft": reviewed_draft,
         "review": review,
     }
+
+
+def _validate_resolved_sources(trigger_type: str, sources: dict[str, Any]) -> None:
+    """Fail at the HTTP boundary before builders see malformed source data."""
+    if trigger_type == "FullRebuild":
+        if not isinstance(sources.get("schema"), dict):
+            raise ValueError("resolvedSources.schema must be an object for FullRebuild.")
+        if not isinstance(sources.get("relationships"), list):
+            raise ValueError("resolvedSources.relationships must be a list for FullRebuild.")

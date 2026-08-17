@@ -32,8 +32,13 @@ class SQLCriticService:
             semantic_context=semantic_context,
         )
 
-        response = self._llm_client.generate(GenerationRequest(prompt=prompt))
-
+        try:
+            response = self._llm_client.generate(GenerationRequest(prompt=prompt))
+        except Exception as exc:
+            return CriticResult(status="FAIL", issues=(CriticIssue(
+                type="CRITIC_UNAVAILABLE",
+                description=f"SQL critic could not evaluate the candidate: {type(exc).__name__}.",
+            ),))
         return self._parse(response.text)
 
     @staticmethod
@@ -41,14 +46,23 @@ class SQLCriticService:
         try:
             payload = json.loads(text)
         except json.JSONDecodeError:
-            # A malformed critic response must never crash or block a SQL
-            # query that already passed deterministic validation. Treat it
-            # as PASS (see SelfCorrectionService for the rationale).
-            return CriticResult(status="PASS", issues=())
+            return CriticResult(status="FAIL", issues=(CriticIssue(
+                type="CRITIC_MALFORMED_RESPONSE",
+                description="SQL critic returned malformed JSON.",
+            ),))
 
         status = payload.get("status")
         if status not in {"PASS", "FAIL", "UNKNOWN"}:
-            return CriticResult(status="PASS", issues=())
+            return CriticResult(status="FAIL", issues=(CriticIssue(
+                type="CRITIC_INVALID_RESPONSE",
+                description="SQL critic returned an unsupported status.",
+            ),))
+
+        if status == "UNKNOWN":
+            return CriticResult(status="FAIL", issues=(CriticIssue(
+                type="CRITIC_UNKNOWN",
+                description="SQL critic could not determine whether the SQL answers the request.",
+            ),))
 
         raw_issues = payload.get("issues") or []
         issues = tuple(

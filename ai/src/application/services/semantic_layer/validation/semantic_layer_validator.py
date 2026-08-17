@@ -350,15 +350,11 @@ class SemanticLayerValidator:
                 )
 
             if not mapping:
-                warnings.append(
-                    SemanticLayerValidator._warning(
-                        "mapping",
-                        (
-                            f"Entity '{name}' has no explicit "
-                            "table mapping."
-                        ),
-                    )
-                )
+                errors.append({
+                    "category": "mapping",
+                    "code": "missing_entity_mapping",
+                    "message": f"Entity '{name}' requires a physical table mapping.",
+                })
 
     @staticmethod
     def _check_dimensions(
@@ -374,15 +370,11 @@ class SemanticLayerValidator:
             mapping = item.get("mapping")
 
             if not mapping:
-                warnings.append(
-                    SemanticLayerValidator._warning(
-                        "mapping",
-                        (
-                            f"Dimension '{name}' has no explicit "
-                            "column mapping."
-                        ),
-                    )
-                )
+                errors.append({
+                    "category": "mapping",
+                    "code": "missing_dimension_mapping",
+                    "message": f"Dimension '{name}' requires a physical table.column mapping.",
+                })
                 continue
 
             table, column = SemanticLayerValidator._split_mapping(
@@ -425,15 +417,11 @@ class SemanticLayerValidator:
             mapping = item.get("mapping")
 
             if not mapping:
-                warnings.append(
-                    SemanticLayerValidator._warning(
-                        "mapping",
-                        (
-                            f"Measure '{name}' has no explicit "
-                            "column mapping."
-                        ),
-                    )
-                )
+                errors.append({
+                    "category": "mapping",
+                    "code": "missing_measure_mapping",
+                    "message": f"Measure '{name}' requires a physical table.column mapping.",
+                })
                 continue
 
             table, column = SemanticLayerValidator._split_mapping(

@@ -118,15 +118,36 @@ class SQLSchemaValidator:
     ) -> list[ValidationIssue]:
         issues: list[ValidationIssue] = []
         already_reported: set[tuple[str, str]] = set()
+        select_aliases = {
+            expression.alias
+            for expression in tree.find_all(exp.Alias)
+            if expression.alias
+        }
 
         for column in tree.find_all(exp.Column):
             table_ref = column.table
             column_name = column.name
 
             if not table_ref:
-                # Unqualified column (e.g. an output alias or a single-table
-                # query): cannot be resolved reliably without risking a
-                # false positive, so it is intentionally not flagged here.
+                if column_name in select_aliases:
+                    continue
+                candidates = [
+                    table_name
+                    for table_name in set(alias_map.values())
+                    if column_name in {col["name"] for col in schema_tables.get(table_name, {}).get("columns", [])}
+                ]
+                if not candidates:
+                    issues.append(ValidationIssue(
+                        type="UNKNOWN_COLUMN",
+                        message=f"Unqualified column '{column_name}' does not exist in the query scope.",
+                        source=_SOURCE,
+                    ))
+                elif len(candidates) > 1:
+                    issues.append(ValidationIssue(
+                        type="AMBIGUOUS_COLUMN",
+                        message=f"Unqualified column '{column_name}' is ambiguous across {sorted(candidates)}.",
+                        source=_SOURCE,
+                    ))
                 continue
 
             real_table = alias_map.get(table_ref)

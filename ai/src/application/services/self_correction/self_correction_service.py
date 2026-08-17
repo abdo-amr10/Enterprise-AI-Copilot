@@ -70,8 +70,9 @@ class SelfCorrectionService:
         self._correction_service = correction_service
         self._max_attempts = max_attempts
 
-    def run(self, question: str, sql: str) -> SelfCorrectionOutcome:
-        semantic_context = self._context_retrieval_service.build_llm_context(question)
+    def run(self, question: str, sql: str, semantic_context: str | None = None) -> SelfCorrectionOutcome:
+        """Validate the original candidate plus at most ``max_attempts`` corrections."""
+        semantic_context = semantic_context or self._context_retrieval_service.build_llm_context(question)
         current_sql = sql
 
         for attempt in range(self._max_attempts + 1):

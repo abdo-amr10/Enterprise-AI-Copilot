@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import logging
 
 from src.application.dto.backend.copilot.copilot_ask_request import CopilotAskRequest
 from src.application.dto.backend.copilot.text_to_sql_runtime_response import (
@@ -14,6 +15,7 @@ from src.application.services.self_correction.self_correction_service import (
 )
 from src.application.services.text_to_sql.text_to_sql_pipeline import TextToSQLPipeline
 
+logger = logging.getLogger(__name__)
 
 class CopilotRuntimePipeline:
     """AI-owned portion of `POST /api/v1/copilot/ask`.
@@ -21,6 +23,30 @@ class CopilotRuntimePipeline:
     This pipeline never executes SQL. The Backend remains responsible for
     authorization, RLS, SQL Server execution, report formatting, and history.
     """
+    
+    @staticmethod
+    def _parse_generation_response(text: str) -> dict:
+        cleaned = text.strip()
+
+        # Remove Markdown code fences if the model wraps JSON in them.
+        if cleaned.startswith("```") and cleaned.endswith("```"):
+            lines = cleaned.splitlines()
+
+            # Remove opening fence: ```json / ```
+            lines = lines[1:]
+
+            # Remove closing fence
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+
+            cleaned = "\n".join(lines).strip()
+
+        payload = json.loads(cleaned)
+
+        if not isinstance(payload, dict):
+            raise ValueError("LLM response must be a JSON object.")
+
+        return payload
 
     _FORBIDDEN_SQL = re.compile(
         r"\b(INSERT|UPDATE|DELETE|MERGE|DROP|ALTER|CREATE|TRUNCATE|EXEC(?:UTE)?)\b",
@@ -42,16 +68,23 @@ class CopilotRuntimePipeline:
 
     def run(self, request: CopilotAskRequest) -> TextToSQLRuntimeResponse:
         try:
-            generated = self._text_to_sql_pipeline.run(question=request.question)
+            if self._self_correction_service is None:
+                generated = self._text_to_sql_pipeline.run(question=request.question)
+                semantic_context = None
+            else:
+                semantic_context = self._text_to_sql_pipeline.build_context(request.question)
+                generated = self._text_to_sql_pipeline.run(
+                    question=request.question,
+                    semantic_context=semantic_context,
+                )
         except Exception:
-            return TextToSQLRuntimeResponse.failure(
-                "SQL_GENERATION_FAILED",
-                "The system could not generate SQL for this request.",
-            )
-
+                logger.exception("Text-to-SQL generation failed")
+                return TextToSQLRuntimeResponse.failure(
+                    "SQL_GENERATION_FAILED",
+                    "The system could not generate SQL for this request.",  )
         try:
-            payload = json.loads(generated.text)
-        except json.JSONDecodeError:
+            payload = self._parse_generation_response(generated.text)
+        except (json.JSONDecodeError, ValueError):
             return TextToSQLRuntimeResponse.failure(
                 "SQL_VALIDATION_FAILED",
                 "The model response was not a valid structured SQL result.",
@@ -83,6 +116,7 @@ class CopilotRuntimePipeline:
         outcome = self._self_correction_service.run(
             question=request.question,
             sql=sql,
+            semantic_context=semantic_context,
         )
 
         if not outcome.is_valid:
@@ -92,3 +126,6 @@ class CopilotRuntimePipeline:
             )
 
         return TextToSQLRuntimeResponse.success(outcome.sql)
+
+    
+

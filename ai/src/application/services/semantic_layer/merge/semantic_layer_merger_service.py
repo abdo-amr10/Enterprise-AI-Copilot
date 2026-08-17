@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any
+import re
 
 
 class SemanticLayerMergeService:
@@ -79,10 +80,7 @@ class SemanticLayerMergeService:
 
         merged_layer = deepcopy(approved_layer)
 
-        affected_by_section = self._group_affected_objects(
-            approved_layer,
-            affected_objects,
-        )
+        affected_by_section = self._group_affected_objects(approved_layer, affected_objects)
 
         for section in self._MERGEABLE_SECTIONS:
             changes = incremental_layer.get(section, [])
@@ -95,7 +93,7 @@ class SemanticLayerMergeService:
             self._merge_section(
                 merged_layer=merged_layer,
                 changes=changes,
-                affected_objects=affected_by_section.get(section, {}),
+                affected_objects=affected_by_section.get(section, []),
                 section=section,
             )
 
@@ -106,7 +104,7 @@ class SemanticLayerMergeService:
         cls,
         merged_layer: dict[str, Any],
         changes: list[dict[str, Any]],
-        affected_objects: set[str],
+        affected_objects: list[dict[str, str]],
         section: str,
     ) -> None:
         """Apply affected incremental changes to one semantic section."""
@@ -118,11 +116,19 @@ class SemanticLayerMergeService:
                 f"Approved section '{section}' must be a list."
             )
 
-        existing_by_name = {
-            item.get("name"): index
+        existing_by_id = {
+            item.get("object_id"): index
             for index, item in enumerate(existing_items)
-            if isinstance(item, dict) and item.get("name")
+            if isinstance(item, dict) and item.get("object_id")
         }
+        additions = {item["name"]: item for item in affected_objects if item["action"] == "add"}
+        updates = {item["id"]: item for item in affected_objects if item["action"] == "update"}
+        deletions = {item["id"] for item in affected_objects if item["action"] == "delete"}
+
+        for object_id in deletions:
+            if object_id not in existing_by_id:
+                raise ValueError(f"Cannot delete unknown {section} '{object_id}'.")
+        existing_items[:] = [item for item in existing_items if item.get("object_id") not in deletions]
 
         for change in changes:
             if not isinstance(change, dict):
@@ -137,16 +143,21 @@ class SemanticLayerMergeService:
                     f"Incremental {section} item must contain a name."
                 )
 
-            # Ignore anything that was not explicitly marked as affected.
-            if name not in affected_objects:
-                continue
-
-            cls._upsert_item(
-                existing_items=existing_items,
-                existing_by_name=existing_by_name,
-                change=change,
-                name=name,
-            )
+            object_id = change.get("object_id")
+            if object_id in updates:
+                index = existing_by_id.get(object_id)
+                if index is None:
+                    raise ValueError(f"Cannot update unknown {section} '{object_id}'.")
+                existing_items[index] = deepcopy(change)
+            elif name in additions:
+                if any(item.get("name") == name for item in existing_items):
+                    raise ValueError(f"Cannot add duplicate {section} '{name}'.")
+                slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+                kind = "entity" if section == "entities" else section[:-1]
+                expected_id = additions[name].get("id") or change.get("object_id") or f"obj-{kind}-{slug}"
+                new_item = deepcopy(change)
+                new_item["object_id"] = expected_id
+                existing_items.append(new_item)
 
     @staticmethod
     def _upsert_item(
@@ -185,29 +196,21 @@ class SemanticLayerMergeService:
         cls,
         approved_layer: dict[str, Any],
         affected_objects: list[dict[str, Any]],
-    ) -> dict[str, set[str]]:
-        """Resolve affected IDs to their approved object names by section."""
+    ) -> dict[str, list[dict[str, str]]]:
+        """Validate operations against stable IDs and group them by section."""
 
-        grouped: dict[str, set[str]] = {}
+        grouped: dict[str, list[dict[str, str]]] = {}
 
         for item in affected_objects:
             section = item["section"]
-            object_id = item["id"]
-            name = next(
-                (
-                    object_.get("name")
-                    for object_ in approved_layer.get(section, [])
-                    if isinstance(object_, dict)
-                    and object_.get("object_id") == object_id
-                ),
-                None,
-            )
-            if not name:
-                raise ValueError(
-                    f"Affected object '{object_id}' was not found in {section}."
-                )
-
-            grouped.setdefault(section, set()).add(name)
+            action = item["action"]
+            object_id = item.get("id")
+            if action in {"update", "delete"} and not any(
+                isinstance(object_, dict) and object_.get("object_id") == object_id
+                for object_ in approved_layer.get(section, [])
+            ):
+                raise ValueError(f"Affected object '{object_id}' was not found in {section}.")
+            grouped.setdefault(section, []).append(item)
 
         return grouped
 
@@ -236,16 +239,19 @@ class SemanticLayerMergeService:
 
             section = item.get("section")
             object_id = item.get("id")
+            action = item.get("action")
 
             if section not in cls._MERGEABLE_SECTIONS:
                 raise ValueError(
                     f"Unsupported affected-object section: '{section}'."
                 )
 
-            if not isinstance(object_id, str) or not object_id.strip():
-                raise ValueError(
-                    "Affected object id cannot be empty."
-                )
+            if action not in {"add", "update", "delete"}:
+                raise ValueError("Affected object action must be add, update, or delete.")
+            if action in {"update", "delete"} and (not isinstance(object_id, str) or not object_id.strip()):
+                raise ValueError("Affected object id is required for update and delete.")
+            if action == "add" and not isinstance(item.get("name"), str):
+                raise ValueError("Affected object name is required for add.")
 
     @staticmethod
     def _validate_layer(

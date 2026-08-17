@@ -92,7 +92,6 @@ class SemanticLayerSourceClientImpl:
         )
 
         return SemanticLayerSourceResponse(
-            status=response["status"],
             file_id=response["fileId"],
             file_name=response["fileName"],
             file_type=response["fileType"],

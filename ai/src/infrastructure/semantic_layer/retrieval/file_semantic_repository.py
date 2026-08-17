@@ -84,6 +84,14 @@ class FileSemanticRepository:
     ) -> list[dict[str, Any]]:
         """Retrieve semantic objects using vector similarity."""
 
+        layer = self.load()
+        metadata = layer["metadata"]
+        self._vector_store.validate_metadata({
+            "index_version": 1,
+            "semantic_layer_id": metadata["semantic_layer_id"],
+            "revision_id": metadata["revision_id"],
+            "embedding_dimension": self._embedding_service._get_model().get_embedding_dimension(),
+        })
         query_embedding = self._embedding_service.encode(
             [question]
         )[0]

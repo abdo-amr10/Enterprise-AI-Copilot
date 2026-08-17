@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any
-from uuid import uuid4
+import re
 
 
 class SemanticLayerIdentityService:
@@ -37,9 +37,12 @@ class SemanticLayerIdentityService:
         for section in self._SECTIONS:
             for item in result.get(section, []):
                 if isinstance(item, dict):
-                    item.setdefault(
-                        "object_id",
-                        str(uuid4()),
-                    )
+                    if not item.get("object_id"):
+                        name = item.get("name")
+                        if not isinstance(name, str) or not name.strip():
+                            raise ValueError(f"{section} objects require a name for stable identity.")
+                        slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+                        kind = "entity" if section == "entities" else section[:-1]
+                        item["object_id"] = f"obj-{kind}-{slug}"
 
         return result

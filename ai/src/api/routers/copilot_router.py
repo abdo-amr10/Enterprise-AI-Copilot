@@ -8,32 +8,35 @@ here.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.dependencies import get_copilot_pipeline
 from src.application.dto.backend.copilot.copilot_ask_request import CopilotAskRequest
 from src.application.pipelines.text_to_sql.copilot_runtime_pipeline import (
     CopilotRuntimePipeline,
 )
+from src.api.contracts import CopilotRequest, CopilotResponse
 
 router = APIRouter(prefix="/internal/copilot", tags=["copilot"])
 
 
 @router.post("/text-to-sql")
 def text_to_sql(
-    request: dict,
+    request: CopilotRequest,
     pipeline: CopilotRuntimePipeline = Depends(get_copilot_pipeline),
-):
-    ask_request = CopilotAskRequest(
-        question=request["question"],
-        conversation=tuple(request.get("conversation", [])),
-    )
+)-> CopilotResponse:
+    if request.conversation:
+        raise HTTPException(status_code=422, detail="conversation is not supported by the current Text-to-SQL runtime.")
+    try:
+        ask_request = CopilotAskRequest(question=request.question, conversation=())
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
     result = pipeline.run(ask_request)
 
-    return {
-        "status": result.status,
-        "sql": result.sql,
-        "errorCode": result.error_code,
-        "message": result.message,
-    }
+    return CopilotResponse(
+        status=result.status,
+        sql=result.sql,
+        errorCode=result.error_code,
+        message=result.message,
+    )
