@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="EnterpriseAiCopilot.Api/EnterpriseAiCopilot.Api.csproj" />
+  <Project Path="EnterpriseAiCopilot.Application/EnterpriseAiCopilot.Application.csproj" />
+  <Project Path="EnterpriseAiCopilot.Domain/EnterpriseAiCopilot.Domain.csproj" />
+  <Project Path="EnterpriseAiCopilot.Infrastructure/EnterpriseAiCopilot.Infrastructure.csproj" />
+</Solution>
