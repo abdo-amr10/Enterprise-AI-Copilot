@@ -12,6 +12,7 @@ namespace EnterpriseAiCopilot.Domain.Entities
         public string Email { get; set; } = string.Empty;
         public string PasswordHash { get; set; } = string.Empty;
         public string Role { get; set; } = "User"; // "Admin" | "User"
-        public int? BranchId { get; set; }
+        public string? BranchId { get; set; }
+
     }
 }
