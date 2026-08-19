@@ -9,6 +9,6 @@ namespace EnterpriseAiCopilot.Application.Common.Interfaces
         string? UserId { get; }
         string? Email { get; }
         string? Role { get; }
-        int? BranchId { get; }
+        string? BranchId { get; }
     }
 }

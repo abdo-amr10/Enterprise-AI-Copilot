@@ -28,6 +28,27 @@ namespace EnterpriseAiCopilot.Api.Extensions
                     ValidAudience = configuration["JwtSettings:Audience"] ?? "EnterpriseAiCopilotUsers",
                     IssuerSigningKey = new SymmetricSecurityKey(key)
                 };
+
+                options.Events = new JwtBearerEvents
+                {
+                    OnChallenge = async context =>
+                    {
+                        context.HandleResponse();
+                        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                        context.Response.ContentType = "application/json";
+
+                        var response = new { success = false, message = "Unauthorized: Invalid or expired token." };
+                        await context.Response.WriteAsJsonAsync(response);
+                    },
+                    OnForbidden = async context =>
+                    {
+                        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                        context.Response.ContentType = "application/json";
+
+                        var response = new { success = false, message = "Forbidden: You do not have permission to access this resource." };
+                        await context.Response.WriteAsJsonAsync(response);
+                    }
+                };
             });
 
             return services;

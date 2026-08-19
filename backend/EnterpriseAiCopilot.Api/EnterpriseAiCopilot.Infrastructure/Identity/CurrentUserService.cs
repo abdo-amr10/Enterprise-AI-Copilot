@@ -19,13 +19,7 @@ namespace EnterpriseAiCopilot.Infrastructure.Identity
         public string? UserId => _httpContextAccessor.HttpContext?.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         public string? Email => _httpContextAccessor.HttpContext?.User?.FindFirst(ClaimTypes.Email)?.Value;
         public string? Role => _httpContextAccessor.HttpContext?.User?.FindFirst(ClaimTypes.Role)?.Value;
-        public int? BranchId
-        {
-            get
-            {
-                var branchClaim = _httpContextAccessor.HttpContext?.User?.FindFirst("branchId")?.Value;
-                return int.TryParse(branchClaim, out var branchId) ? branchId : null;
-            }
-        }
+
+        public string? BranchId => _httpContextAccessor.HttpContext?.User?.FindFirst("branchId")?.Value;
     }
 }

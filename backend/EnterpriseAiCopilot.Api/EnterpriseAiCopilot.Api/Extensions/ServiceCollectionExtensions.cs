@@ -1,5 +1,6 @@
 ﻿using EnterpriseAiCopilot.Application.Common.Interfaces;
 using EnterpriseAiCopilot.Infrastructure.Identity;
+using EnterpriseAiCopilot.Infrastructure.Identity.Services;
 using EnterpriseAiCopilot.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -15,7 +16,7 @@ namespace EnterpriseAiCopilot.Api.Extensions
             services.AddScoped<IApplicationDbContext>(provider => provider.GetRequiredService<ApplicationDbContext>());
             services.AddHttpContextAccessor();
             services.AddScoped<ICurrentUserService, CurrentUserService>();
-
+            services.AddScoped<IAuthService, AuthService>();
             return services;
         }
     }
