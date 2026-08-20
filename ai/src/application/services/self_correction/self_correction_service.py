@@ -24,6 +24,8 @@ every attempt in the loop, per the "retrieve once" principle.
 
 from __future__ import annotations
 
+import logging
+
 from src.application.services.self_correction.critic_finding_verifier import (
     CriticFindingVerifier,
 )
@@ -45,6 +47,8 @@ from src.application.services.self_correction.validators.sql_syntax_validator im
 from src.application.services.context_retrieval.context_retrieval_service import (
     ContextRetrievalService,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class SelfCorrectionService:
@@ -74,8 +78,11 @@ class SelfCorrectionService:
         """Validate the original candidate plus at most ``max_attempts`` corrections."""
         semantic_context = semantic_context or self._context_retrieval_service.build_llm_context(question)
         current_sql = sql
+        last_issues: list[ValidationIssue] = []
 
         for attempt in range(self._max_attempts + 1):
+            logger.info("Self-correction attempt %s", attempt)
+            logger.info("Original SQL: %s", current_sql)
             issues = self._deterministic_issues(current_sql)
 
             if not issues:
@@ -87,9 +94,16 @@ class SelfCorrectionService:
                 issues = self._finding_verifier.verify(critic_result)
 
             if not issues:
+                logger.info("Validation passed on attempt %s", attempt)
                 return SelfCorrectionOutcome.success(current_sql, attempts_used=attempt)
 
+            last_issues = issues
+
+            for issue in issues:
+                logger.info("Validation issue [%s]: %s", issue.type, issue.message)
+
             if attempt == self._max_attempts:
+                logger.info("Self-correction stopped: maximum attempts (%s) reached", self._max_attempts)
                 break
 
             corrected_sql = self._correction_service.correct(
@@ -101,11 +115,16 @@ class SelfCorrectionService:
             )
 
             if not corrected_sql:
+                logger.info("Self-correction stopped: correction model returned no SQL")
                 break
 
+            logger.info("Correction SQL: %s", corrected_sql)
             current_sql = corrected_sql
 
-        return SelfCorrectionOutcome.failure(attempts_used=self._max_attempts)
+        return SelfCorrectionOutcome.failure(
+            attempts_used=self._max_attempts,
+            issues=tuple(issue.message for issue in last_issues),
+        )
 
     def _deterministic_issues(self, sql: str) -> list[ValidationIssue]:
         for validator in (

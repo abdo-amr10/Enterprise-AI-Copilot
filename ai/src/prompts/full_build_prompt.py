@@ -92,6 +92,10 @@ For entities:
 For dimensions:
 - Include the source table and column that represent the dimension.
 - Use the format `table.column`.
+- Create a dimension for every descriptive or filterable source column, not
+  only primary keys.  Examples include names, locations, categories, dates,
+  and status-like attributes.  This coverage is required so query-time
+  retrieval can expose filters such as `branches.manager_name` to Text-to-SQL.
 
 For measures:
 - Include the source table and column used by the measure.

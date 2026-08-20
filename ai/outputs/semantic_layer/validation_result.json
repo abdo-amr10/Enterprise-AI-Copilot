@@ -1,98 +1,108 @@
 {
-  "status": "passed",
-  "errors": [],
-  "warnings": [
+  "status": "failed",
+  "errors": [
     {
-      "category": "warning",
-      "code": "mapping",
-      "message": "Entity 'Customer' has no explicit table mapping."
+      "category": "metadata",
+      "code": "missing_metadata_field",
+      "message": "Metadata field 'semantic_layer_id' is required."
     },
     {
-      "category": "warning",
-      "code": "mapping",
-      "message": "Entity 'Branch' has no explicit table mapping."
+      "category": "metadata",
+      "code": "missing_metadata_field",
+      "message": "Metadata field 'revision_id' is required."
     },
     {
-      "category": "warning",
-      "code": "mapping",
-      "message": "Entity 'Account' has no explicit table mapping."
+      "category": "mapping",
+      "code": "missing_entity_mapping",
+      "message": "Entity 'Customer' requires a physical table mapping."
     },
     {
-      "category": "warning",
-      "code": "mapping",
-      "message": "Entity 'Card' has no explicit table mapping."
+      "category": "mapping",
+      "code": "missing_entity_mapping",
+      "message": "Entity 'Branch' requires a physical table mapping."
     },
     {
-      "category": "warning",
-      "code": "mapping",
-      "message": "Entity 'Merchant' has no explicit table mapping."
+      "category": "mapping",
+      "code": "missing_entity_mapping",
+      "message": "Entity 'Account' requires a physical table mapping."
     },
     {
-      "category": "warning",
-      "code": "mapping",
-      "message": "Entity 'Transaction' has no explicit table mapping."
+      "category": "mapping",
+      "code": "missing_entity_mapping",
+      "message": "Entity 'Card' requires a physical table mapping."
     },
     {
-      "category": "warning",
-      "code": "mapping",
-      "message": "Entity 'Loan' has no explicit table mapping."
+      "category": "mapping",
+      "code": "missing_entity_mapping",
+      "message": "Entity 'Merchant' requires a physical table mapping."
     },
     {
-      "category": "warning",
-      "code": "mapping",
-      "message": "Dimension 'Customer ID' has no explicit column mapping."
+      "category": "mapping",
+      "code": "missing_entity_mapping",
+      "message": "Entity 'Transaction' requires a physical table mapping."
     },
     {
-      "category": "warning",
-      "code": "mapping",
-      "message": "Dimension 'Branch ID' has no explicit column mapping."
+      "category": "mapping",
+      "code": "missing_entity_mapping",
+      "message": "Entity 'Loan' requires a physical table mapping."
     },
     {
-      "category": "warning",
-      "code": "mapping",
-      "message": "Dimension 'Account ID' has no explicit column mapping."
+      "category": "mapping",
+      "code": "missing_dimension_mapping",
+      "message": "Dimension 'Customer ID' requires a physical table.column mapping."
     },
     {
-      "category": "warning",
-      "code": "mapping",
-      "message": "Dimension 'Card ID' has no explicit column mapping."
+      "category": "mapping",
+      "code": "missing_dimension_mapping",
+      "message": "Dimension 'Branch ID' requires a physical table.column mapping."
     },
     {
-      "category": "warning",
-      "code": "mapping",
-      "message": "Dimension 'Merchant ID' has no explicit column mapping."
+      "category": "mapping",
+      "code": "missing_dimension_mapping",
+      "message": "Dimension 'Account ID' requires a physical table.column mapping."
     },
     {
-      "category": "warning",
-      "code": "mapping",
-      "message": "Dimension 'Transaction ID' has no explicit column mapping."
+      "category": "mapping",
+      "code": "missing_dimension_mapping",
+      "message": "Dimension 'Card ID' requires a physical table.column mapping."
     },
     {
-      "category": "warning",
-      "code": "mapping",
-      "message": "Dimension 'Loan ID' has no explicit column mapping."
+      "category": "mapping",
+      "code": "missing_dimension_mapping",
+      "message": "Dimension 'Merchant ID' requires a physical table.column mapping."
     },
     {
-      "category": "warning",
-      "code": "mapping",
-      "message": "Measure 'Transaction Volume' has no explicit mapping."
+      "category": "mapping",
+      "code": "missing_dimension_mapping",
+      "message": "Dimension 'Transaction ID' requires a physical table.column mapping."
     },
     {
-      "category": "warning",
-      "code": "mapping",
-      "message": "Measure 'Total Balance' has no explicit mapping."
+      "category": "mapping",
+      "code": "missing_dimension_mapping",
+      "message": "Dimension 'Loan ID' requires a physical table.column mapping."
     },
     {
-      "category": "warning",
-      "code": "mapping",
-      "message": "Measure 'Loan Exposure' has no explicit mapping."
+      "category": "mapping",
+      "code": "missing_measure_mapping",
+      "message": "Measure 'Transaction Volume' requires a physical table.column mapping."
+    },
+    {
+      "category": "mapping",
+      "code": "missing_measure_mapping",
+      "message": "Measure 'Total Balance' requires a physical table.column mapping."
+    },
+    {
+      "category": "mapping",
+      "code": "missing_measure_mapping",
+      "message": "Measure 'Loan Exposure' requires a physical table.column mapping."
     }
   ],
+  "warnings": [],
   "checks": {
     "structure": "passed",
     "relationships": "passed",
     "duplicates": "passed",
-    "schema_consistency": "passed"
+    "schema_consistency": "failed"
   },
   "summary": {
     "entities_checked": 7,
@@ -100,7 +110,7 @@
     "measures_checked": 3,
     "dimensions_checked": 7,
     "business_rules_checked": 3,
-    "error_count": 0,
-    "warning_count": 17
+    "error_count": 19,
+    "warning_count": 0
   }
 }

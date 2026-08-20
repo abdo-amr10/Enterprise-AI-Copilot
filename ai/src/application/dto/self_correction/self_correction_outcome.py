@@ -16,11 +16,14 @@ class SelfCorrectionOutcome:
     is_valid: bool
     sql: str | None
     attempts_used: int
+    issues: tuple[str, ...] = ()
 
     @classmethod
     def success(cls, sql: str, attempts_used: int) -> "SelfCorrectionOutcome":
         return cls(is_valid=True, sql=sql, attempts_used=attempts_used)
 
     @classmethod
-    def failure(cls, attempts_used: int) -> "SelfCorrectionOutcome":
-        return cls(is_valid=False, sql=None, attempts_used=attempts_used)
+    def failure(
+        cls, attempts_used: int, issues: tuple[str, ...] = ()
+    ) -> "SelfCorrectionOutcome":
+        return cls(is_valid=False, sql=None, attempts_used=attempts_used, issues=issues)

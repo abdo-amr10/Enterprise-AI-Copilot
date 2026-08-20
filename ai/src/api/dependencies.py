@@ -103,12 +103,14 @@ from src.infrastructure.semantic_layer.retrieval.file_semantic_repository import
     FileSemanticRepository,
 )
 from src.infrastructure.semantic_layer.retrieval.vector_store import LocalVectorStore
+from src.application.services.text_to_sql.reference_data_preflight import ReferenceDataPreflight
 
 BASE_DIR = Path(__file__).resolve().parents[2]  # .../ai
 REPO_ROOT = BASE_DIR.parent  # repo root, sibling of ai/, backend/, docs/
 
 SEMANTIC_LAYER_PATH = BASE_DIR / "outputs" / "semantic_layer" / "approved_semantic_layer.json"
 DATABASE_SCHEMA_PATH = REPO_ROOT / "docs" / "database_metadata" / "schema.json"
+SAMPLE_DATA_PATH = REPO_ROOT / "docs" / "database_metadata" / "sample_data.json"
 
 _SETTINGS = SemanticSettings()
 _SELF_CORRECTION_SETTINGS = SelfCorrectionSettings()
@@ -206,6 +208,7 @@ def get_copilot_pipeline() -> CopilotRuntimePipeline:
     return CopilotRuntimePipeline(
         text_to_sql_pipeline=text_to_sql_pipeline,
         self_correction_service=get_self_correction_service(),
+        reference_data_preflight=ReferenceDataPreflight(SAMPLE_DATA_PATH),
     )
 
 

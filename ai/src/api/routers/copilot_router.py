@@ -39,4 +39,7 @@ def text_to_sql(
         sql=result.sql,
         errorCode=result.error_code,
         message=result.message,
+        failureReason=result.failure_reason,
+        rewrittenQuestion=result.rewritten_question,
+        suggestions=list(result.suggestions),
     )

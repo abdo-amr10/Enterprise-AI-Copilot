@@ -20,6 +20,9 @@ class CopilotResponse(StrictModel):
     sql: str | None
     errorCode: str | None = None
     message: str | None = None
+    failureReason: str | None = None
+    rewrittenQuestion: str | None = None
+    suggestions: list[str] = Field(default_factory=list)
 
 
 class SemanticRetrieveRequest(CopilotRequest):
