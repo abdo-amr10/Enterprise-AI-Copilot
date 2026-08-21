@@ -1,4 +1,4 @@
-"""Unit tests for the SemanticLayerBuilder application service."""
+"""Unit tests for the canonical FullRebuildBuilder."""
 
 from unittest.mock import Mock
 import json
@@ -10,13 +10,13 @@ from src.application.dto.semantic_layer.semantic_layer_build_input import (
 from src.application.dto.semantic_layer.semantic_layer_build_response import (
     SemanticLayerBuildResponse,
 )
-from src.application.services.semantic_layer.semantic_layer_builder import (
-    SemanticLayerBuilder,
+from src.application.services.semantic_layer.builders.full_build_builder import (
+    FullRebuildBuilder,
 )
 
 
-class TestSemanticLayerBuilder:
-    """Tests for the SemanticLayerBuilder service."""
+class TestFullRebuildBuilder:
+    """Tests for the canonical full-rebuild builder."""
 
     def test_build_generates_initial_draft(self):
         """Build should send the generated prompt to the LLM and return its response."""
@@ -54,7 +54,7 @@ class TestSemanticLayerBuilder:
             sample_data=None,
         )
 
-        builder = SemanticLayerBuilder(llm_client)
+        builder = FullRebuildBuilder(llm_client)
 
         result = builder.build(build_input)
         expected_semantic_layer = json.loads(expected_text)
@@ -65,8 +65,8 @@ class TestSemanticLayerBuilder:
 
         generation_request = llm_client.generate.call_args.args[0]
 
-        assert "schema:" in generation_request.prompt
-        assert "relationships:" in generation_request.prompt
-        assert "documentation:" in generation_request.prompt
-        assert "business_glossary:" in generation_request.prompt
-        assert "sample_data:" in generation_request.prompt
+        assert "SCHEMA:" in generation_request.prompt
+        assert "RELATIONSHIPS:" in generation_request.prompt
+        assert "DOCUMENTATION:\nNot provided." in generation_request.prompt
+        assert "BUSINESS GLOSSARY:\nNot provided." in generation_request.prompt
+        assert "SAMPLE DATA:\nNot provided." in generation_request.prompt

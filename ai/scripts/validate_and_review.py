@@ -66,6 +66,9 @@ def main() -> None:
     auto_fixer = SemanticLayerAutoFixer(OllamaClient(SEMANTIC_LAYER_CONFIG))
 
     schema = _load_json(SCHEMA_PATH)
+    relationships = schema.get("relationships", [])
+    if not isinstance(relationships, list):
+        raise ValueError("schema.relationships must be a list.")
 
     # Use the latest working draft when available.
     if CURRENT_DRAFT_PATH.exists():
@@ -85,6 +88,7 @@ def main() -> None:
         validation = validator.validate(
             draft,
             schema,
+            relationships,
         )
 
         _write_json(
@@ -127,7 +131,12 @@ def main() -> None:
             )
 
             auto_fix_attempt += 1
-            corrected_draft = auto_fixer.fix(draft=draft, validation=validation, schema=schema)
+            corrected_draft = auto_fixer.fix(
+                draft=draft,
+                validation=validation,
+                schema=schema,
+                relationships=relationships,
+            )
             _write_json(CURRENT_DRAFT_PATH, corrected_draft)
             draft_path = CURRENT_DRAFT_PATH
             continue

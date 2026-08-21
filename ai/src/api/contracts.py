@@ -49,6 +49,7 @@ class SemanticGenerateRequest(StrictModel):
 class SemanticValidateRequest(StrictModel):
     draft: dict[str, Any]
     schema: dict[str, Any]
+    relationships: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SemanticReviewRequest(StrictModel):

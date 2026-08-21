@@ -159,7 +159,12 @@ def validate_draft(
 
     draft = request.draft
     schema = request.schema
-    final_draft, validation = pipeline.run(draft=draft, schema=schema)
+    relationships = request.relationships
+    final_draft, validation = pipeline.run(
+        draft=draft,
+        schema=schema,
+        relationships=relationships,
+    )
     return {
         "status": "Success",
         "draft": final_draft,

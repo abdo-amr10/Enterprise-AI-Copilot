@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from src.infrastructure.semantic_layer.persistence.semantic_layer_id_generator import (
@@ -40,7 +41,7 @@ class SemanticLayerMetadataService:
         if not semantic_layer_id.strip():
             raise ValueError("semantic_layer_id cannot be empty.")
 
-        result = dict(semantic_layer)
+        result = deepcopy(semantic_layer)
 
         metadata = dict(result.get("metadata", {}))
 
@@ -83,7 +84,7 @@ class SemanticLayerMetadataService:
                 "base_revision_id cannot be empty."
             )
 
-        result = dict(semantic_layer)
+        result = deepcopy(semantic_layer)
 
         metadata = dict(result.get("metadata", {}))
 

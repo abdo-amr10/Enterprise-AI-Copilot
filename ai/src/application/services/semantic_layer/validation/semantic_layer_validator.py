@@ -22,6 +22,7 @@ class SemanticLayerValidator:
         self,
         draft: dict[str, Any],
         schema: dict[str, Any],
+        relationships: list[dict[str, Any]],
     ) -> dict[str, Any]:
         """Validate a Semantic Layer draft.
 
@@ -47,13 +48,34 @@ class SemanticLayerValidator:
         )
 
         tables = schema.get("tables", {})
-        schema_relationships = schema.get("relationships", [])
+        if not isinstance(tables, dict):
+            errors.append(
+                {
+                    "category": "schema",
+                    "code": "invalid_schema_tables",
+                    "message": "Authoritative schema.tables must be an object.",
+                }
+            )
+            tables = {}
+        if not isinstance(relationships, list):
+            errors.append(
+                {
+                    "category": "relationship",
+                    "code": "invalid_relationships",
+                    "message": "Authoritative relationships must be a list.",
+                }
+            )
+            relationships = []
+
+        metadata = draft.get("metadata", {}) if isinstance(draft, dict) else {}
+        trigger_type = metadata.get("trigger_type") if isinstance(metadata, dict) else None
 
         self._check_relationships(
             draft.get("relationships", []),
             tables,
-            schema_relationships,
+            relationships,
             errors,
+            require_all_source_relationships=trigger_type == "FullRebuild",
         )
 
         checks["relationships"] = (
@@ -171,14 +193,15 @@ class SemanticLayerValidator:
     def _check_relationships(
         items: list[dict[str, Any]],
         tables: dict[str, Any],
-        schema_relationships: list[dict[str, Any]],
+        authoritative_relationships: list[dict[str, Any]],
         errors: list[dict[str, Any]],
+        require_all_source_relationships: bool,
     ) -> None:
         """Validate relationships against authoritative schema metadata."""
 
         known = {
             item.get("name"): item
-            for item in schema_relationships
+            for item in authoritative_relationships
             if item.get("name")
         }
 
@@ -275,19 +298,19 @@ class SemanticLayerValidator:
                         }
                     )
 
-        missing_relationships = set(known) - draft_names
-
-        for name in sorted(missing_relationships):
-            errors.append(
-                {
-                    "category": "relationship",
-                    "code": "missing_relationship",
-                    "message": (
-                        f"Required relationship '{name}' is missing "
-                        "from the Semantic Layer."
-                    ),
-                }
-            )
+        if require_all_source_relationships:
+            missing_relationships = set(known) - draft_names
+            for name in sorted(missing_relationships):
+                errors.append(
+                    {
+                        "category": "relationship",
+                        "code": "missing_relationship",
+                        "message": (
+                            f"Required relationship '{name}' is missing "
+                            "from the Semantic Layer."
+                        ),
+                    }
+                )
 
     @staticmethod
     def _check_duplicates(

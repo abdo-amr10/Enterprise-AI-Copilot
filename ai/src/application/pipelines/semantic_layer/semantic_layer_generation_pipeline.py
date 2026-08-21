@@ -23,16 +23,11 @@ from src.application.services.semantic_layer.semantic_layer_identity_service imp
 
 
 class SemanticLayerGenerationPipeline:
-    """Generate a new Semantic Layer revision.
+    """Generate an initial Semantic Layer draft.
 
-    Identity ownership: semantic_layer_id and revision_id are assigned
-    here, right after build/merge, by delegating to
-    SemanticLayerMetadataService (the single authoritative source for
-    those two IDs). object_id values for individual semantic objects
-    are then filled in by SemanticLayerIdentityService. `version` is
-    deliberately NOT assigned in this pipeline -- it is only needed
-    once a revision is persisted, which happens later, outside of
-    Generation/Validation/Review.
+    Generation builds, merges when incremental, and assigns metadata and
+    object identities. Validation, persistence, approval, embedding, and
+    indexing are intentionally separate stages.
     """
 
     def __init__(
@@ -55,27 +50,37 @@ class SemanticLayerGenerationPipeline:
         base_semantic_layer: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
 
-        build_result: SemanticLayerBuildResponse = self._build_service.build(
-            request=request,
-            sources=sources,
-            base_semantic_layer=base_semantic_layer,
-        )
-
         if request.trigger_type == "FullRebuild":
-
-            draft = self._metadata_service.initialize(
-                build_result.semantic_layer,
-                request.semantic_layer_id,
+            if base_semantic_layer is not None:
+                raise ValueError(
+                    "base_semantic_layer must not be provided for FullRebuild."
+                )
+            build_result: SemanticLayerBuildResponse = self._build_service.build(
+                request=request,
+                sources=sources,
             )
-
-        else:
-
+            draft = self._metadata_service.initialize(
+                semantic_layer=build_result.semantic_layer,
+                semantic_layer_id=request.semantic_layer_id,
+            )
+        elif request.trigger_type == "Incremental":
             if base_semantic_layer is None:
                 raise ValueError(
-                    "Incremental generation requires "
-                    "an approved base Semantic Layer."
+                    "base_semantic_layer is required for Incremental generation."
                 )
-
+            if not request.base_revision_id:
+                raise ValueError(
+                    "base_revision_id is required for Incremental generation."
+                )
+            if not request.affected_objects:
+                raise ValueError(
+                    "affected_objects is required for Incremental generation."
+                )
+            build_result = self._build_service.build(
+                request=request,
+                sources=sources,
+                base_semantic_layer=base_semantic_layer,
+            )
             merged = self._merge_service.merge(
                 approved_layer=base_semantic_layer,
                 incremental_layer=build_result.semantic_layer,
@@ -89,5 +94,7 @@ class SemanticLayerGenerationPipeline:
                 semantic_layer_id=request.semantic_layer_id,
                 base_revision_id=request.base_revision_id,
             )
+        else:
+            raise ValueError(f"Unsupported trigger_type: {request.trigger_type}")
 
         return self._identity_service.assign_object_ids(draft)

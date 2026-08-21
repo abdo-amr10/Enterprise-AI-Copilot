@@ -231,6 +231,7 @@ class MockSemanticLayerBackend:
         final_draft, validation = self._validation_pipeline.run(
             draft=draft,
             schema=self._schema,
+            relationships=self._schema.get("relationships", []),
         )
 
         final_semantic_layer_id = final_draft["metadata"]["semantic_layer_id"]
@@ -402,6 +403,7 @@ class MockSemanticLayerBackend:
         final_draft, validation = self._validation_pipeline.run(
             draft=draft,
             schema=self._schema,
+            relationships=self._schema.get("relationships", []),
         )
 
         final_draft["metadata"]["status"] = (
