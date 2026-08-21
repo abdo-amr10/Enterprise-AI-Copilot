@@ -1,0 +1,5 @@
+# Python generated package metadata
+*.egg-info/
+
+# Local embedding model artifacts
+models/embeddings/

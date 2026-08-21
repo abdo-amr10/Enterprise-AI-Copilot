@@ -33,6 +33,11 @@ class HumanReviewManager:
         if not reviewer.strip():
             raise ValueError("reviewer cannot be empty.")
 
+        if decision == "reject" and not comments.strip():
+            raise ValueError(
+                "comments are required when rejecting a revision."
+            )
+
         validation_status = validation.get("status")
 
         if decision == "approve" and validation_status != "passed":
@@ -42,6 +47,9 @@ class HumanReviewManager:
             )
 
         metadata = draft.get("metadata", {})
+
+        if not isinstance(metadata, dict):
+            raise ValueError("Semantic Layer metadata is required for human review.")
 
         semantic_layer_id = metadata.get("semantic_layer_id")
         revision_id = metadata.get("revision_id")

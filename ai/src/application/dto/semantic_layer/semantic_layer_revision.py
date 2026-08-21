@@ -26,6 +26,7 @@ class SemanticLayerRevision:
 
         if self.status not in {
             "initial_draft",
+            "validated",
             "pending_review",
             "approved",
             "rejected",

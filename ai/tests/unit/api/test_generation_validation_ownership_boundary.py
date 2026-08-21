@@ -33,11 +33,6 @@ from src.application.services.semantic_layer.validation.semantic_layer_validator
 )
 
 
-class _Ids:
-    def generate_revision_id(self) -> str:
-        return "REV-001"
-
-
 def _draft() -> dict:
     return {
         "metadata": {
@@ -78,7 +73,7 @@ def test_generation_pipeline_processes_request_data_without_filesystem_access(mo
     pipeline = SemanticLayerGenerationPipeline(
         build_service=build_service,
         merge_service=SemanticLayerMergeService(),
-        metadata_service=SemanticLayerMetadataService(_Ids()),
+        metadata_service=SemanticLayerMetadataService(),
         identity_service=SemanticLayerIdentityService(),
     )
     monkeypatch.setattr(
@@ -90,6 +85,7 @@ def test_generation_pipeline_processes_request_data_without_filesystem_access(mo
             trigger_type="FullRebuild",
             source_file_ids={"schema": "file-schema"},
             semantic_layer_id="SL-001",
+            revision_id="REV-001",
         ),
         sources={"schema": {}, "relationships": []},
     )

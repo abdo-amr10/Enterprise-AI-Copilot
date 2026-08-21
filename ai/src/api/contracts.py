@@ -39,6 +39,7 @@ class AffectedObjectRequest(StrictModel):
 class SemanticGenerateRequest(StrictModel):
     triggerType: Literal["FullRebuild", "Incremental"]
     semanticLayerId: str = Field(min_length=1)
+    revisionId: str = Field(min_length=1)
     sourceFileIds: dict[str, str]
     resolvedSources: dict[str, Any]
     baseRevisionId: str | None = None

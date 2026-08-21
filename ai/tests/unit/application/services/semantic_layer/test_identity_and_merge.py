@@ -27,6 +27,16 @@ def test_incremental_merge_supports_add_update_and_delete():
     assert deleted["entities"] == []
 
 
+def test_incremental_merge_resolves_an_identity_free_patch_only_within_scope():
+    merged = SemanticLayerMergeService().merge(
+        _layer(),
+        {"metadata": {}, "entities": [{"name": "Customer"}],
+         "relationships": [], "measures": [], "dimensions": [], "business_rules": []},
+        [AffectedObject("entities", action="update", id="obj-entity-customer").to_dict()],
+    )
+    assert merged["entities"][0]["object_id"] == "obj-entity-customer"
+
+
 def test_incremental_merge_rejects_unauthorized_changes_and_preserves_unaffected_items():
     merger = SemanticLayerMergeService()
     base = {

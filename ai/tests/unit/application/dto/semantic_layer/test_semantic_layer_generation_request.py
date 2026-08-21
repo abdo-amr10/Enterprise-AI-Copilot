@@ -14,6 +14,7 @@ def test_generation_request_uses_named_source_file_ids() -> None:
             "glossary": "file-003",
         },
         semantic_layer_id="sl-001",
+        revision_id="rev-001",
     )
 
     assert request.source_file_ids["schema"] == "file-001"

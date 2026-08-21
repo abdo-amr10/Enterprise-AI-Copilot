@@ -23,25 +23,16 @@ from src.application.services.semantic_layer.semantic_layer_metadata_generator i
 )
 
 
-class _Ids:
-    def __init__(self, initial=0):
-        self.number = initial
-
-    def generate_revision_id(self):
-        self.number += 1
-        return f"REV-{self.number:03d}"
-
-
 def _layer(*entities):
     return {"metadata": {}, "entities": list(entities), "relationships": [],
             "measures": [], "dimensions": [], "business_rules": []}
 
 
-def _pipeline(build_service, initial_revision=0):
+def _pipeline(build_service):
     return SemanticLayerGenerationPipeline(
         build_service=build_service,
         merge_service=SemanticLayerMergeService(),
-        metadata_service=SemanticLayerMetadataService(_Ids(initial_revision)),
+        metadata_service=SemanticLayerMetadataService(),
         identity_service=SemanticLayerIdentityService(),
     )
 
@@ -52,7 +43,7 @@ def test_full_rebuild_assigns_metadata_and_object_ids():
         semantic_layer=_layer({"name": "Customer"})
     )
     result = _pipeline(build_service).run(
-        SemanticLayerGenerationRequest("FullRebuild", {"schema": "file-1"}, "SL-001"),
+        SemanticLayerGenerationRequest("FullRebuild", {"schema": "file-1"}, "SL-001", "REV-001"),
         {"schema": {}, "relationships": []},
     )
     assert result["metadata"] == {
@@ -66,11 +57,11 @@ def test_full_rebuild_assigns_metadata_and_object_ids():
 def test_full_rebuild_rejects_baseline_and_incremental_requires_one():
     build_service = Mock()
     pipeline = _pipeline(build_service)
-    full = SemanticLayerGenerationRequest("FullRebuild", {"schema": "file-1"}, "SL-001")
+    full = SemanticLayerGenerationRequest("FullRebuild", {"schema": "file-1"}, "SL-001", "REV-001")
     with pytest.raises(ValueError, match="must not be provided"):
         pipeline.run(full, {"schema": {}, "relationships": []}, _layer())
     incremental = SemanticLayerGenerationRequest(
-        "Incremental", {"schema": "file-1"}, "SL-001", "REV-001",
+        "Incremental", {"schema": "file-1"}, "SL-001", "REV-002", "REV-001",
         (AffectedObject("entities", action="update", id="obj-1"),),
     )
     with pytest.raises(ValueError, match="requires an approved"):
@@ -83,10 +74,10 @@ def test_incremental_preserves_existing_id_and_metadata_lineage():
         semantic_layer=_layer({"name": "Customer v2", "object_id": "obj-1"})
     )
     request = SemanticLayerGenerationRequest(
-        "Incremental", {"schema": "file-1"}, "SL-001", "REV-001",
+        "Incremental", {"schema": "file-1"}, "SL-001", "REV-002", "REV-001",
         (AffectedObject("entities", action="update", id="obj-1"),),
     )
-    result = _pipeline(build_service, initial_revision=1).run(
+    result = _pipeline(build_service).run(
         request, {"schema": {}, "relationships": []},
         _layer({"name": "Customer", "object_id": "obj-1"}),
     )

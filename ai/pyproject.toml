@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi==0.115.0",
+    "faiss-cpu>=1.9,<2",
     "numpy==2.5.2",
     "ollama==0.6.2",
     "requests==2.32.3",

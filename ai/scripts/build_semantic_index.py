@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -75,13 +76,21 @@ def main() -> None:
         )
 
     # 3. Load semantic runtime settings.
-    settings = SemanticSettings()
+    settings = replace(
+        SemanticSettings(),
+        index_type="numpy.dot",
+        similarity_metric="cosine",
+    )
 
     index_path = OUTPUT_DIR / settings.vector_index_filename
 
     # 4. Initialize embedding service.
     embedding_service = EmbeddingService(
-        settings.embedding_model_path
+        settings.embedding_model_path,
+        model_name=str(settings.embedding_model_path),
+        device=settings.embedding_device,
+        batch_size=settings.embedding_batch_size,
+        normalize=settings.normalize_embeddings,
     )
 
     # 5. Initialize local vector store.
@@ -91,6 +100,7 @@ def main() -> None:
     index_builder = SemanticIndexBuilder(
         embedding_service,
         vector_store,
+        settings=settings,
     )
 
     result = index_builder.build(

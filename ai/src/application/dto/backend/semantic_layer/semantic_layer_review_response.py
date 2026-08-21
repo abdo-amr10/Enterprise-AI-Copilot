@@ -11,6 +11,9 @@ class SemanticLayerReviewResponse:
     version: str | None
     approved_by: str | None
     approved_at: str | None
+    rejected_by: str | None = None
+    rejected_at: str | None = None
+    comments: str | None = None
 
     def __post_init__(self) -> None:
         """Validate the review response."""
@@ -38,3 +41,12 @@ class SemanticLayerReviewResponse:
             raise ValueError(
                 "approved_at cannot be empty when provided."
             )
+
+        if self.rejected_by is not None and not self.rejected_by.strip():
+            raise ValueError("rejected_by cannot be empty when provided.")
+
+        if self.rejected_at is not None and not self.rejected_at.strip():
+            raise ValueError("rejected_at cannot be empty when provided.")
+
+        if self.comments is not None and not self.comments.strip():
+            raise ValueError("comments cannot be empty when provided.")

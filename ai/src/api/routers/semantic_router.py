@@ -14,8 +14,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.dependencies import (
     get_semantic_retrieval_pipeline,
-    get_semantic_review_pipeline,
 )
+from src.api.semantic_review_dependencies import get_semantic_review_pipeline
 from src.api.generation_validation_dependencies import (
     get_semantic_generation_pipeline,
     get_semantic_validation_pipeline,
@@ -117,6 +117,7 @@ def generate_draft(
         generation_request = SemanticLayerGenerationRequest(
             trigger_type=_required_string(body, "triggerType"),
             semantic_layer_id=_required_string(body, "semanticLayerId"),
+            revision_id=_required_string(body, "revisionId"),
             source_file_ids=_required_object(body, "sourceFileIds"),
             base_revision_id=body.get("baseRevisionId"),
             affected_objects=affected_objects,

@@ -130,9 +130,10 @@ def main(semantic_layer_id: str | None = None) -> None:
     # 9. Generate the initial semantic-layer draft.
     result = builder.build(build_input)
     id_generator = SemanticLayerIdGenerator()
-    draft = SemanticLayerMetadataService(id_generator).initialize(
+    draft = SemanticLayerMetadataService().initialize(
         result.semantic_layer,
         semantic_layer_id or id_generator.generate_semantic_layer_id(),
+        id_generator.generate_revision_id(),
     )
     draft = SemanticLayerIdentityService().assign_object_ids(draft)
 

@@ -50,6 +50,11 @@ class SemanticLayerGenerationPipeline:
         base_semantic_layer: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
 
+        if not request.revision_id:
+            raise ValueError(
+                "revision_id must be assigned by Backend before AI generation."
+            )
+
         if request.trigger_type == "FullRebuild":
             if base_semantic_layer is not None:
                 raise ValueError(
@@ -62,6 +67,7 @@ class SemanticLayerGenerationPipeline:
             draft = self._metadata_service.initialize(
                 semantic_layer=build_result.semantic_layer,
                 semantic_layer_id=request.semantic_layer_id,
+                revision_id=request.revision_id,
             )
         elif request.trigger_type == "Incremental":
             if base_semantic_layer is None:
@@ -92,6 +98,7 @@ class SemanticLayerGenerationPipeline:
             draft = self._metadata_service.create_revision(
                 semantic_layer=merged,
                 semantic_layer_id=request.semantic_layer_id,
+                revision_id=request.revision_id,
                 base_revision_id=request.base_revision_id,
             )
         else:

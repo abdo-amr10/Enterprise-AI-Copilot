@@ -73,19 +73,10 @@ class SemanticLayerGenerationRequest:
     """Backend request to generate a new Semantic Layer revision.
 
     Identity ownership:
-        `semantic_layer_id`, `revision_id`, and `version` are owned
-        exclusively by the AI service (see
-        `SemanticLayerGenerationPipeline._assign_identity`). This
-        request intentionally has NO `revision_id` and NO `version`
-        field — the Backend never supplies them for a new revision.
-
-        The Backend only supplies identifiers it already holds because
-        the AI returned them on a previous call:
-
-        - `semantic_layer_id`: required for every generation request.
-          It identifies the Semantic Layer created when the sources were
-          uploaded, and is retained by both FullRebuild and Incremental
-          revisions.
+        `semantic_layer_id`, `revision_id`, and `version` are owned by
+        Backend. The AI receives the first two as immutable lineage inputs
+        and never generates or replaces them. Backend assigns the lifecycle
+        version when it persists the returned draft.
         - `base_revision_id`: required for Incremental (the previously
           issued revision_id this update is based on). Must be omitted
           for FullRebuild.
@@ -98,6 +89,7 @@ class SemanticLayerGenerationRequest:
     trigger_type: str
     source_file_ids: dict[str, str]
     semantic_layer_id: str | None = None
+    revision_id: str | None = None
     base_revision_id: str | None = None
     affected_objects: tuple[AffectedObject, ...] = field(default_factory=tuple)
 

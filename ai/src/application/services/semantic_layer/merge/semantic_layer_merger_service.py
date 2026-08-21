@@ -78,6 +78,11 @@ class SemanticLayerMergeService:
             for index, item in enumerate(existing_items)
             if isinstance(item, dict) and item.get("object_id")
         }
+        existing_ids_by_name = {
+            item.get("name"): item.get("object_id")
+            for item in existing_items
+            if isinstance(item, dict) and item.get("name") and item.get("object_id")
+        }
 
         for change in changes:
             if not isinstance(change, dict):
@@ -85,7 +90,10 @@ class SemanticLayerMergeService:
             name = change.get("name")
             if not isinstance(name, str) or not name.strip():
                 raise ValueError(f"Incremental {section} item must contain a name.")
-            object_id = change.get("object_id")
+            # Builders may return an identity-free patch. Resolve such an
+            # update only through the Backend-authorized affected-object ID;
+            # never infer a target outside that scope.
+            object_id = change.get("object_id") or existing_ids_by_name.get(name)
 
             if object_id in updates:
                 index = existing_by_id.get(object_id)

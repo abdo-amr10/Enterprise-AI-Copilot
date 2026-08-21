@@ -79,4 +79,5 @@ class SemanticLayerRevisionClientImpl:
         return SemanticLayerReviewResponse(
             semantic_layer_id=response["semanticLayerId"], revision_id=response["revisionId"], status=response["status"],
             version=response.get("version"), approved_by=response.get("approvedBy"), approved_at=response.get("approvedAt"),
+            rejected_by=response.get("rejectedBy"), rejected_at=response.get("rejectedAt"), comments=response.get("comments"),
         )

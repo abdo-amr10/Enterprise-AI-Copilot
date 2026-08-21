@@ -43,9 +43,6 @@ from src.application.services.semantic_layer.validation.semantic_layer_validator
 )
 from src.infrastructure.llm.model_config import SEMANTIC_LAYER_CONFIG
 from src.infrastructure.llm.ollama_client import OllamaClient
-from src.infrastructure.semantic_layer.persistence.semantic_layer_id_generator import (
-    SemanticLayerIdGenerator,
-)
 
 
 _semantic_generation_pipeline: SemanticLayerGenerationPipeline | None = None
@@ -65,7 +62,7 @@ def get_semantic_generation_pipeline() -> SemanticLayerGenerationPipeline:
         _semantic_generation_pipeline = SemanticLayerGenerationPipeline(
             build_service=build_service,
             merge_service=SemanticLayerMergeService(),
-            metadata_service=SemanticLayerMetadataService(SemanticLayerIdGenerator()),
+            metadata_service=SemanticLayerMetadataService(),
             identity_service=SemanticLayerIdentityService(),
         )
     return _semantic_generation_pipeline

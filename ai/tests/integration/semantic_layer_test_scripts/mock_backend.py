@@ -68,9 +68,6 @@ from src.application.services.semantic_layer.validation.semantic_layer_auto_fixe
 from src.application.services.semantic_layer.validation.semantic_layer_validator import (
     SemanticLayerValidator,
 )
-from src.infrastructure.semantic_layer.persistence.semantic_layer_id_generator import (
-    SemanticLayerIdGenerator,
-)
 
 _CONTENT_SECTIONS = (
     "entities",
@@ -91,8 +88,6 @@ class MockSemanticLayerBackend:
     minus HTTP and a database -- state lives in memory."""
 
     def __init__(self, llm_client, schema: dict[str, Any]) -> None:
-        id_generator = SemanticLayerIdGenerator()
-
         build_service = SemanticLayerBuildService(
             full_rebuild_strategy=FullRebuildStrategy(
                 FullRebuildBuilder(llm_client)
@@ -105,7 +100,7 @@ class MockSemanticLayerBackend:
         self._generation_pipeline = SemanticLayerGenerationPipeline(
             build_service=build_service,
             merge_service=SemanticLayerMergeService(),
-            metadata_service=SemanticLayerMetadataService(id_generator),
+            metadata_service=SemanticLayerMetadataService(),
             identity_service=SemanticLayerIdentityService(),
         )
 
@@ -208,6 +203,7 @@ class MockSemanticLayerBackend:
             trigger_type=trigger_type,
             source_file_ids=source_file_ids,
             semantic_layer_id=semantic_layer_id,
+            revision_id=f"rev-{uuid.uuid4().hex[:8]}",
             base_revision_id=(
                 request.get("baseRevisionId")
                 if trigger_type == "Incremental"

@@ -1,4 +1,4 @@
-"""Composition root for local-state retrieval, review, and Text-to-SQL.
+"""Composition root for local-state retrieval and Text-to-SQL.
 
 Generation and Validation intentionally use
 ``api.generation_validation_dependencies`` instead: those Backend-driven
@@ -12,9 +12,6 @@ from pathlib import Path
 
 from src.application.pipelines.context_retrieval.semantic_retrieval_pipeline import (
     SemanticRetrievalPipeline,
-)
-from src.application.pipelines.semantic_layer.semantic_layer_review_pipeline import (
-    SemanticLayerReviewPipeline,
 )
 from src.application.pipelines.text_to_sql.copilot_runtime_pipeline import (
     CopilotRuntimePipeline,
@@ -39,7 +36,6 @@ from src.application.services.self_correction.validators.sql_syntax_validator im
 from src.application.services.context_retrieval.context_retrieval_service import (
     ContextRetrievalService,
 )
-from src.application.services.semantic_layer.review_manager import HumanReviewManager
 from src.application.services.text_to_sql.sql_generation_service import (
     SQLGenerationService,
 )
@@ -84,7 +80,6 @@ _semantic_repository: FileSemanticRepository | None = None
 _context_retrieval_service: ContextRetrievalService | None = None
 _schema_provider: DatabaseSchemaProvider | None = None
 _self_correction_service: SelfCorrectionService | None = None
-_semantic_review_pipeline: SemanticLayerReviewPipeline | None = None
 
 
 def get_semantic_repository() -> FileSemanticRepository:
@@ -173,12 +168,4 @@ def get_semantic_retrieval_pipeline() -> SemanticRetrievalPipeline:
     return SemanticRetrievalPipeline(retrieval_service=get_context_service())
 
 
-def get_semantic_review_pipeline() -> SemanticLayerReviewPipeline:
-    """Build the AI-owned draft review transformation pipeline."""
-
-    global _semantic_review_pipeline
-    if _semantic_review_pipeline is None:
-        _semantic_review_pipeline = SemanticLayerReviewPipeline(
-            HumanReviewManager()
-        )
-    return _semantic_review_pipeline
+# End of local-state composition root.
