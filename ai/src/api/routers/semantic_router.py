@@ -13,9 +13,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.dependencies import (
-    get_semantic_generation_pipeline,
     get_semantic_retrieval_pipeline,
     get_semantic_review_pipeline,
+)
+from src.api.generation_validation_dependencies import (
+    get_semantic_generation_pipeline,
     get_semantic_validation_pipeline,
 )
 from src.application.dto.backend.semantic_layer.semantic_layer_generation_request import (
