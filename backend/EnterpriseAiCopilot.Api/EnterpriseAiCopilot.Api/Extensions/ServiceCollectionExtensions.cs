@@ -1,4 +1,6 @@
 ﻿using EnterpriseAiCopilot.Application.Common.Interfaces;
+using EnterpriseAiCopilot.Application.Services;
+using EnterpriseAiCopilot.Infrastructure.FileStorage;
 using EnterpriseAiCopilot.Infrastructure.Identity;
 using EnterpriseAiCopilot.Infrastructure.Identity.Services;
 using EnterpriseAiCopilot.Infrastructure.Persistence;
@@ -17,6 +19,8 @@ namespace EnterpriseAiCopilot.Api.Extensions
             services.AddHttpContextAccessor();
             services.AddScoped<ICurrentUserService, CurrentUserService>();
             services.AddScoped<IAuthService, AuthService>();
+            services.AddScoped<IFileStorage, LocalFileStorage>();
+            services.AddScoped<ISemanticLayerService, SemanticLayerService>();
             return services;
         }
     }
