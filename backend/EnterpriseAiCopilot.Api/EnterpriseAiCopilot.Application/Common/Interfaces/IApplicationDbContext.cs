@@ -9,6 +9,10 @@ namespace EnterpriseAiCopilot.Application.Common.Interfaces
     public interface IApplicationDbContext
     {
         DbSet<User> Users { get; }
+        DbSet<SemanticLayer> SemanticLayers { get; }
+        DbSet<SemanticSourceFile> SemanticSourceFiles { get; }
+        DbSet<SemanticRevision> SemanticRevisions { get; }
+
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     }
 }

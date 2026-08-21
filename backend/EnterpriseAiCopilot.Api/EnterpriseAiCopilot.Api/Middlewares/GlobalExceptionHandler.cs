@@ -1,37 +1,39 @@
 ﻿using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
 
-namespace EnterpriseAiCopilot.API.Middlewares;
-
-public class GlobalExceptionHandler : IExceptionHandler
+namespace EnterpriseAiCopilot.API.Middlewares
 {
-    private readonly ILogger<GlobalExceptionHandler> _logger;
-
-    public GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger)
+    public class GlobalExceptionHandler : IExceptionHandler
     {
-        _logger = logger;
-    }
+        private readonly ILogger<GlobalExceptionHandler> _logger;
 
-    public async ValueTask<bool> TryHandleAsync(
-        HttpContext httpContext,
-        Exception exception,
-        CancellationToken cancellationToken)
-    {
-        _logger.LogError(exception, "An unexpected error occurred: {Message}", exception.Message);
-
-        var problemDetails = new ProblemDetails
+        public GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger)
         {
-            Status = StatusCodes.Status500InternalServerError,
-            Title = "Server Error",
-            Type = "https://datatracker.ietf.org/doc/html/rfc7231#section-6.6.1",
-            Detail = "An unexpected error occurred. Please try again later."
-        };
+            _logger = logger;
+        }
 
-        httpContext.Response.StatusCode = problemDetails.Status.Value;
-        await httpContext.Response.WriteAsJsonAsync(problemDetails, cancellationToken);
+        public async ValueTask<bool> TryHandleAsync(
+            HttpContext httpContext,
+            Exception exception,
+            CancellationToken cancellationToken)
+        {
+            _logger.LogError(exception, "An unexpected error occurred: {Message}", exception.Message);
 
-        return true;
+            var response = new
+            {
+                status = "Failed",
+                errorCode = "INTERNAL_ERROR",
+                message = "An unexpected error occurred while processing your request. Please try again later."
+            };
+
+            httpContext.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            await httpContext.Response.WriteAsJsonAsync(response, cancellationToken);
+
+            return true;
+        }
     }
 }

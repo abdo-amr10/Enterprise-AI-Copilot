@@ -32,22 +32,18 @@ builder.Services.AddSwaggerGen(options =>
         [new OpenApiSecuritySchemeReference("Bearer", document)] = []
     });
 });
-// Module 0 DI Registrations
 builder.Services.AddInfrastructureServices(builder.Configuration);
 builder.Services.AddJwtAuthentication(builder.Configuration);
 builder.Services.AddCustomAuthorization();
 builder.Services.AddApplicationServices();
 
-// Global Exception Handler + Problem Details
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
-// التعديل 1: إضافة خدمة الـ Cache عشان اللوج اوت يشتغل
 builder.Services.AddDistributedMemoryCache();
 
 var app = builder.Build();
 
-// التعديل 2: الاعتماد على الـ Exception Handler الجديد فقط
 app.UseExceptionHandler();
 
 if (app.Environment.IsDevelopment())
@@ -58,10 +54,8 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-// ترتيب الـ Pipeline الأمني بدقة
 app.UseAuthentication();
 
-// التعديل 3: إضافة حارس القائمة السوداء هنا بالظبط
 app.UseMiddleware<TokenBlacklistMiddleware>();
 
 app.UseAuthorization();
