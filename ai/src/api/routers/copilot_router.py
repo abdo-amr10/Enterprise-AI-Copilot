@@ -9,7 +9,6 @@ here.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from src.api.internal_auth import require_internal_service
 
 from src.api.dependencies import get_copilot_pipeline
 from src.api.post_query_dependencies import get_post_query_response_formatter
@@ -23,7 +22,7 @@ from src.application.pipelines.text_to_sql.copilot_runtime_pipeline import (
 )
 from src.api.contracts import CopilotRequest, CopilotResponse, PostQueryFormatRequest
 
-router = APIRouter(prefix="/internal/copilot", tags=["copilot"], dependencies=[Depends(require_internal_service)])
+router = APIRouter(prefix="/internal/copilot", tags=["copilot"])
 
 
 @router.post("/text-to-sql")

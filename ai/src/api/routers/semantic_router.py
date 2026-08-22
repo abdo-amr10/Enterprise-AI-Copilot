@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from src.api.internal_auth import require_internal_service
 
 from src.api.dependencies import (
     get_semantic_retrieval_pipeline,
@@ -47,7 +46,7 @@ from src.api.contracts import (
     SemanticValidateRequest,
 )
 
-router = APIRouter(prefix="/internal/semantic", tags=["semantic"], dependencies=[Depends(require_internal_service)])
+router = APIRouter(prefix="/internal/semantic", tags=["semantic"])
 
 
 @router.post("/retrieve")
