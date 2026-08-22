@@ -41,7 +41,6 @@ class SemanticGenerateRequest(StrictModel):
     semanticLayerId: str = Field(min_length=1)
     revisionId: str = Field(min_length=1)
     sourceFileIds: dict[str, str]
-    resolvedSources: dict[str, Any]
     baseRevisionId: str | None = None
     baseSemanticLayer: dict[str, Any] | None = None
     affectedObjects: list[AffectedObjectRequest] = Field(default_factory=list)

@@ -1,9 +1,9 @@
 """Deterministic table/column existence validation.
 
 Tables and columns referenced by the generated SQL are checked
-against the physical database schema (docs/database_metadata/schema.json,
-normalized through the existing SchemaLoader). This is the ground
-truth for "does this table/column physically exist" -- the approved
+against Backend-provided physical database schema metadata, normalized through
+the existing SchemaLoader. This is the ground truth for "does this table/column
+physically exist" -- the approved
 Semantic Layer alone does not carry column-level detail for every
 section, so it is not sufficient for this specific check.
 """

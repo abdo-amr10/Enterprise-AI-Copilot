@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from src.api.internal_auth import require_internal_service
 
 from src.api.dependencies import (
     get_semantic_retrieval_pipeline,
@@ -39,6 +40,7 @@ from src.application.pipelines.semantic_layer.semantic_layer_review_pipeline imp
 from src.application.pipelines.semantic_layer.semantic_layer_validation_pipeline import (
     SemanticLayerValidationPipeline,
 )
+from src.infrastructure.backend.backend_semantic_client import BackendSemanticClient
 from src.api.contracts import (
     SemanticGenerateRequest,
     SemanticRetrieveRequest,
@@ -46,7 +48,7 @@ from src.api.contracts import (
     SemanticValidateRequest,
 )
 
-router = APIRouter(prefix="/internal/semantic", tags=["semantic"])
+router = APIRouter(prefix="/internal/semantic", tags=["semantic"], dependencies=[Depends(require_internal_service)])
 
 
 @router.post("/retrieve")
@@ -94,14 +96,7 @@ def generate_draft(
         get_semantic_generation_pipeline
     ),
 ) -> dict[str, Any]:
-    """Generate an identity-assigned draft, without persisting it.
-
-    ``resolvedSources`` must contain the already-loaded source content.  For
-    FullRebuild it requires ``schema`` and ``relationships``.  For
-    Incremental, ``baseSemanticLayer`` is the approved revision fetched by
-    the Backend.  ``sourceFileIds`` remains part of the request for lineage,
-    but the AI runtime deliberately does not fetch files from Backend storage.
-    """
+    """Generate an identity-assigned draft from Backend-owned source IDs."""
 
     try:
         body = request.model_dump()
@@ -122,9 +117,17 @@ def generate_draft(
             base_revision_id=body.get("baseRevisionId"),
             affected_objects=affected_objects,
         )
-        sources = _required_object(body, "resolvedSources")
+        sources = BackendSemanticClient().load_generation_sources(
+            generation_request.source_file_ids
+        )
         _validate_resolved_sources(generation_request.trigger_type, sources)
         base_semantic_layer = body.get("baseSemanticLayer")
+        if generation_request.trigger_type == "Incremental" and base_semantic_layer is None:
+            if not generation_request.base_revision_id:
+                raise ValueError("baseRevisionId is required for Incremental generation.")
+            base_semantic_layer = BackendSemanticClient().load_revision(
+                generation_request.base_revision_id
+            )
         if base_semantic_layer is not None and not isinstance(
             base_semantic_layer, dict
         ):
@@ -140,7 +143,7 @@ def generate_draft(
             status_code=422,
             detail=f"Missing required field: {error.args[0]}.",
         ) from error
-    except (TypeError, ValueError) as error:
+    except (TypeError, ValueError, RuntimeError) as error:
         _handle_contract_error(error)
 
     response: dict[str, Any] = {"status": "Success", "draft": draft}

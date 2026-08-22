@@ -1,14 +1,7 @@
-"""Composition root for local-state retrieval and Text-to-SQL.
-
-Generation and Validation intentionally use
-``api.generation_validation_dependencies`` instead: those Backend-driven
-endpoints must not inherit the local approved-layer, index, schema, or
-sample-data dependencies retained here for local Retrieval and Text-to-SQL.
-"""
+"""Composition root for Backend-authoritative retrieval and Text-to-SQL."""
 
 from __future__ import annotations
 
-from pathlib import Path
 
 from src.application.pipelines.context_retrieval.semantic_retrieval_pipeline import (
     SemanticRetrievalPipeline,
@@ -48,22 +41,8 @@ from src.infrastructure.llm.model_config import (
     SQL_CRITIC_CONFIG,
 )
 from src.infrastructure.llm.ollama_client import OllamaClient
-from src.infrastructure.semantic_layer.ingestion.database_schema_provider import (
-    DatabaseSchemaProvider,
-)
-from src.infrastructure.semantic_layer.retrieval.embedding_service import (
-    EmbeddingService,
-)
-from src.infrastructure.semantic_layer.retrieval.file_semantic_repository import (
-    FileSemanticRepository,
-)
-from src.infrastructure.semantic_layer.retrieval.faiss_vector_index import FaissVectorIndex
-
-BASE_DIR = Path(__file__).resolve().parents[2]  # .../ai
-REPO_ROOT = BASE_DIR.parent  # repo root, sibling of ai/, backend/, docs/
-
-SEMANTIC_LAYER_PATH = BASE_DIR / "outputs" / "semantic_layer" / "approved_semantic_layer.json"
-DATABASE_SCHEMA_PATH = REPO_ROOT / "docs" / "database_metadata" / "schema.json"
+from src.infrastructure.semantic_layer.retrieval.backend_semantic_repository import BackendSemanticRepository
+from src.infrastructure.semantic_layer.ingestion.backend_database_schema_provider import BackendDatabaseSchemaProvider
 
 _SETTINGS = SemanticSettings()
 _SELF_CORRECTION_SETTINGS = SelfCorrectionSettings()
@@ -74,30 +53,15 @@ _SELF_CORRECTION_SETTINGS = SelfCorrectionSettings()
 # or pointless to reload per request.
 # --------------------------------------------------------------------------
 
-_semantic_repository: FileSemanticRepository | None = None
+_semantic_repository: BackendSemanticRepository | None = None
 _context_retrieval_service: ContextRetrievalService | None = None
-_schema_provider: DatabaseSchemaProvider | None = None
 _self_correction_service: SelfCorrectionService | None = None
 
 
-def get_semantic_repository() -> FileSemanticRepository:
+def get_semantic_repository() -> BackendSemanticRepository:
     global _semantic_repository
     if _semantic_repository is None:
-        embedding_service = EmbeddingService(
-            model_path=_SETTINGS.production_embedding_model_path,
-            model_name=_SETTINGS.production_embedding_model_name,
-            device=_SETTINGS.embedding_device,
-            batch_size=_SETTINGS.embedding_batch_size,
-            normalize=_SETTINGS.normalize_embeddings,
-        )
-        vector_store = FaissVectorIndex(
-            SEMANTIC_LAYER_PATH.parent / _SETTINGS.vector_index_filename
-        )
-        _semantic_repository = FileSemanticRepository(
-            semantic_layer_path=SEMANTIC_LAYER_PATH,
-            embedding_service=embedding_service,
-            vector_store=vector_store,
-        )
+        _semantic_repository = BackendSemanticRepository()
     return _semantic_repository
 
 
@@ -111,11 +75,8 @@ def get_context_service() -> ContextRetrievalService:
     return _context_retrieval_service
 
 
-def get_schema_provider() -> DatabaseSchemaProvider:
-    global _schema_provider
-    if _schema_provider is None:
-        _schema_provider = DatabaseSchemaProvider(DATABASE_SCHEMA_PATH)
-    return _schema_provider
+def get_schema_provider():
+    return BackendDatabaseSchemaProvider()
 
 
 def get_self_correction_service() -> SelfCorrectionService:
