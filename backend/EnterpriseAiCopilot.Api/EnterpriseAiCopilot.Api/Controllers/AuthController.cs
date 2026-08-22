@@ -26,7 +26,7 @@ public class AuthController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(new { Message = result.ErrorMessage });
+            return Unauthorized(new { Message = result.ErrorMessage });
         }
 
         return Ok(result.Data);
