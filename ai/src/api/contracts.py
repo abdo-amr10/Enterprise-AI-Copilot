@@ -59,3 +59,20 @@ class SemanticReviewRequest(StrictModel):
     decision: Literal["Approve", "Reject"]
     reviewerId: str = Field(min_length=1)
     comments: str = ""
+
+
+class ExecutionResultRequest(StrictModel):
+    """Backend result payload supplied after Backend-owned SQL execution."""
+
+    status: Literal["Success", "Failed"]
+    columns: list[str] = Field(default_factory=list)
+    rows: list[list[Any]] = Field(default_factory=list)
+    rowCount: int | None = Field(default=None, ge=0)
+    errorCode: str | None = None
+    errorMessage: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PostQueryFormatRequest(StrictModel):
+    question: str = Field(min_length=1)
+    executionResult: ExecutionResultRequest

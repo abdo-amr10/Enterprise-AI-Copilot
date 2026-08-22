@@ -14,7 +14,6 @@ from src.application.services.self_correction.self_correction_service import (
     SelfCorrectionService,
 )
 from src.application.services.text_to_sql.text_to_sql_pipeline import TextToSQLPipeline
-from src.application.services.text_to_sql.reference_data_preflight import ReferenceDataPreflight
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +21,7 @@ class CopilotRuntimePipeline:
     """AI-owned portion of `POST /api/v1/copilot/ask`.
 
     This pipeline never executes SQL. The Backend remains responsible for
-    authorization, RLS, SQL Server execution, report formatting, and history.
+    authorization, RLS, SQL Server execution, result formatting, and history.
     """
     
     @staticmethod
@@ -50,51 +49,37 @@ class CopilotRuntimePipeline:
         return payload
 
     _FORBIDDEN_SQL = re.compile(
-        r"\b(INSERT|UPDATE|DELETE|MERGE|DROP|ALTER|CREATE|TRUNCATE|EXEC(?:UTE)?)\b",
+        r"\b(INSERT|UPDATE|DELETE|MERGE|DROP|ALTER|CREATE|TRUNCATE|"
+        r"EXEC(?:UTE)?|SELECT\s+INTO|USE|GRANT|REVOKE|DENY|DBCC|BACKUP|RESTORE)\b",
         re.IGNORECASE,
     )
 
     def __init__(
         self,
         text_to_sql_pipeline: TextToSQLPipeline,
-        self_correction_service: SelfCorrectionService | None = None,
-        reference_data_preflight: ReferenceDataPreflight | None = None,
+        self_correction_service: SelfCorrectionService,
     ) -> None:
         self._text_to_sql_pipeline = text_to_sql_pipeline
-        # Optional so existing callers/tests that build this pipeline with
-        # only a TextToSQLPipeline keep working unchanged (see
-        # tests/unit/application/pipelines/text_to_sql/test_copilot_runtime_pipeline.py).
-        # Real runtime wiring (src/api/dependencies.py) always supplies a
-        # real instance, so Self-Correction always runs after generate.
         self._self_correction_service = self_correction_service
-        self._reference_data_preflight = reference_data_preflight
 
     def run(self, request: CopilotAskRequest) -> TextToSQLRuntimeResponse:
-        missing_manager = self._missing_manager_response(request.question)
-        if missing_manager is not None:
-            return missing_manager
-
         try:
-            if self._self_correction_service is None:
-                generated = self._text_to_sql_pipeline.run(question=request.question)
-                semantic_context = None
-            else:
-                semantic_context = self._text_to_sql_pipeline.build_context(request.question)
-                generated = self._text_to_sql_pipeline.run(
-                    question=request.question,
-                    semantic_context=semantic_context,
-                )
+            semantic_context = self._text_to_sql_pipeline.build_context(request.question)
+            generated = self._text_to_sql_pipeline.run(
+                question=request.question,
+                semantic_context=semantic_context,
+            )
         except Exception as exc:
-                logger.exception("Text-to-SQL generation failed")
-                return TextToSQLRuntimeResponse.failure(
-                    "SQL_GENERATION_FAILED",
-                    "The system could not generate SQL for this request.",
-                    failure_reason=f"Generation service failed: {type(exc).__name__}.",
-                )
+            logger.exception("Text-to-SQL generation failed")
+            return TextToSQLRuntimeResponse.failure(
+                "SQL_GENERATION_FAILED",
+                "The system could not generate SQL for this request.",
+                failure_reason=f"Generation service failed: {type(exc).__name__}.",
+            )
         try:
             payload = self._parse_generation_response(generated.text)
         except (json.JSONDecodeError, ValueError):
-            logger.info("Generated model output (invalid structured response): %s", generated.text)
+            logger.info("Generated model output was not a valid structured response")
             return TextToSQLRuntimeResponse.failure(
                 "SQL_VALIDATION_FAILED",
                 "The model response was not a valid structured SQL result.",
@@ -104,7 +89,7 @@ class CopilotRuntimePipeline:
         if payload.get("status") != "success":
             warnings = payload.get("warnings")
             reason = "; ".join(str(item) for item in warnings) if isinstance(warnings, list) else None
-            logger.info("Generated model output (status is not success): %s", generated.text)
+            logger.info("Generated model output requested clarification")
             return TextToSQLRuntimeResponse.failure(
                 "SQL_NEEDS_CLARIFICATION",
                 "The request cannot be translated into a safe query without more information.",
@@ -118,7 +103,7 @@ class CopilotRuntimePipeline:
             or payload.get("is_read_only") is not True
             or self._FORBIDDEN_SQL.search(sql)
         ):
-            logger.info("Generated model output (unsafe or incomplete SQL payload): %s", generated.text)
+            logger.info("Generated model output was unsafe or incomplete")
             return TextToSQLRuntimeResponse.failure(
                 "SQL_VALIDATION_FAILED",
                 "The system could not generate a safe read-only query for this request.",
@@ -130,14 +115,19 @@ class CopilotRuntimePipeline:
 
         sql = sql.strip()
 
-        if self._self_correction_service is None:
-            return TextToSQLRuntimeResponse.success(sql)
-
-        outcome = self._self_correction_service.run(
-            question=request.question,
-            sql=sql,
-            semantic_context=semantic_context,
-        )
+        try:
+            outcome = self._self_correction_service.run(
+                question=request.question,
+                sql=sql,
+                semantic_context=semantic_context,
+            )
+        except Exception as exc:
+            logger.exception("Text-to-SQL validation/correction failed")
+            return TextToSQLRuntimeResponse.failure(
+                "SQL_VALIDATION_FAILED",
+                "The system could not validate the generated SQL.",
+                failure_reason=f"Validation service failed: {type(exc).__name__}.",
+            )
 
         if not outcome.is_valid:
             return TextToSQLRuntimeResponse.failure(
@@ -148,29 +138,4 @@ class CopilotRuntimePipeline:
 
         return TextToSQLRuntimeResponse.success(outcome.sql)
 
-    def _missing_manager_response(self, question: str) -> TextToSQLRuntimeResponse | None:
-        if self._reference_data_preflight is None:
-            return None
-
-        result = self._reference_data_preflight.check_branch_manager(question)
-        if result is None:
-            return None
-
-        requested, managers = result
-        suggestions = tuple(
-            f"Show all accounts in branches managed by {manager}." for manager in managers
-        )
-        return TextToSQLRuntimeResponse.failure(
-            "REFERENCE_VALUE_NOT_FOUND",
-            "No branch manager matching the requested name was found in the available reference data.",
-            failure_reason=(
-                f"'{requested}' does not exist in branches.manager_name in the local reference dataset."
-            ),
-            rewritten_question=(
-                "Show all accounts in branches managed by <manager name>."
-            ),
-            suggestions=suggestions,
-        )
-
-    
 

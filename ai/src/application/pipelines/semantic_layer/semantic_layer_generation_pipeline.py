@@ -72,7 +72,7 @@ class SemanticLayerGenerationPipeline:
         elif request.trigger_type == "Incremental":
             if base_semantic_layer is None:
                 raise ValueError(
-                    "base_semantic_layer is required for Incremental generation."
+                    "Incremental generation requires an approved base_semantic_layer."
                 )
             if not request.base_revision_id:
                 raise ValueError(

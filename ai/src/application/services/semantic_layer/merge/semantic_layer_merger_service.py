@@ -87,6 +87,12 @@ class SemanticLayerMergeService:
         for change in changes:
             if not isinstance(change, dict):
                 raise ValueError(f"Items in '{section}' must be dictionaries.")
+            # Some builders return a complete section instead of a sparse patch.
+            # A Backend-authorized deletion wins over an echoed copy of that
+            # object. Only the exact authorized ID is ignored; all other
+            # changes still have to pass the affected_objects check.
+            if change.get("object_id") in deletions:
+                continue
             name = change.get("name")
             if not isinstance(name, str) or not name.strip():
                 raise ValueError(f"Incremental {section} item must contain a name.")

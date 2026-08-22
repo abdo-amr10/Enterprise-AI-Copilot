@@ -84,7 +84,12 @@ class EmbeddingService:
             if self._device:
                 kwargs["device"] = self._device
             self._model = SentenceTransformer(self._model_path, **kwargs)
-            self._embedding_dimension = int(self._model.get_sentence_embedding_dimension())
+            get_dimension = getattr(self._model, "get_embedding_dimension", None)
+            if not callable(get_dimension):
+                # Keeps lightweight test doubles compatible while production
+                # uses the Sentence Transformers 6 API above.
+                get_dimension = self._model.get_sentence_embedding_dimension
+            self._embedding_dimension = int(get_dimension())
             self._model_version = self._read_model_version()
         return self._model
 

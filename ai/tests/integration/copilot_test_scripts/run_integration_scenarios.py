@@ -52,8 +52,17 @@ class FakeTextToSQLPipeline:
     def __init__(self, generated_text: str) -> None:
         self._generated_text = generated_text
 
-    def run(self, question: str) -> GenerationResponse:
+    def build_context(self, question: str) -> str:
+        return "approved semantic context"
+
+    def run(self, question: str, semantic_context: str | None = None) -> GenerationResponse:
         return GenerationResponse(text=self._generated_text)
+
+
+class FakeSelfCorrectionService:
+    def run(self, question: str, sql: str, semantic_context: str):
+        from src.application.dto.self_correction.self_correction_outcome import SelfCorrectionOutcome
+        return SelfCorrectionOutcome.success(sql, attempts_used=0)
 
 
 class MockCopilotBackend:
@@ -146,7 +155,7 @@ def build_transcript() -> list[dict]:
         }
     )
     runtime_pipeline = CopilotRuntimePipeline(
-        FakeTextToSQLPipeline(valid_model_output)
+        FakeTextToSQLPipeline(valid_model_output), FakeSelfCorrectionService()
     )
     backend = MockCopilotBackend(runtime_pipeline, query_id="req-990")
     _call(
@@ -166,7 +175,7 @@ def build_transcript() -> list[dict]:
         }
     )
     unsafe_backend = MockCopilotBackend(
-        CopilotRuntimePipeline(FakeTextToSQLPipeline(unsafe_model_output)),
+        CopilotRuntimePipeline(FakeTextToSQLPipeline(unsafe_model_output), FakeSelfCorrectionService()),
         query_id="req-991",
     )
     _call(

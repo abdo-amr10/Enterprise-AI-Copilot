@@ -3,7 +3,7 @@
 Generation and Validation intentionally use
 ``api.generation_validation_dependencies`` instead: those Backend-driven
 endpoints must not inherit the local approved-layer, index, schema, or
-sample-data dependencies retained here for Retrieval and Text-to-SQL.
+sample-data dependencies retained here for local Retrieval and Text-to-SQL.
 """
 
 from __future__ import annotations
@@ -57,15 +57,13 @@ from src.infrastructure.semantic_layer.retrieval.embedding_service import (
 from src.infrastructure.semantic_layer.retrieval.file_semantic_repository import (
     FileSemanticRepository,
 )
-from src.infrastructure.semantic_layer.retrieval.vector_store import LocalVectorStore
-from src.application.services.text_to_sql.reference_data_preflight import ReferenceDataPreflight
+from src.infrastructure.semantic_layer.retrieval.faiss_vector_index import FaissVectorIndex
 
 BASE_DIR = Path(__file__).resolve().parents[2]  # .../ai
 REPO_ROOT = BASE_DIR.parent  # repo root, sibling of ai/, backend/, docs/
 
 SEMANTIC_LAYER_PATH = BASE_DIR / "outputs" / "semantic_layer" / "approved_semantic_layer.json"
 DATABASE_SCHEMA_PATH = REPO_ROOT / "docs" / "database_metadata" / "schema.json"
-SAMPLE_DATA_PATH = REPO_ROOT / "docs" / "database_metadata" / "sample_data.json"
 
 _SETTINGS = SemanticSettings()
 _SELF_CORRECTION_SETTINGS = SelfCorrectionSettings()
@@ -86,9 +84,13 @@ def get_semantic_repository() -> FileSemanticRepository:
     global _semantic_repository
     if _semantic_repository is None:
         embedding_service = EmbeddingService(
-            model_path=_SETTINGS.embedding_model_path
+            model_path=_SETTINGS.production_embedding_model_path,
+            model_name=_SETTINGS.production_embedding_model_name,
+            device=_SETTINGS.embedding_device,
+            batch_size=_SETTINGS.embedding_batch_size,
+            normalize=_SETTINGS.normalize_embeddings,
         )
-        vector_store = LocalVectorStore(
+        vector_store = FaissVectorIndex(
             SEMANTIC_LAYER_PATH.parent / _SETTINGS.vector_index_filename
         )
         _semantic_repository = FileSemanticRepository(
@@ -160,7 +162,6 @@ def get_copilot_pipeline() -> CopilotRuntimePipeline:
     return CopilotRuntimePipeline(
         text_to_sql_pipeline=text_to_sql_pipeline,
         self_correction_service=get_self_correction_service(),
-        reference_data_preflight=ReferenceDataPreflight(SAMPLE_DATA_PATH),
     )
 
 

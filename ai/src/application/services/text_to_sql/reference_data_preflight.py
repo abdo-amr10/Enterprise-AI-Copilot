@@ -14,7 +14,7 @@ from pathlib import Path
 
 
 class ReferenceDataPreflight:
-    """Detect a requested branch manager that is absent from local reference data."""
+    """Local/demo-only checker; production runtime wiring never uses it."""
 
     _MANAGER_PATTERNS = (
         re.compile(

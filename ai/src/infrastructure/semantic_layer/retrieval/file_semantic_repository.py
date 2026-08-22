@@ -9,8 +9,8 @@ from typing import Any
 from src.infrastructure.semantic_layer.retrieval.embedding_service import (
     EmbeddingService,
 )
-from src.infrastructure.semantic_layer.retrieval.vector_store import (
-    LocalVectorStore,
+from src.infrastructure.semantic_layer.retrieval.vector_index import (
+    VectorIndex,
 )
 from src.infrastructure.semantic_layer.retrieval.semantic_document_builder import (
     SemanticDocumentBuilder,
@@ -24,7 +24,7 @@ class FileSemanticRepository:
         self,
         semantic_layer_path: str | Path,
         embedding_service: EmbeddingService | None = None,
-        vector_store: LocalVectorStore | None = None,
+        vector_store: VectorIndex | None = None,
     ) -> None:
         self._semantic_layer_path = Path(
             semantic_layer_path
@@ -86,6 +86,7 @@ class FileSemanticRepository:
             "semantic_layer_id": metadata["semantic_layer_id"],
             "revision_id": metadata["revision_id"],
             "embedding_dimension": self._embedding_service.embedding_dimension,
+            "embedding_model": self._embedding_service.model_name,
         })
         query_embedding = self._embedding_service.encode_query(question)
 

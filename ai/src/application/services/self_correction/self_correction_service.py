@@ -79,11 +79,17 @@ class SelfCorrectionService:
         semantic_context = semantic_context or self._context_retrieval_service.build_llm_context(question)
         current_sql = sql
         last_issues: list[ValidationIssue] = []
+        trace: list[dict[str, object]] = []
+        corrections_used = 0
 
         for attempt in range(self._max_attempts + 1):
             logger.info("Self-correction attempt %s", attempt)
-            logger.info("Original SQL: %s", current_sql)
             issues = self._deterministic_issues(current_sql)
+            trace.append({
+                "attempt": attempt,
+                "sql": current_sql,
+                "deterministicIssues": [issue.message for issue in issues],
+            })
 
             if not issues:
                 critic_result = self._critic_service.evaluate(
@@ -92,10 +98,14 @@ class SelfCorrectionService:
                     semantic_context=semantic_context,
                 )
                 issues = self._finding_verifier.verify(critic_result)
+                trace[-1]["criticStatus"] = critic_result.status
+                trace[-1]["verifiedCriticIssues"] = [issue.message for issue in issues]
 
             if not issues:
                 logger.info("Validation passed on attempt %s", attempt)
-                return SelfCorrectionOutcome.success(current_sql, attempts_used=attempt)
+                return SelfCorrectionOutcome.success(
+                    current_sql, attempts_used=attempt, trace=tuple(trace)
+                )
 
             last_issues = issues
 
@@ -106,24 +116,32 @@ class SelfCorrectionService:
                 logger.info("Self-correction stopped: maximum attempts (%s) reached", self._max_attempts)
                 break
 
-            corrected_sql = self._correction_service.correct(
-                question=question,
-                current_sql=current_sql,
-                issues=issues,
-                relevant_schema=self._relevant_schema(current_sql),
-                relevant_relationships=self._relevant_relationships(current_sql),
-            )
+            try:
+                corrections_used += 1
+                corrected_sql = self._correction_service.correct(
+                    question=question,
+                    current_sql=current_sql,
+                    issues=issues,
+                    relevant_schema=self._relevant_schema(current_sql),
+                    relevant_relationships=self._relevant_relationships(current_sql),
+                )
+            except Exception as exc:
+                logger.warning("SQL correction call failed: %s", type(exc).__name__)
+                trace[-1]["correctionError"] = type(exc).__name__
+                break
 
             if not corrected_sql:
                 logger.info("Self-correction stopped: correction model returned no SQL")
                 break
 
-            logger.info("Correction SQL: %s", corrected_sql)
+            logger.info("SQL correction generated for attempt %s", attempt + 1)
+            trace[-1]["correctedSql"] = corrected_sql
             current_sql = corrected_sql
 
         return SelfCorrectionOutcome.failure(
-            attempts_used=self._max_attempts,
+            attempts_used=corrections_used,
             issues=tuple(issue.message for issue in last_issues),
+            trace=tuple(trace),
         )
 
     def _deterministic_issues(self, sql: str) -> list[ValidationIssue]:

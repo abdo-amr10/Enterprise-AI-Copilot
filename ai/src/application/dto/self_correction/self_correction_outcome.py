@@ -1,6 +1,7 @@
 """Final outcome of the Self-Correction loop."""
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -17,13 +18,17 @@ class SelfCorrectionOutcome:
     sql: str | None
     attempts_used: int
     issues: tuple[str, ...] = ()
+    trace: tuple[dict[str, Any], ...] = ()
 
     @classmethod
-    def success(cls, sql: str, attempts_used: int) -> "SelfCorrectionOutcome":
-        return cls(is_valid=True, sql=sql, attempts_used=attempts_used)
+    def success(
+        cls, sql: str, attempts_used: int, trace: tuple[dict[str, Any], ...] = ()
+    ) -> "SelfCorrectionOutcome":
+        return cls(is_valid=True, sql=sql, attempts_used=attempts_used, trace=trace)
 
     @classmethod
     def failure(
-        cls, attempts_used: int, issues: tuple[str, ...] = ()
+        cls, attempts_used: int, issues: tuple[str, ...] = (),
+        trace: tuple[dict[str, Any], ...] = (),
     ) -> "SelfCorrectionOutcome":
-        return cls(is_valid=False, sql=None, attempts_used=attempts_used, issues=issues)
+        return cls(is_valid=False, sql=None, attempts_used=attempts_used, issues=issues, trace=trace)

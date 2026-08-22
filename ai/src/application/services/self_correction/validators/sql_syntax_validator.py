@@ -7,6 +7,8 @@ target enforced by TEXT_TO_SQL_PROMPT.
 
 from __future__ import annotations
 
+import re
+
 import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ErrorLevel, ParseError
@@ -16,6 +18,11 @@ from src.application.dto.self_correction.validation_result import ValidationResu
 
 _DIALECT = "tsql"
 _SOURCE = "syntax_validator"
+_FORBIDDEN_READ_ONLY = re.compile(
+    r"\b(INSERT|UPDATE|DELETE|MERGE|DROP|ALTER|CREATE|TRUNCATE|"
+    r"EXEC(?:UTE)?|SELECT\s+INTO|USE|GRANT|REVOKE|DENY|DBCC|BACKUP|RESTORE)\b",
+    re.IGNORECASE,
+)
 
 
 class SQLSyntaxValidator:
@@ -52,6 +59,17 @@ class SQLSyntaxValidator:
                     ValidationIssue(
                         type="MULTIPLE_STATEMENTS",
                         message="Only one read-only SQL statement is allowed.",
+                        source=_SOURCE,
+                    )
+                ]
+            )
+
+        if _FORBIDDEN_READ_ONLY.search(sql):
+            return ValidationResult.fail(
+                [
+                    ValidationIssue(
+                        type="NOT_READ_ONLY",
+                        message="Only a read-only SELECT statement is allowed.",
                         source=_SOURCE,
                     )
                 ]
