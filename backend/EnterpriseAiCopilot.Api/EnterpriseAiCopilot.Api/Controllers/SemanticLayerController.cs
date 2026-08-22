@@ -7,7 +7,7 @@ namespace EnterpriseAiCopilot.Api.Controllers
 {
     [Route("api/v1/semantic-layer")]
     [ApiController]
-    [Authorize]
+    [Authorize(Roles = "admin")]
     public class SemanticLayerController : ControllerBase
     {
         private readonly ISemanticLayerService _semanticLayerService;
