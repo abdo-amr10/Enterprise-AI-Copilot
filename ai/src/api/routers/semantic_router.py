@@ -1,9 +1,8 @@
 """Internal HTTP endpoints for Semantic Layer AI operations.
 
 The Backend owns uploads, revision persistence, status changes, and the
-public ``/api/v1/semantic-layer/*`` contract.  These endpoints only execute
-the AI-owned work after the Backend has resolved the source files and (for an
-incremental change) the approved base revision.
+public ``/api/v1/semantic-layer/*`` contract. These endpoints retrieve
+Backend-owned source files by ID and perform only AI-owned processing.
 """
 
 from __future__ import annotations
@@ -96,7 +95,11 @@ def generate_draft(
         get_semantic_generation_pipeline
     ),
 ) -> dict[str, Any]:
-    """Generate an identity-assigned draft from Backend-owned source IDs."""
+    """Generate an unpersisted draft from Backend-owned source IDs.
+
+    The Backend creates ``revisionId`` only after it persists this draft, so it
+    is deliberately not part of this request contract.
+    """
 
     try:
         body = request.model_dump()
@@ -112,7 +115,6 @@ def generate_draft(
         generation_request = SemanticLayerGenerationRequest(
             trigger_type=_required_string(body, "triggerType"),
             semantic_layer_id=_required_string(body, "semanticLayerId"),
-            revision_id=_required_string(body, "revisionId"),
             source_file_ids=_required_object(body, "sourceFileIds"),
             base_revision_id=body.get("baseRevisionId"),
             affected_objects=affected_objects,
@@ -223,6 +225,6 @@ def _validate_resolved_sources(trigger_type: str, sources: dict[str, Any]) -> No
     """Fail at the HTTP boundary before builders see malformed source data."""
     if trigger_type == "FullRebuild":
         if not isinstance(sources.get("schema"), dict):
-            raise ValueError("resolvedSources.schema must be an object for FullRebuild.")
+            raise ValueError("Backend schema source must be an object for FullRebuild.")
         if not isinstance(sources.get("relationships"), list):
-            raise ValueError("resolvedSources.relationships must be a list for FullRebuild.")
+            raise ValueError("Backend schema relationships must be a list for FullRebuild.")

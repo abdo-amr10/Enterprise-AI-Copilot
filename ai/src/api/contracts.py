@@ -37,9 +37,14 @@ class AffectedObjectRequest(StrictModel):
 
 
 class SemanticGenerateRequest(StrictModel):
+    """Backend-to-AI generation request.
+
+    ``revisionId`` is intentionally absent. The Backend allocates the
+    revision only after persisting the AI-produced draft.
+    """
+
     triggerType: Literal["FullRebuild", "Incremental"]
     semanticLayerId: str = Field(min_length=1)
-    revisionId: str = Field(min_length=1)
     sourceFileIds: dict[str, str]
     baseRevisionId: str | None = None
     baseSemanticLayer: dict[str, Any] | None = None

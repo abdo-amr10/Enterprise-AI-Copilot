@@ -85,7 +85,6 @@ def test_generation_pipeline_processes_request_data_without_filesystem_access(mo
             trigger_type="FullRebuild",
             source_file_ids={"schema": "file-schema"},
             semantic_layer_id="SL-001",
-            revision_id="REV-001",
         ),
         sources={"schema": {}, "relationships": []},
     )

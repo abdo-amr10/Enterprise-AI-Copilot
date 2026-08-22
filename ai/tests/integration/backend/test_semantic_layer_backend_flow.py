@@ -91,10 +91,7 @@ def test_semantic_layer_backend_clients_flow() -> None:
     )
     assert generation_response.semantic_layer_id == semantic_layer_id
 
-    revision_response = revision_client.get_revision(
-        semantic_layer_id,
-        revision_id,
-    )
+    revision_response = revision_client.get_revision(revision_id)
     assert revision_response.status == "PendingReview"
 
     submit_response = submit_client.submit(semantic_layer_id, revision_id)
@@ -113,7 +110,7 @@ def test_semantic_layer_backend_clients_flow() -> None:
     assert status_response.status == "Approved"
 
     http_client.get.assert_any_call(
-        f"/api/v1/semantic-layer/{semantic_layer_id}/revisions/{revision_id}"
+        f"/api/v1/semantic-layer/revisions/{revision_id}"
     )
     http_client.post.assert_any_call(
         f"/api/v1/semantic-layer/{semantic_layer_id}/revisions/{revision_id}/submit",

@@ -46,6 +46,37 @@ class SemanticLayerMetadataService:
 
         return result
 
+    def prepare_draft(
+        self,
+        semantic_layer: dict[str, Any],
+        semantic_layer_id: str,
+        trigger_type: str,
+        base_revision_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Prepare AI-generated content before Backend creates a revision.
+
+        Revision identity is intentionally absent: it is created by Backend
+        persistence after this unpersisted draft is returned.
+        """
+
+        if not semantic_layer_id or not semantic_layer_id.strip():
+            raise ValueError("semantic_layer_id cannot be empty.")
+        result = deepcopy(semantic_layer)
+        metadata = dict(result.get("metadata", {}))
+        metadata.update(
+            {
+                "semantic_layer_id": semantic_layer_id,
+                "base_revision_id": base_revision_id,
+                "trigger_type": trigger_type,
+                "status": "initial_draft",
+                "validated": False,
+                "human_review_required": True,
+            }
+        )
+        metadata.pop("revision_id", None)
+        result["metadata"] = metadata
+        return result
+
     def create_revision(
         self,
         semantic_layer: dict[str, Any],
