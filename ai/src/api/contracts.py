@@ -45,7 +45,9 @@ class SemanticGenerateRequest(StrictModel):
 
     triggerType: Literal["FullRebuild", "Incremental"]
     semanticLayerId: str = Field(min_length=1)
-    sourceFileIds: dict[str, str]
+    # Schema is mandatory. Optional source types may be represented as null
+    # by Backend JSON serializers and are removed before AI ingestion.
+    sourceFileIds: dict[str, str | None]
     baseRevisionId: str | None = None
     baseSemanticLayer: dict[str, Any] | None = None
     affectedObjects: list[AffectedObjectRequest] = Field(default_factory=list)

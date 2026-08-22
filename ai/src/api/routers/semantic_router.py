@@ -81,6 +81,17 @@ def _required_string(request: dict[str, Any], key: str) -> str:
     return value
 
 
+def _present_source_file_ids(request: dict[str, Any]) -> dict[str, str]:
+    """Drop only optional null IDs while keeping schema mandatory downstream."""
+
+    source_file_ids = _required_object(request, "sourceFileIds")
+    return {
+        source_type: file_id
+        for source_type, file_id in source_file_ids.items()
+        if file_id is not None
+    }
+
+
 def _handle_contract_error(error: ValueError) -> None:
     """Convert application DTO validation failures to a client error."""
 
@@ -114,7 +125,7 @@ def generate_draft(
         generation_request = SemanticLayerGenerationRequest(
             trigger_type=_required_string(body, "triggerType"),
             semantic_layer_id=_required_string(body, "semanticLayerId"),
-            source_file_ids=_required_object(body, "sourceFileIds"),
+            source_file_ids=_present_source_file_ids(body),
             base_revision_id=body.get("baseRevisionId"),
             affected_objects=affected_objects,
         )
