@@ -25,6 +25,8 @@ every attempt in the loop, per the "retrieve once" principle.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
+from typing import Any
 
 from src.application.services.self_correction.critic_finding_verifier import (
     CriticFindingVerifier,
@@ -50,6 +52,8 @@ from src.application.services.context_retrieval.context_retrieval_service import
 
 logger = logging.getLogger(__name__)
 
+TraceObserver = Callable[[dict[str, Any]], None]
+
 
 class SelfCorrectionService:
     """Runs the deterministic-first, LLM-assisted Self-Correction loop."""
@@ -74,7 +78,13 @@ class SelfCorrectionService:
         self._correction_service = correction_service
         self._max_attempts = max_attempts
 
-    def run(self, question: str, sql: str, semantic_context: str | None = None) -> SelfCorrectionOutcome:
+    def run(
+        self,
+        question: str,
+        sql: str,
+        semantic_context: str | None = None,
+        trace_observer: TraceObserver | None = None,
+    ) -> SelfCorrectionOutcome:
         """Validate the original candidate plus at most ``max_attempts`` corrections."""
         semantic_context = semantic_context or self._context_retrieval_service.build_llm_context(question)
         current_sql = sql
@@ -103,6 +113,9 @@ class SelfCorrectionService:
 
             if not issues:
                 logger.info("Validation passed on attempt %s", attempt)
+                self._notify_trace_observer(
+                    trace_observer, {**trace[-1], "action": "passed"}
+                )
                 return SelfCorrectionOutcome.success(
                     current_sql, attempts_used=attempt, trace=tuple(trace)
                 )
@@ -114,7 +127,16 @@ class SelfCorrectionService:
 
             if attempt == self._max_attempts:
                 logger.info("Self-correction stopped: maximum attempts (%s) reached", self._max_attempts)
+                self._notify_trace_observer(
+                    trace_observer,
+                    {**trace[-1], "action": "maximum_attempts_reached"},
+                )
                 break
+
+            self._notify_trace_observer(
+                trace_observer,
+                {**trace[-1], "action": "correction_required"},
+            )
 
             try:
                 corrections_used += 1
@@ -128,14 +150,36 @@ class SelfCorrectionService:
             except Exception as exc:
                 logger.warning("SQL correction call failed: %s", type(exc).__name__)
                 trace[-1]["correctionError"] = type(exc).__name__
+                self._notify_trace_observer(
+                    trace_observer,
+                    {
+                        "event": "correction_failed",
+                        "attempt": attempt + 1,
+                        "error": type(exc).__name__,
+                    },
+                )
                 break
 
             if not corrected_sql:
                 logger.info("Self-correction stopped: correction model returned no SQL")
+                self._notify_trace_observer(
+                    trace_observer,
+                    {"event": "correction_returned_no_sql", "attempt": attempt + 1},
+                )
                 break
 
             logger.info("SQL correction generated for attempt %s", attempt + 1)
             trace[-1]["correctedSql"] = corrected_sql
+            self._notify_trace_observer(
+                trace_observer,
+                {
+                    "event": "after_correction",
+                    "attempt": attempt + 1,
+                    "previousSql": current_sql,
+                    "sql": corrected_sql,
+                    "changed": corrected_sql != current_sql,
+                },
+            )
             current_sql = corrected_sql
 
         return SelfCorrectionOutcome.failure(
@@ -143,6 +187,20 @@ class SelfCorrectionService:
             issues=tuple(issue.message for issue in last_issues),
             trace=tuple(trace),
         )
+
+    @staticmethod
+    def _notify_trace_observer(
+        trace_observer: TraceObserver | None,
+        step: dict[str, Any],
+    ) -> None:
+        """Publish optional diagnostic data without affecting correction behavior."""
+
+        if trace_observer is None:
+            return
+        try:
+            trace_observer(dict(step))
+        except Exception:
+            logger.warning("Self-correction trace observer failed", exc_info=True)
 
     def _deterministic_issues(self, sql: str) -> list[ValidationIssue]:
         for validator in (

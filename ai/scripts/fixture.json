@@ -1,0 +1,492 @@
+{
+  "status": "Success",
+  "columns": [
+    "customer_name",
+    "loan_amount"
+  ],
+  "rows": [
+    [
+      "Customer 1",
+      1037
+    ],
+    [
+      "Customer 2",
+      1074
+    ],
+    [
+      "Customer 3",
+      1111
+    ],
+    [
+      "Customer 4",
+      1148
+    ],
+    [
+      "Customer 5",
+      1185
+    ],
+    [
+      "Customer 6",
+      1222
+    ],
+    [
+      "Customer 7",
+      1259
+    ],
+    [
+      "Customer 8",
+      1296
+    ],
+    [
+      "Customer 9",
+      1333
+    ],
+    [
+      "Customer 10",
+      1370
+    ],
+    [
+      "Customer 11",
+      1407
+    ],
+    [
+      "Customer 12",
+      1444
+    ],
+    [
+      "Customer 13",
+      1481
+    ],
+    [
+      "Customer 14",
+      1518
+    ],
+    [
+      "Customer 15",
+      1555
+    ],
+    [
+      "Customer 16",
+      1592
+    ],
+    [
+      "Customer 17",
+      1629
+    ],
+    [
+      "Customer 18",
+      1666
+    ],
+    [
+      "Customer 19",
+      1703
+    ],
+    [
+      "Customer 20",
+      1740
+    ],
+    [
+      "Customer 21",
+      1777
+    ],
+    [
+      "Customer 22",
+      1814
+    ],
+    [
+      "Customer 23",
+      1851
+    ],
+    [
+      "Customer 24",
+      1888
+    ],
+    [
+      "Customer 25",
+      1925
+    ],
+    [
+      "Customer 26",
+      1962
+    ],
+    [
+      "Customer 27",
+      1999
+    ],
+    [
+      "Customer 28",
+      2036
+    ],
+    [
+      "Customer 29",
+      2073
+    ],
+    [
+      "Customer 30",
+      2110
+    ],
+    [
+      "Customer 31",
+      2147
+    ],
+    [
+      "Customer 32",
+      2184
+    ],
+    [
+      "Customer 33",
+      2221
+    ],
+    [
+      "Customer 34",
+      2258
+    ],
+    [
+      "Customer 35",
+      2295
+    ],
+    [
+      "Customer 36",
+      2332
+    ],
+    [
+      "Customer 37",
+      2369
+    ],
+    [
+      "Customer 38",
+      2406
+    ],
+    [
+      "Customer 39",
+      2443
+    ],
+    [
+      "Customer 40",
+      2480
+    ],
+    [
+      "Customer 41",
+      2517
+    ],
+    [
+      "Customer 42",
+      2554
+    ],
+    [
+      "Customer 43",
+      2591
+    ],
+    [
+      "Customer 44",
+      2628
+    ],
+    [
+      "Customer 45",
+      2665
+    ],
+    [
+      "Customer 46",
+      2702
+    ],
+    [
+      "Customer 47",
+      2739
+    ],
+    [
+      "Customer 48",
+      2776
+    ],
+    [
+      "Customer 49",
+      2813
+    ],
+    [
+      "Customer 50",
+      2850
+    ],
+    [
+      "Customer 51",
+      2887
+    ],
+    [
+      "Customer 52",
+      2924
+    ],
+    [
+      "Customer 53",
+      2961
+    ],
+    [
+      "Customer 54",
+      2998
+    ],
+    [
+      "Customer 55",
+      3035
+    ],
+    [
+      "Customer 56",
+      3072
+    ],
+    [
+      "Customer 57",
+      3109
+    ],
+    [
+      "Customer 58",
+      3146
+    ],
+    [
+      "Customer 59",
+      3183
+    ],
+    [
+      "Customer 60",
+      3220
+    ],
+    [
+      "Customer 61",
+      3257
+    ],
+    [
+      "Customer 62",
+      3294
+    ],
+    [
+      "Customer 63",
+      3331
+    ],
+    [
+      "Customer 64",
+      3368
+    ],
+    [
+      "Customer 65",
+      3405
+    ],
+    [
+      "Customer 66",
+      3442
+    ],
+    [
+      "Customer 67",
+      3479
+    ],
+    [
+      "Customer 68",
+      3516
+    ],
+    [
+      "Customer 69",
+      3553
+    ],
+    [
+      "Customer 70",
+      3590
+    ],
+    [
+      "Customer 71",
+      3627
+    ],
+    [
+      "Customer 72",
+      3664
+    ],
+    [
+      "Customer 73",
+      3701
+    ],
+    [
+      "Customer 74",
+      3738
+    ],
+    [
+      "Customer 75",
+      3775
+    ],
+    [
+      "Customer 76",
+      3812
+    ],
+    [
+      "Customer 77",
+      3849
+    ],
+    [
+      "Customer 78",
+      3886
+    ],
+    [
+      "Customer 79",
+      3923
+    ],
+    [
+      "Customer 80",
+      3960
+    ],
+    [
+      "Customer 81",
+      3997
+    ],
+    [
+      "Customer 82",
+      4034
+    ],
+    [
+      "Customer 83",
+      4071
+    ],
+    [
+      "Customer 84",
+      4108
+    ],
+    [
+      "Customer 85",
+      4145
+    ],
+    [
+      "Customer 86",
+      4182
+    ],
+    [
+      "Customer 87",
+      4219
+    ],
+    [
+      "Customer 88",
+      4256
+    ],
+    [
+      "Customer 89",
+      4293
+    ],
+    [
+      "Customer 90",
+      4330
+    ],
+    [
+      "Customer 91",
+      4367
+    ],
+    [
+      "Customer 92",
+      4404
+    ],
+    [
+      "Customer 93",
+      4441
+    ],
+    [
+      "Customer 94",
+      4478
+    ],
+    [
+      "Customer 95",
+      4515
+    ],
+    [
+      "Customer 96",
+      4552
+    ],
+    [
+      "Customer 97",
+      4589
+    ],
+    [
+      "Customer 98",
+      4626
+    ],
+    [
+      "Customer 99",
+      4663
+    ],
+    [
+      "Customer 100",
+      4700
+    ],
+    [
+      "Customer 101",
+      4737
+    ],
+    [
+      "Customer 102",
+      4774
+    ],
+    [
+      "Customer 103",
+      4811
+    ],
+    [
+      "Customer 104",
+      4848
+    ],
+    [
+      "Customer 105",
+      4885
+    ],
+    [
+      "Customer 106",
+      4922
+    ],
+    [
+      "Customer 107",
+      4959
+    ],
+    [
+      "Customer 108",
+      4996
+    ],
+    [
+      "Customer 109",
+      5033
+    ],
+    [
+      "Customer 110",
+      5070
+    ],
+    [
+      "Customer 111",
+      5107
+    ],
+    [
+      "Customer 112",
+      5144
+    ],
+    [
+      "Customer 113",
+      5181
+    ],
+    [
+      "Customer 114",
+      5218
+    ],
+    [
+      "Customer 115",
+      5255
+    ],
+    [
+      "Customer 116",
+      5292
+    ],
+    [
+      "Customer 117",
+      5329
+    ],
+    [
+      "Customer 118",
+      5366
+    ],
+    [
+      "Customer 119",
+      5403
+    ],
+    [
+      "Customer 120",
+      5440
+    ]
+  ],
+  "row_count": 120,
+  "error_code": null,
+  "error_message": null
+}

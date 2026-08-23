@@ -70,3 +70,40 @@ def test_failed_first_correction_reports_one_actual_correction_attempt():
     correction = _Correction([None])
     outcome = _service(_Validator(), critic, correction).run("q", "SELECT 1", "context")
     assert not outcome.is_valid and outcome.attempts_used == 1
+
+
+def test_trace_observer_reports_initial_attempt_correction_and_final_attempt():
+    critic = _Critic([CriticResult("FAIL"), CriticResult("PASS")])
+    correction = _Correction(["SELECT 2"])
+    steps = []
+
+    outcome = _service(_Validator(), critic, correction).run(
+        "q", "SELECT 1", "context", trace_observer=steps.append
+    )
+
+    assert outcome.is_valid
+    assert steps == [
+        {
+            "attempt": 0,
+            "sql": "SELECT 1",
+            "deterministicIssues": [],
+            "criticStatus": "FAIL",
+            "verifiedCriticIssues": ["Missing filter"],
+            "action": "correction_required",
+        },
+        {
+            "event": "after_correction",
+            "attempt": 1,
+            "previousSql": "SELECT 1",
+            "sql": "SELECT 2",
+            "changed": True,
+        },
+        {
+            "attempt": 1,
+            "sql": "SELECT 2",
+            "deterministicIssues": [],
+            "criticStatus": "PASS",
+            "verifiedCriticIssues": [],
+            "action": "passed",
+        },
+    ]

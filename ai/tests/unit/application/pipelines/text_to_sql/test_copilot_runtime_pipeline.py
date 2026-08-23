@@ -20,7 +20,7 @@ class FakeTextToSQLPipeline:
 
 class FakeSelfCorrection:
     def __init__(self, valid=True): self.valid = valid
-    def run(self, question, sql, semantic_context):
+    def run(self, question, sql, semantic_context, trace_observer=None):
         from src.application.dto.self_correction.self_correction_outcome import SelfCorrectionOutcome
         return SelfCorrectionOutcome.success(sql, 0) if self.valid else SelfCorrectionOutcome.failure(3, ("invalid",))
 
@@ -58,3 +58,28 @@ def test_runtime_pipeline_maps_exhausted_corrections_to_a_stable_failure() -> No
     ).run(CopilotAskRequest(question="Show customers", conversation=()))
     assert response.status == "Failed"
     assert response.error_code == "MAX_RETRIES_EXCEEDED"
+
+
+def test_runtime_pipeline_emits_optional_trace_without_changing_response() -> None:
+    model_output = json.dumps(
+        {"status": "success", "sql": "SELECT customer_id FROM customers;", "is_read_only": True}
+    )
+    trace = []
+
+    response = CopilotRuntimePipeline(
+        FakeTextToSQLPipeline(model_output), FakeSelfCorrection()
+    ).run(
+        CopilotAskRequest(question="Show customers", conversation=()),
+        trace_observer=trace.append,
+    )
+
+    assert response.status == "Success"
+    assert trace == [
+        {"event": "initial_generation", "sql": "SELECT customer_id FROM customers;"},
+        {
+            "event": "final_result",
+            "sql": "SELECT customer_id FROM customers;",
+            "attemptsUsed": 0,
+            "status": "passed",
+        },
+    ]

@@ -26,7 +26,7 @@ class BackendSemanticClient:
         for name, file_id in source_file_ids.items():
             if file_id:
                 payload = self._get(f"/api/v1/semantic-layer/files/{file_id}")
-                sources[name] = payload.get("content")
+                sources[self._source_key(name)] = payload.get("content")
         schema = sources.get("schema")
         if not isinstance(schema, dict):
             raise ValueError("The Backend schema source must be a JSON object.")
@@ -34,6 +34,16 @@ class BackendSemanticClient:
         if not isinstance(sources["relationships"], list):
             raise ValueError("The Backend schema relationships must be a list.")
         return sources
+
+    @staticmethod
+    def _source_key(name: str) -> str:
+        """Normalize Backend source names to the AI build-input vocabulary."""
+
+        if name == "glossary":
+            return "business_glossary"
+        if name == "sampleData":
+            return "sample_data"
+        return name
 
     def load_revision(self, revision_id: str) -> dict[str, Any]:
         payload = self._get(f"/api/v1/semantic-layer/revisions/{revision_id}")

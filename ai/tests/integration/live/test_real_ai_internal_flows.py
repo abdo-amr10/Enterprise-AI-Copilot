@@ -13,6 +13,8 @@ from src.api.generation_validation_dependencies import (
     get_semantic_generation_pipeline,
     get_semantic_validation_pipeline,
 )
+from src.api.dependencies import get_copilot_pipeline
+from src.application.dto.backend.copilot.copilot_ask_request import CopilotAskRequest
 from src.api.semantic_review_dependencies import get_semantic_review_pipeline
 from src.application.dto.backend.semantic_layer.semantic_layer_generation_request import (
     SemanticLayerGenerationRequest,
@@ -59,6 +61,49 @@ def _configure_live_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     except ValueError as error:
         raise pytest.UsageError("EAI_LIVE_OLLAMA_TIMEOUT_SECONDS must be positive.") from error
     monkeypatch.setenv("OLLAMA_TIMEOUT_SECONDS", timeout)
+
+
+def _print_self_correction_trace(event: dict[str, object]) -> None:
+    """Render diagnostic events emitted by the real runtime pipeline."""
+
+    event_type = event.get("event")
+    if event_type == "initial_generation":
+        print("\n[STEP 1] INITIAL GENERATION\n\nGenerated SQL:\n" + str(event["sql"]))
+        return
+    if event_type == "after_correction":
+        print(
+            f"\n[AFTER CORRECTION #{event['attempt']}]\n"
+            f"Previous SQL:\n{event['previousSql']}\n\n"
+            f"Corrected SQL:\n{event['sql']}\n\n"
+            f"Changed: {'YES' if event['changed'] else 'NO'}"
+        )
+        return
+    if event_type in {"correction_failed", "correction_returned_no_sql"}:
+        print(
+            f"\n[CORRECTION #{event['attempt']} STOPPED]\n"
+            f"Reason: {event.get('error', 'The correction model returned no SQL.')}"
+        )
+        return
+    if event_type == "final_result":
+        print(
+            "\n[FINAL] SELF-CORRECTION RESULT\n"
+            f"Final SQL:\n{event['sql'] or 'Not available'}\n\n"
+            f"Attempts: {event['attemptsUsed']}\nStatus: {str(event['status']).upper()}"
+        )
+        return
+
+    attempt = int(event["attempt"])
+    print(
+        f"\n[SELF-CORRECTION ATTEMPT #{attempt + 1}]\n"
+        f"Input SQL:\n{event['sql']}\n\n"
+        "Critic / Validation Findings:"
+    )
+    findings = [
+        *event.get("deterministicIssues", []),
+        *event.get("verifiedCriticIssues", []),
+    ]
+    print(*(f"- {finding}" for finding in findings), sep="\n") if findings else print("- None")
+    print(f"\nDecision: {str(event.get('action', 'unknown')).upper()}")
 
 
 def test_real_semantic_layer_generation_validation_review_and_indexing(
@@ -135,3 +180,22 @@ def test_real_semantic_layer_generation_validation_review_and_indexing(
     print(f"Semantic Index: {index_path}")
     print(f"Index Build Result: {index_result_path}")
     print(f"Artifact Directory: {artifact_dir}")
+
+
+def test_real_text_to_sql_self_correction_trace(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Print each real correction step without adding diagnostics to the API response."""
+
+    _configure_live_timeout(monkeypatch)
+    monkeypatch.setenv("AI_LOCAL_DEV_MODE", "true")
+    print("\n" + "=" * 60)
+    print("TEXT-TO-SQL SELF-CORRECTION TRACE")
+    print("=" * 60)
+
+    result = get_copilot_pipeline().run(
+        CopilotAskRequest(
+            question="Show the total balance for each branch.",
+            conversation=(),
+        ),
+        trace_observer=_print_self_correction_trace,
+    )
+    assert result.status == "Success", result

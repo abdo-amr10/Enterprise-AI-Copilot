@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import re
 import logging
+from collections.abc import Callable
+from typing import Any
 
 from src.application.dto.backend.copilot.copilot_ask_request import CopilotAskRequest
 from src.application.dto.backend.copilot.text_to_sql_runtime_response import (
@@ -62,7 +64,11 @@ class CopilotRuntimePipeline:
         self._text_to_sql_pipeline = text_to_sql_pipeline
         self._self_correction_service = self_correction_service
 
-    def run(self, request: CopilotAskRequest) -> TextToSQLRuntimeResponse:
+    def run(
+        self,
+        request: CopilotAskRequest,
+        trace_observer: Callable[[dict[str, Any]], None] | None = None,
+    ) -> TextToSQLRuntimeResponse:
         try:
             semantic_context = self._text_to_sql_pipeline.build_context(request.question)
             generated = self._text_to_sql_pipeline.run(
@@ -114,13 +120,20 @@ class CopilotRuntimePipeline:
             )
 
         sql = sql.strip()
+        self._notify_trace_observer(
+            trace_observer,
+            {"event": "initial_generation", "sql": sql},
+        )
 
         try:
-            outcome = self._self_correction_service.run(
-                question=request.question,
-                sql=sql,
-                semantic_context=semantic_context,
-            )
+            correction_kwargs: dict[str, Any] = {
+                "question": request.question,
+                "sql": sql,
+                "semantic_context": semantic_context,
+            }
+            if trace_observer is not None:
+                correction_kwargs["trace_observer"] = trace_observer
+            outcome = self._self_correction_service.run(**correction_kwargs)
         except Exception as exc:
             logger.exception("Text-to-SQL validation/correction failed")
             return TextToSQLRuntimeResponse.failure(
@@ -130,12 +143,45 @@ class CopilotRuntimePipeline:
             )
 
         if not outcome.is_valid:
+            self._notify_trace_observer(
+                trace_observer,
+                {
+                    "event": "final_result",
+                    "sql": None,
+                    "attemptsUsed": outcome.attempts_used,
+                    "status": "failed",
+                    "issues": list(outcome.issues),
+                },
+            )
             return TextToSQLRuntimeResponse.failure(
                 "MAX_RETRIES_EXCEEDED",
                 "The system could not generate a valid read-only SQL query.",
                 failure_reason="; ".join(outcome.issues) or "The query remained invalid after correction attempts.",
             )
 
+        self._notify_trace_observer(
+            trace_observer,
+            {
+                "event": "final_result",
+                "sql": outcome.sql,
+                "attemptsUsed": outcome.attempts_used,
+                "status": "passed",
+            },
+        )
         return TextToSQLRuntimeResponse.success(outcome.sql)
+
+    @staticmethod
+    def _notify_trace_observer(
+        trace_observer: Callable[[dict[str, Any]], None] | None,
+        event: dict[str, Any],
+    ) -> None:
+        """Publish optional diagnostics without changing the runtime response."""
+
+        if trace_observer is None:
+            return
+        try:
+            trace_observer(dict(event))
+        except Exception:
+            logger.warning("Text-to-SQL trace observer failed", exc_info=True)
 
 
