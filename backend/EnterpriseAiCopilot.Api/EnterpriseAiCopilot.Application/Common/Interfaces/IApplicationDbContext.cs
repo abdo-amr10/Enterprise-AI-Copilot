@@ -12,7 +12,7 @@ namespace EnterpriseAiCopilot.Application.Common.Interfaces
         DbSet<SemanticLayer> SemanticLayers { get; }
         DbSet<SemanticSourceFile> SemanticSourceFiles { get; }
         DbSet<SemanticRevision> SemanticRevisions { get; }
-
+        DbSet<CopilotQueryHistory> CopilotQueryHistories { get; }
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     }
 }

@@ -22,8 +22,10 @@ namespace EnterpriseAiCopilot.Application.DTOs.SemanticLayer.Validators
                  .NotNull().WithMessage("Schema file is required.")
                  .Must(file => file.Length > 0).WithMessage("Schema file cannot be empty.")
                  .Must(file => file.FileName.EndsWith(".sql", StringComparison.OrdinalIgnoreCase) ||
-                               file.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
-                 .WithMessage("Schema file must be a .sql or .pdf file.");
+                               file.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) ||
+                               file.FileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) 
+                 .WithMessage("Schema file must be a .sql, .pdf, or .json file."); 
+
 
             When(x => x.DocumentationFile != null, () =>
             {
