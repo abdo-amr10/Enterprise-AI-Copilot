@@ -8,8 +8,8 @@ from typing import Any
 from src.application.dto.semantic_layer.semantic_layer_build_input import (
     SemanticLayerBuildInput,
 )
-from src.application.services.semantic_layer.semantic_layer_builder import (
-    SemanticLayerBuilder,
+from src.application.services.semantic_layer.builders.full_build_builder import (
+    FullRebuildBuilder,
 )
 from src.application.services.semantic_layer.semantic_layer_identity_service import (
     SemanticLayerIdentityService,
@@ -125,14 +125,15 @@ def main(semantic_layer_id: str | None = None) -> None:
 
     # 8. Wire the configured LLM client into the application service.
     llm_client = OllamaClient(SEMANTIC_LAYER_CONFIG)
-    builder = SemanticLayerBuilder(llm_client)
+    builder = FullRebuildBuilder(llm_client)
 
     # 9. Generate the initial semantic-layer draft.
     result = builder.build(build_input)
     id_generator = SemanticLayerIdGenerator()
-    draft = SemanticLayerMetadataService(id_generator).initialize(
+    draft = SemanticLayerMetadataService().initialize(
         result.semantic_layer,
         semantic_layer_id or id_generator.generate_semantic_layer_id(),
+        id_generator.generate_revision_id(),
     )
     draft = SemanticLayerIdentityService().assign_object_ids(draft)
 

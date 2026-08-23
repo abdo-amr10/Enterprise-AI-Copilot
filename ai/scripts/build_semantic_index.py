@@ -13,8 +13,8 @@ from src.infrastructure.semantic_layer.retrieval.embedding_service import (
 from src.infrastructure.semantic_layer.retrieval.semantic_index_builder import (
     SemanticIndexBuilder,
 )
-from src.infrastructure.semantic_layer.retrieval.vector_store import (
-    LocalVectorStore,
+from src.infrastructure.semantic_layer.retrieval.faiss_vector_index import (
+    FaissVectorIndex,
 )
 
 
@@ -81,16 +81,21 @@ def main() -> None:
 
     # 4. Initialize embedding service.
     embedding_service = EmbeddingService(
-        settings.embedding_model_path
+        settings.production_embedding_model_path,
+        model_name=settings.production_embedding_model_name,
+        device=settings.embedding_device,
+        batch_size=settings.embedding_batch_size,
+        normalize=settings.normalize_embeddings,
     )
 
     # 5. Initialize local vector store.
-    vector_store = LocalVectorStore(index_path)
+    vector_store = FaissVectorIndex(index_path)
 
     # 6. Build and persist the vector index.
     index_builder = SemanticIndexBuilder(
         embedding_service,
         vector_store,
+        settings=settings,
     )
 
     result = index_builder.build(
@@ -116,8 +121,8 @@ def main() -> None:
         f"{result['embedding_dimension']}"
     )
     print(
-        f"Embedding backend: "
-        f"{result['embedding_backend']}"
+        f"Embedding model: "
+        f"{result['embedding_model']}"
     )
     print(
         f"Index: {result['index_path']}"

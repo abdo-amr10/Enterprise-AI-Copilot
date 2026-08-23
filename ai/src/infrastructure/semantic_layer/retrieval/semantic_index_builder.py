@@ -1,165 +1,54 @@
-"""Build a vector index from an approved Semantic Layer."""
+"""Processing-only semantic document embedding and vector-index construction."""
 
 from __future__ import annotations
 
+from time import perf_counter
 from typing import Any
 
-from src.infrastructure.semantic_layer.retrieval.embedding_service import (
-    EmbeddingService,
-)
-from src.infrastructure.semantic_layer.retrieval.vector_store import (
-    LocalVectorStore,
-)
+from src.config.semantic_settings import SemanticSettings
+from src.infrastructure.semantic_layer.retrieval.embedding_service import EmbeddingService
+from src.infrastructure.semantic_layer.retrieval.semantic_document_builder import SemanticDocumentBuilder
+from src.infrastructure.semantic_layer.retrieval.vector_index import VectorIndex
 
 
 class SemanticIndexBuilder:
-    """Create embeddings and build the local semantic vector index."""
+    """Build a derived index from an in-memory approved Backend revision."""
 
-    _SECTIONS = (
-        ("entity", "entities"),
-        ("relationship", "relationships"),
-        ("measure", "measures"),
-        ("dimension", "dimensions"),
-        ("business_rule", "business_rules"),
-    )
-
-    def __init__(
-        self,
-        embedding_service: EmbeddingService,
-        vector_store: LocalVectorStore,
-    ) -> None:
+    def __init__(self, embedding_service: EmbeddingService, vector_index: VectorIndex,
+                 document_builder: SemanticDocumentBuilder | None = None,
+                 settings: SemanticSettings | None = None) -> None:
         self._embedding_service = embedding_service
-        self._vector_store = vector_store
+        self._vector_index = vector_index
+        self._document_builder = document_builder or SemanticDocumentBuilder()
+        self._settings = settings or SemanticSettings()
 
-    def build(
-        self,
-        layer: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Build an index for one approved Semantic Layer revision."""
-
-        metadata = layer.get("metadata", {})
-
-        semantic_layer_id = metadata.get("semantic_layer_id")
-        revision_id = metadata.get("revision_id")
-
-        if not semantic_layer_id:
-            raise ValueError(
-                "semantic_layer_id is required."
-            )
-
-        if not revision_id:
-            raise ValueError(
-                "revision_id is required."
-            )
-
-        documents = self._documents(
-            layer=layer,
-            semantic_layer_id=semantic_layer_id,
-            revision_id=revision_id,
-        )
-
-        embeddings = self._embedding_service.encode(
-            [document["text"] for document in documents]
-        )
-
-        self._vector_store.build(
-            documents,
-            embeddings,
-            metadata={
-                "index_version": 1,
-                "semantic_layer_id": semantic_layer_id,
-                "revision_id": revision_id,
-                "document_count": len(documents),
-                "embedding_dimension": int(embeddings.shape[1]) if len(embeddings) else 0,
-                "embedding_backend": self._embedding_service.backend,
-            },
-        )
-
-        return {
-            "semantic_layer_id": semantic_layer_id,
-            "revision_id": revision_id,
+    def build(self, layer: dict[str, Any]) -> dict[str, Any]:
+        started = perf_counter()
+        documents_started = perf_counter()
+        documents = self._document_builder.build(layer)
+        document_seconds = perf_counter() - documents_started
+        embedding_started = perf_counter()
+        embeddings = self._embedding_service.encode_documents([document["text"] for document in documents])
+        embedding_seconds = perf_counter() - embedding_started
+        metadata = layer["metadata"]
+        index_started = perf_counter()
+        index_metadata = {
+            "index_version": self._settings.index_version,
+            "semantic_layer_id": metadata["semantic_layer_id"],
+            "revision_id": metadata["revision_id"],
+            "embedding_model": self._embedding_service.model_name,
+            "embedding_model_version": self._embedding_service.model_version,
+            "embedding_dimension": self._embedding_service.embedding_dimension,
+            "similarity_metric": self._settings.similarity_metric,
+            "index_type": self._settings.index_type,
             "document_count": len(documents),
-            "embedding_dimension": (
-                int(embeddings.shape[1])
-                if len(embeddings)
-                else 0
-            ),
-            "embedding_backend": self._embedding_service.backend,
-            "index_version": 1,
         }
-
-    @classmethod
-    def _documents(
-        cls,
-        layer: dict[str, Any],
-        semantic_layer_id: str,
-        revision_id: str,
-    ) -> list[dict[str, Any]]:
-        documents: list[dict[str, Any]] = []
-
-        for doc_type, section in cls._SECTIONS:
-            for item in layer.get(section, []):
-                if not isinstance(item, dict):
-                    continue
-
-                documents.append(
-                    {
-                        "id": cls._document_id(
-                            semantic_layer_id,
-                            revision_id,
-                            doc_type,
-                            item,
-                        ),
-                        "type": doc_type,
-                        "text": cls._render(
-                            doc_type,
-                            item,
-                        ),
-                        "payload": item,
-                        "semanticLayerId": semantic_layer_id,
-                        "revisionId": revision_id,
-                    }
-                )
-
-        return documents
-
-    @staticmethod
-    def _document_id(
-        semantic_layer_id: str,
-        revision_id: str,
-        doc_type: str,
-        item: dict[str, Any],
-    ) -> str:
-        name = item.get("name")
-
-        if not name:
-            raise ValueError(
-                f"Semantic {doc_type} must contain a name."
-            )
-
-        return (
-            f"{semantic_layer_id}:"
-            f"{revision_id}:"
-            f"{doc_type}:"
-            f"{name}"
-        )
-
-    @staticmethod
-    def _render(
-        doc_type: str,
-        item: dict[str, Any],
-    ) -> str:
-        fields = [f"type: {doc_type}"]
-
-        for key, value in item.items():
-            if key == "source":
-                continue
-
-            if isinstance(value, (dict, list)):
-                value = str(value)
-
-            fields.append(
-                f"{key}: {value}"
-            )
-
-        return " | ".join(fields)
+        self._vector_index.build(documents, embeddings, index_metadata)
+        self._vector_index.save()
+        index_seconds = perf_counter() - index_started
+        return {**index_metadata, "timings": {
+            "document_preparation_seconds": document_seconds,
+            "embedding_seconds": embedding_seconds,
+            "index_build_seconds": index_seconds,
+            "total_seconds": perf_counter() - started,
+        }}

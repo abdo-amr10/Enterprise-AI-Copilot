@@ -167,6 +167,34 @@
       "source": "schema"
     },
     {
+      "name": "Branch Name",
+      "object_id": "obj-dimension-branch-name",
+      "mapping": "branches.branch_name",
+      "description": "Display name of a banking branch.",
+      "source": "schema"
+    },
+    {
+      "name": "Branch Manager",
+      "object_id": "obj-dimension-branch-manager",
+      "mapping": "branches.manager_name",
+      "description": "Name of the manager assigned to a banking branch. Use branches.manager_name to filter branches by manager, then join branches.branch_id to accounts.branch_id for branch accounts.",
+      "source": "schema"
+    },
+    {
+      "name": "Branch City",
+      "object_id": "obj-dimension-branch-city",
+      "mapping": "branches.city",
+      "description": "City where a banking branch is located.",
+      "source": "schema"
+    },
+    {
+      "name": "Branch Country",
+      "object_id": "obj-dimension-branch-country",
+      "mapping": "branches.country",
+      "description": "Country where a banking branch is located.",
+      "source": "schema"
+    },
+    {
       "name": "Account ID",
       "object_id": "obj-dimension-account-id",
       "mapping": "accounts.account_id",
@@ -199,6 +227,174 @@
       "object_id": "obj-dimension-loan-id",
       "mapping": "loans.loan_id",
       "description": "Unique identifier for a loan.",
+      "source": "schema"
+    },
+    {
+      "name": "Customer First Name",
+      "object_id": "obj-dimension-customer-first-name",
+      "mapping": "customers.first_name",
+      "description": "Customer given name.",
+      "source": "schema"
+    },
+    {
+      "name": "Customer Last Name",
+      "object_id": "obj-dimension-customer-last-name",
+      "mapping": "customers.last_name",
+      "description": "Customer family name. Combine with Customer First Name when a customer name is requested.",
+      "source": "schema"
+    },
+    {
+      "name": "Customer Email",
+      "object_id": "obj-dimension-customer-email",
+      "mapping": "customers.email",
+      "description": "Customer email address.",
+      "source": "schema"
+    },
+    {
+      "name": "Customer City",
+      "object_id": "obj-dimension-customer-city",
+      "mapping": "customers.city",
+      "description": "City recorded for a customer.",
+      "source": "schema"
+    },
+    {
+      "name": "Customer Credit Score",
+      "object_id": "obj-dimension-customer-credit-score",
+      "mapping": "customers.credit_score",
+      "description": "Numeric customer credit score.",
+      "source": "schema"
+    },
+    {
+      "name": "Customer Created At",
+      "object_id": "obj-dimension-customer-created-at",
+      "mapping": "customers.created_at",
+      "description": "Timestamp when the customer record was created.",
+      "source": "schema"
+    },
+    {
+      "name": "Account Customer ID",
+      "object_id": "obj-dimension-account-customer-id",
+      "mapping": "accounts.customer_id",
+      "description": "Foreign key from an account to its customer.",
+      "source": "schema"
+    },
+    {
+      "name": "Account Branch ID",
+      "object_id": "obj-dimension-account-branch-id",
+      "mapping": "accounts.branch_id",
+      "description": "Foreign key from an account to its branch.",
+      "source": "schema"
+    },
+    {
+      "name": "Account Type",
+      "object_id": "obj-dimension-account-type",
+      "mapping": "accounts.account_type",
+      "description": "Category of the bank account.",
+      "source": "schema"
+    },
+    {
+      "name": "Account Balance",
+      "object_id": "obj-dimension-account-balance",
+      "mapping": "accounts.balance_usd",
+      "description": "Current account balance in USD. Use as a raw column unless an aggregate total is requested.",
+      "source": "schema"
+    },
+    {
+      "name": "Account Opening Date",
+      "object_id": "obj-dimension-account-opening-date",
+      "mapping": "accounts.open_date",
+      "description": "Date an account was opened.",
+      "source": "schema"
+    },
+    {
+      "name": "Card Account ID",
+      "object_id": "obj-dimension-card-account-id",
+      "mapping": "cards.account_id",
+      "description": "Foreign key from a card to its account.",
+      "source": "schema"
+    },
+    {
+      "name": "Card Type",
+      "object_id": "obj-dimension-card-type",
+      "mapping": "cards.card_type",
+      "description": "Category of a card.",
+      "source": "schema"
+    },
+    {
+      "name": "Card Expiration Date",
+      "object_id": "obj-dimension-card-expiration-date",
+      "mapping": "cards.expiration_date",
+      "description": "Date on which a card expires; this is a card attribute, not a relationship.",
+      "source": "schema"
+    },
+    {
+      "name": "Merchant Name",
+      "object_id": "obj-dimension-merchant-name",
+      "mapping": "merchants.merchant_name",
+      "description": "Display name of a merchant.",
+      "source": "schema"
+    },
+    {
+      "name": "Merchant City",
+      "object_id": "obj-dimension-merchant-city",
+      "mapping": "merchants.city",
+      "description": "City recorded for a merchant.",
+      "source": "schema"
+    },
+    {
+      "name": "Transaction Account ID",
+      "object_id": "obj-dimension-transaction-account-id",
+      "mapping": "transactions.account_id",
+      "description": "Foreign key from a transaction to its account.",
+      "source": "schema"
+    },
+    {
+      "name": "Transaction Merchant ID",
+      "object_id": "obj-dimension-transaction-merchant-id",
+      "mapping": "transactions.merchant_id",
+      "description": "Foreign key from a transaction to its merchant.",
+      "source": "schema"
+    },
+    {
+      "name": "Transaction Amount",
+      "object_id": "obj-dimension-transaction-amount",
+      "mapping": "transactions.amount_usd",
+      "description": "Amount of an individual transaction in USD.",
+      "source": "schema"
+    },
+    {
+      "name": "Transaction Date",
+      "object_id": "obj-dimension-transaction-date",
+      "mapping": "transactions.transaction_date",
+      "description": "Timestamp of an individual transaction.",
+      "source": "schema"
+    },
+    {
+      "name": "Loan Customer ID",
+      "object_id": "obj-dimension-loan-customer-id",
+      "mapping": "loans.customer_id",
+      "description": "Foreign key from a loan to its customer.",
+      "source": "schema"
+    },
+    {
+      "name": "Loan Amount",
+      "object_id": "obj-dimension-loan-amount",
+      "mapping": "loans.loan_amount",
+      "description": "Principal amount of an individual loan in USD.",
+      "source": "schema"
+    },
+    {
+      "name": "Loan Interest Rate",
+      "object_id": "obj-dimension-loan-interest-rate",
+      "mapping": "loans.interest_rate",
+      "description": "Interest rate recorded for an individual loan.",
+      "source": "schema"
+    },
+    {
+      "name": "Loan Start Date",
+      "object_id": "obj-dimension-loan-start-date",
+      "mapping": "loans.start_date",
+      "description": "Date an individual loan starts.",
       "source": "schema"
     }
   ],

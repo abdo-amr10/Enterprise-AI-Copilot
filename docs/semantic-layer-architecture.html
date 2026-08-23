@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Semantic Layer Architecture</title>
+  <style>body{font:16px system-ui;max-width:980px;margin:36px auto;line-height:1.5;color:#172033}h1,h2{color:#123b66}.implemented{color:#087443}.planned{color:#9a5b00}code,pre{background:#f3f6fa;padding:2px 5px}pre{padding:16px;white-space:pre-wrap}li{margin:.35rem 0}</style>
+</head>
+<body>
+  <h1>Semantic Layer Architecture</h1>
+  <p>Current implementation audit. Backend is the system of record; the AI runtime processes data supplied by Backend.</p>
+
+  <h2>Implemented</h2>
+  <pre>Backend-resolved sources
+  → POST /internal/semantic/generate-draft (Backend-assigned layer/revision IDs)
+  → in-memory initial draft
+  → POST /internal/semantic/validate (draft + schema + relationships)
+  → in-memory validated draft/result
+  → Backend persistence and lifecycle</pre>
+  <ul>
+    <li><strong>Generation:</strong> FullRebuild and Incremental generation, deterministic merge, and object identity assignment. Backend assigns <code>semantic_layer_id</code> and <code>revision_id</code> before the processing call; the AI carries them forward without replacement. It has no local Semantic Layer file I/O.</li>
+    <li><strong>Validation:</strong> validates Backend-provided schema and authoritative relationships; FullRebuild requires represented source relationships, while Incremental validates the complete merged draft. It performs a complete validation again after every auto-fix, returning only the final status. Successful validation returns <code>validated: true</code>, <code>status: "validated"</code>, and still requires human review.</li>
+    <li><strong>Review:</strong> <code>/internal/semantic/review</code> is in-memory only. API decisions are <code>Approve</code>/<code>Reject</code>; the application normalizes them to <code>approve</code>/<code>reject</code>. Approval requires a passed validation result; rejection requires comments. Backend persists the returned decision, review timestamp, reviewer, and draft.</li>
+    <li><strong>Rejection loop:</strong> Backend persists rejection, Admin edits the same revision, and Backend submits it to the same <code>/internal/semantic/validate</code> processing path. The loop may repeat; rejected revisions cannot be indexed.</li>
+    <li><strong>Embedding/index construction:</strong> an approved Backend-provided layer can be processed in memory by <code>SemanticDocumentBuilder → EmbeddingService → VectorIndex</code>. The configured offline model is <code>BAAI/bge-m3</code> at <code>ai/models/embeddings/bge-m3</code> (1024 dimensions). It loads lazily with <code>local_files_only=True</code>, batches documents, and emits normalized float32 vectors. FAISS <code>IndexFlatIP</code> is the vector-index implementation; its derived artifact metadata includes index version, layer/revision IDs, model/version, dimension, and document count.</li>
+  </ul>
+
+  <h2>Ownership</h2>
+  <ul>
+    <li><strong>Backend:</strong> uploaded files, source IDs, drafts, revisions, validation/review state, approval state, revision lineage, versions, and approved content.</li>
+    <li><strong>AI runtime:</strong> generation, validation, auto-fix, in-memory review transformation, document construction, embedding, index construction, and later retrieval processing.</li>
+  </ul>
+  <p>Generation/Validation use <code>ai/src/api/generation_validation_dependencies.py</code>; in-memory review uses <code>ai/src/api/semantic_review_dependencies.py</code>. Both are isolated from local repository, vector-store, schema-file, and sample-data dependencies.</p>
+
+  <h2>Backend-facing processing contracts</h2>
+  <ul>
+    <li><code>POST /internal/semantic/generate-draft</code>: Backend-assigned layer/revision IDs, trigger type, source-file IDs for lineage, <code>resolvedSources</code>, and for Incremental an approved base layer, base revision ID, and affected objects.</li>
+    <li><code>POST /internal/semantic/validate</code>: <code>draft</code>, authoritative <code>schema</code>, and authoritative <code>relationships</code>.</li>
+    <li><code>POST /internal/semantic/review</code>: a draft, validation result, title-case review decision, reviewer ID, and rejection comments when rejecting.</li>
+  </ul>
+
+  <h2>Development/reference tooling retained</h2>
+  <p><code>docs/database_metadata/</code>, <code>ai/outputs/semantic_layer/</code>, and the scripts <code>build_semantic_layer.py</code>, <code>validate_and_review.py</code>, <code>build_semantic_index.py</code>, and <code>run_semantic_layer_pipeline.py</code> remain historical/local tooling. Their local JSON and NumPy index artifacts are not authoritative production state.</p>
+
+  <h2>Planned / next migration</h2>
+  <p class="planned">Retrieval and Text-to-SQL still use local <code>FileSemanticRepository</code>, <code>LocalVectorStore</code>, <code>DatabaseSchemaProvider</code>, and <code>ReferenceDataPreflight</code>. They must be migrated to receive Backend-approved revision/schema/reference inputs or Backend-controlled derived-index storage. No such Backend endpoint or storage contract exists in this repository today.</p>
+  <p class="planned">The next phase is the Retrieval/Text-to-SQL migration. The BGE-M3 artifact is present and selected, but SentenceTransformers/FAISS must be installed in the deployment runtime before the real model/index integration checks can execute there.</p>
+</body>
+</html>

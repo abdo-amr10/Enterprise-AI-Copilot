@@ -31,6 +31,7 @@ class SemanticLayerAutoFixer:
         draft: dict[str, Any],
         validation: dict[str, Any],
         schema: dict[str, Any],
+        relationships: list[dict[str, Any]],
     ) -> dict[str, Any]:
         """Attempt to correct validation errors.
 
@@ -55,6 +56,7 @@ class SemanticLayerAutoFixer:
             draft=draft,
             validation=validation,
             schema=schema,
+            relationships=relationships,
         )
 
         request = GenerationRequest(prompt=prompt)
@@ -75,6 +77,7 @@ class SemanticLayerAutoFixer:
         draft: dict[str, Any],
         validation: dict[str, Any],
         schema: dict[str, Any],
+        relationships: list[dict[str, Any]],
     ) -> str:
         """Build the auto-fixer prompt."""
 
@@ -88,6 +91,7 @@ class SemanticLayerAutoFixer:
         - semantic_layer_id
         - revision_id
         - base_revision_id
+        - trigger_type
 
         The auto-fixer may correct semantic content only.
         It must preserve the Semantic Layer revision identity.
@@ -100,6 +104,9 @@ class SemanticLayerAutoFixer:
 
         AUTHORITATIVE DATABASE SCHEMA:
         {json.dumps(schema, indent=2, ensure_ascii=False)}
+
+        AUTHORITATIVE DATABASE RELATIONSHIPS:
+        {json.dumps(relationships, indent=2, ensure_ascii=False)}
         """.strip()
 
     @staticmethod
@@ -125,6 +132,7 @@ class SemanticLayerAutoFixer:
             "semantic_layer_id",
             "revision_id",
             "base_revision_id",
+            "trigger_type",
         ):
             if field in original_metadata:
                 corrected_metadata[field] = original_metadata[field]

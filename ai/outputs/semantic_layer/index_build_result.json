@@ -1,7 +1,7 @@
 {
   "semantic_layer_id": "sl-local-approved",
   "revision_id": "rev-local-approved",
-  "document_count": 26,
+  "document_count": 54,
   "embedding_dimension": 384,
   "embedding_backend": "sentence-transformers-local",
   "index_version": 1,

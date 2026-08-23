@@ -91,10 +91,7 @@ def test_semantic_layer_backend_clients_flow() -> None:
     )
     assert generation_response.semantic_layer_id == semantic_layer_id
 
-    revision_response = revision_client.get_revision(
-        semantic_layer_id,
-        revision_id,
-    )
+    revision_response = revision_client.get_revision(revision_id)
     assert revision_response.status == "PendingReview"
 
     submit_response = submit_client.submit(semantic_layer_id, revision_id)
@@ -113,7 +110,7 @@ def test_semantic_layer_backend_clients_flow() -> None:
     assert status_response.status == "Approved"
 
     http_client.get.assert_any_call(
-        f"/api/v1/semantic-layer/{semantic_layer_id}/revisions/{revision_id}"
+        f"/api/v1/semantic-layer/revisions/{revision_id}"
     )
     http_client.post.assert_any_call(
         f"/api/v1/semantic-layer/{semantic_layer_id}/revisions/{revision_id}/submit",
@@ -122,3 +119,22 @@ def test_semantic_layer_backend_clients_flow() -> None:
     http_client.get.assert_any_call(
         "/api/v1/semantic-layer/status"
     )
+
+
+def test_review_client_preserves_backend_rejection_audit_fields() -> None:
+    http_client = Mock(spec=BackendHttpClient)
+    http_client.post.return_value = {
+        "semanticLayerId": "sl-001", "revisionId": "rev-001",
+        "status": "Rejected", "version": "draft", "comments": "Needs relationship",
+        "rejectedBy": "usr-123", "rejectedAt": "2026-08-15T15:30:00Z",
+    }
+    response = SemanticLayerReviewClientImpl(http_client).review(
+        SemanticLayerReviewRequest(
+            semantic_layer_id="sl-001", revision_id="rev-001",
+            decision="Reject", comments="Needs relationship",
+        )
+    )
+    assert response.status == "Rejected"
+    assert response.rejected_by == "usr-123"
+    assert response.rejected_at == "2026-08-15T15:30:00Z"
+    assert response.comments == "Needs relationship"

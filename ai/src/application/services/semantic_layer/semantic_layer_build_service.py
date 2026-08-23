@@ -32,18 +32,28 @@ class SemanticLayerBuildService:
     ) -> SemanticLayerBuildResponse:
 
         if request.trigger_type == "FullRebuild":
+            if base_semantic_layer is not None:
+                raise ValueError(
+                    "base_semantic_layer must not be provided for FullRebuild."
+                )
+
             return self._full_rebuild_strategy.build(
                 request=request,
                 sources=sources,
             )
 
-        if base_semantic_layer is None:
-            raise ValueError(
-                "base_semantic_layer is required for Incremental generation."
+        if request.trigger_type == "Incremental":
+            if base_semantic_layer is None:
+                raise ValueError(
+                    "base_semantic_layer is required for Incremental generation."
+                )
+
+            return self._incremental_strategy.build(
+                request=request,
+                sources=sources,
+                base_semantic_layer=base_semantic_layer,
             )
 
-        return self._incremental_strategy.build(
-            request=request,
-            sources=sources,
-            base_semantic_layer=base_semantic_layer,
+        raise ValueError(
+            f"Unsupported trigger_type: {request.trigger_type}"
         )

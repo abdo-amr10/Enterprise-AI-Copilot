@@ -10,12 +10,14 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi==0.115.0",
+    "faiss-cpu>=1.9,<2",
     "numpy==2.5.2",
     "ollama==0.6.2",
     "requests==2.32.3",
-    "sentence-transformers==5.6.0",
+    "sentence-transformers==6.0.0",
     "sqlglot==30.17.0",
     "uvicorn[standard]==0.30.6",
+    "XlsxWriter>=3.2,<4",
 ]
 
 [project.scripts]
@@ -31,7 +33,8 @@ where = ["."]
 include = ["src*"]
 
 [tool.pytest.ini_options]
-addopts = "--import-mode=importlib --basetemp=../tmp/pytest -p no:cacheprovider"
+testpaths = ["tests"]
+addopts = "--import-mode=importlib -p no:cacheprovider"
 markers = [
     "integration: marks tests that require real infrastructure or external services",
 ]

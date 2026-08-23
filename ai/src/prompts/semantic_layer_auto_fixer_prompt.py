@@ -20,6 +20,15 @@ The following information is authoritative:
 - database schema
 - database relationships
 
+## Authoritative Relationship Metadata
+
+Relationship definitions provided separately are authoritative.
+
+The auto-fixer MUST NOT invent or modify relationship definitions.
+
+A relationship may only be corrected when its exact definition is supported
+by the authoritative relationship metadata.
+
 You MUST NOT:
 
 - invent tables

@@ -1,9 +1,8 @@
 """Internal HTTP endpoints for Semantic Layer AI operations.
 
 The Backend owns uploads, revision persistence, status changes, and the
-public ``/api/v1/semantic-layer/*`` contract.  These endpoints only execute
-the AI-owned work after the Backend has resolved the source files and (for an
-incremental change) the approved base revision.
+public ``/api/v1/semantic-layer/*`` contract. These endpoints retrieve
+Backend-owned source files by ID and perform only AI-owned processing.
 """
 
 from __future__ import annotations
@@ -13,9 +12,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.dependencies import (
-    get_semantic_generation_pipeline,
     get_semantic_retrieval_pipeline,
-    get_semantic_review_pipeline,
+)
+from src.api.semantic_review_dependencies import get_semantic_review_pipeline
+from src.api.generation_validation_dependencies import (
+    get_semantic_generation_pipeline,
     get_semantic_validation_pipeline,
 )
 from src.application.dto.backend.semantic_layer.semantic_layer_generation_request import (
@@ -37,6 +38,7 @@ from src.application.pipelines.semantic_layer.semantic_layer_review_pipeline imp
 from src.application.pipelines.semantic_layer.semantic_layer_validation_pipeline import (
     SemanticLayerValidationPipeline,
 )
+from src.infrastructure.backend.backend_semantic_client import BackendSemanticClient
 from src.api.contracts import (
     SemanticGenerateRequest,
     SemanticRetrieveRequest,
@@ -79,6 +81,17 @@ def _required_string(request: dict[str, Any], key: str) -> str:
     return value
 
 
+def _present_source_file_ids(request: dict[str, Any]) -> dict[str, str]:
+    """Drop only optional null IDs while keeping schema mandatory downstream."""
+
+    source_file_ids = _required_object(request, "sourceFileIds")
+    return {
+        source_type: file_id
+        for source_type, file_id in source_file_ids.items()
+        if file_id is not None
+    }
+
+
 def _handle_contract_error(error: ValueError) -> None:
     """Convert application DTO validation failures to a client error."""
 
@@ -92,13 +105,10 @@ def generate_draft(
         get_semantic_generation_pipeline
     ),
 ) -> dict[str, Any]:
-    """Generate an identity-assigned draft, without persisting it.
+    """Generate an unpersisted draft from Backend-owned source IDs.
 
-    ``resolvedSources`` must contain the already-loaded source content.  For
-    FullRebuild it requires ``schema`` and ``relationships``.  For
-    Incremental, ``baseSemanticLayer`` is the approved revision fetched by
-    the Backend.  ``sourceFileIds`` remains part of the request for lineage,
-    but the AI runtime deliberately does not fetch files from Backend storage.
+    The Backend creates ``revisionId`` only after it persists this draft, so it
+    is deliberately not part of this request contract.
     """
 
     try:
@@ -115,13 +125,21 @@ def generate_draft(
         generation_request = SemanticLayerGenerationRequest(
             trigger_type=_required_string(body, "triggerType"),
             semantic_layer_id=_required_string(body, "semanticLayerId"),
-            source_file_ids=_required_object(body, "sourceFileIds"),
+            source_file_ids=_present_source_file_ids(body),
             base_revision_id=body.get("baseRevisionId"),
             affected_objects=affected_objects,
         )
-        sources = _required_object(body, "resolvedSources")
+        sources = BackendSemanticClient().load_generation_sources(
+            generation_request.source_file_ids
+        )
         _validate_resolved_sources(generation_request.trigger_type, sources)
         base_semantic_layer = body.get("baseSemanticLayer")
+        if generation_request.trigger_type == "Incremental" and base_semantic_layer is None:
+            if not generation_request.base_revision_id:
+                raise ValueError("baseRevisionId is required for Incremental generation.")
+            base_semantic_layer = BackendSemanticClient().load_revision(
+                generation_request.base_revision_id
+            )
         if base_semantic_layer is not None and not isinstance(
             base_semantic_layer, dict
         ):
@@ -137,7 +155,7 @@ def generate_draft(
             status_code=422,
             detail=f"Missing required field: {error.args[0]}.",
         ) from error
-    except (TypeError, ValueError) as error:
+    except (TypeError, ValueError, RuntimeError) as error:
         _handle_contract_error(error)
 
     response: dict[str, Any] = {"status": "Success", "draft": draft}
@@ -159,7 +177,12 @@ def validate_draft(
 
     draft = request.draft
     schema = request.schema
-    final_draft, validation = pipeline.run(draft=draft, schema=schema)
+    relationships = request.relationships
+    final_draft, validation = pipeline.run(
+        draft=draft,
+        schema=schema,
+        relationships=relationships,
+    )
     return {
         "status": "Success",
         "draft": final_draft,
@@ -212,6 +235,6 @@ def _validate_resolved_sources(trigger_type: str, sources: dict[str, Any]) -> No
     """Fail at the HTTP boundary before builders see malformed source data."""
     if trigger_type == "FullRebuild":
         if not isinstance(sources.get("schema"), dict):
-            raise ValueError("resolvedSources.schema must be an object for FullRebuild.")
+            raise ValueError("Backend schema source must be an object for FullRebuild.")
         if not isinstance(sources.get("relationships"), list):
-            raise ValueError("resolvedSources.relationships must be a list for FullRebuild.")
+            raise ValueError("Backend schema relationships must be a list for FullRebuild.")

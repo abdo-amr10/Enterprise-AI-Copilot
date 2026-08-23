@@ -9,27 +9,22 @@ from typing import Any
 from src.infrastructure.semantic_layer.retrieval.embedding_service import (
     EmbeddingService,
 )
-from src.infrastructure.semantic_layer.retrieval.vector_store import (
-    LocalVectorStore,
+from src.infrastructure.semantic_layer.retrieval.vector_index import (
+    VectorIndex,
+)
+from src.infrastructure.semantic_layer.retrieval.semantic_document_builder import (
+    SemanticDocumentBuilder,
 )
 
 
 class FileSemanticRepository:
     """Read approved semantic metadata and retrieve semantic documents."""
 
-    _SECTIONS = (
-        ("entity", "entities"),
-        ("relationship", "relationships"),
-        ("measure", "measures"),
-        ("dimension", "dimensions"),
-        ("business_rule", "business_rules"),
-    )
-
     def __init__(
         self,
         semantic_layer_path: str | Path,
         embedding_service: EmbeddingService | None = None,
-        vector_store: LocalVectorStore | None = None,
+        vector_store: VectorIndex | None = None,
     ) -> None:
         self._semantic_layer_path = Path(
             semantic_layer_path
@@ -90,11 +85,10 @@ class FileSemanticRepository:
             "index_version": 1,
             "semantic_layer_id": metadata["semantic_layer_id"],
             "revision_id": metadata["revision_id"],
-            "embedding_dimension": self._embedding_service._get_model().get_embedding_dimension(),
+            "embedding_dimension": self._embedding_service.embedding_dimension,
+            "embedding_model": self._embedding_service.model_name,
         })
-        query_embedding = self._embedding_service.encode(
-            [question]
-        )[0]
+        query_embedding = self._embedding_service.encode_query(question)
 
         return self._vector_store.search(
             query_embedding,
@@ -160,37 +154,12 @@ class FileSemanticRepository:
                 "revision_id is required."
             )
 
-        documents = []
-
-        for doc_type, section in self._SECTIONS:
-            for item in layer.get(section, []):
-                if not isinstance(item, dict):
-                    continue
-
-                name = item.get("name")
-
-                if not name:
-                    continue
-
-                document_id = (
-                    f"{semantic_layer_id}:"
-                    f"{revision_id}:"
-                    f"{doc_type}:"
-                    f"{name}"
-                )
-
-                documents.append(
-                    {
-                        "id": document_id,
-                        "type": doc_type,
-                        "text": json.dumps(
-                            item,
-                            ensure_ascii=False,
-                        ),
-                        "payload": item,
-                        "semanticLayerId": semantic_layer_id,
-                        "revisionId": revision_id,
-                    }
-                )
-
-        return documents
+        return [
+            {
+                **document,
+                "type": document["object_type"],
+                "semanticLayerId": document["semantic_layer_id"],
+                "revisionId": document["revision_id"],
+            }
+            for document in SemanticDocumentBuilder().build(layer)
+        ]

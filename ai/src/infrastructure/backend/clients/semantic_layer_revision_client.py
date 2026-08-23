@@ -23,13 +23,11 @@ class SemanticLayerRevisionClientImpl:
 
     def get_revision(
         self,
-        semantic_layer_id: str,
         revision_id: str,
     ) -> SemanticLayerRevisionResponse:
         """Retrieve a Semantic Layer revision from the Backend.
 
         Args:
-            semantic_layer_id: Identifier of the Semantic Layer.
             revision_id: Identifier of the requested revision.
 
         Returns:
@@ -39,16 +37,10 @@ class SemanticLayerRevisionClientImpl:
             ValueError: If either identifier is empty.
         """
 
-        if not semantic_layer_id.strip():
-            raise ValueError("semantic_layer_id cannot be empty.")
-
         if not revision_id.strip():
             raise ValueError("revision_id cannot be empty.")
 
-        response = self._http_client.get(
-            f"/api/v1/semantic-layer/"
-            f"{semantic_layer_id}/revisions/{revision_id}"
-        )
+        response = self._http_client.get(f"/api/v1/semantic-layer/revisions/{revision_id}")
 
         return SemanticLayerRevisionResponse(
             semantic_layer_id=response["semanticLayerId"],
@@ -79,4 +71,5 @@ class SemanticLayerRevisionClientImpl:
         return SemanticLayerReviewResponse(
             semantic_layer_id=response["semanticLayerId"], revision_id=response["revisionId"], status=response["status"],
             version=response.get("version"), approved_by=response.get("approvedBy"), approved_at=response.get("approvedAt"),
+            rejected_by=response.get("rejectedBy"), rejected_at=response.get("rejectedAt"), comments=response.get("comments"),
         )
