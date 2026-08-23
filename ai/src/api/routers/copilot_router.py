@@ -30,10 +30,8 @@ def text_to_sql(
     request: CopilotRequest,
     pipeline: CopilotRuntimePipeline = Depends(get_copilot_pipeline),
 )-> CopilotResponse:
-    if request.conversation:
-        raise HTTPException(status_code=422, detail="conversation is not supported by the current Text-to-SQL runtime.")
     try:
-        ask_request = CopilotAskRequest(question=request.question, conversation=())
+        ask_request = CopilotAskRequest(question=request.question, conversation=tuple(request.conversation))
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
