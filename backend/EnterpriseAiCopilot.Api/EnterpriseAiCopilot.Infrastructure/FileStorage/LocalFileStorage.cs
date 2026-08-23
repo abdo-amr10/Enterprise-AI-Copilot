@@ -14,7 +14,10 @@ namespace EnterpriseAiCopilot.Infrastructure.FileStorage
 
         public LocalFileStorage(IConfiguration configuration)
         {
-            _baseStoragePath = configuration["FileStorage:BasePath"] ?? Path.Combine(Directory.GetCurrentDirectory(), "Storage");
+            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            var folderNameFromConfig = configuration["FileStorage:BasePath"] ?? "Storage";
+
+            _baseStoragePath = Path.Combine(baseDir, folderNameFromConfig);
         }
 
         public async Task<Result<string>> SaveFileAsync(IFormFile file, string directoryName, CancellationToken cancellationToken = default)
