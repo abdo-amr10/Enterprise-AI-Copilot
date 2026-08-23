@@ -32,7 +32,7 @@ class OllamaClient(LLMClient):
             raise ValueError("OllamaClient requires an Ollama runtime.")
       self._config = config
       self._host = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
-      self._timeout = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "120"))
+      self._timeout = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "3000"))
       self._client = Client(host=self._host, timeout=self._timeout)
       self._model_checked = False
 
