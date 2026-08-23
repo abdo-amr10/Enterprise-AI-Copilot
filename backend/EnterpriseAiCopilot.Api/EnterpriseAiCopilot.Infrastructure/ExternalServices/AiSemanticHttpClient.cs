@@ -19,7 +19,6 @@ namespace EnterpriseAiCopilot.Infrastructure.ExternalServices
             _httpClient = httpClient;
             _logger = logger;
 
-            // 👇 السطر السحري عشان ندي البايثون 10 دقايق يخلص براحته
             _httpClient.Timeout = TimeSpan.FromMinutes(10);
 
             var baseUrl = configuration["AiRuntime:BaseUrl"];
@@ -35,7 +34,6 @@ namespace EnterpriseAiCopilot.Infrastructure.ExternalServices
             {
                 var response = await _httpClient.PostAsJsonAsync("internal/semantic/generate-draft", request, cancellationToken);
 
-                // 👇 هنقرأ الرد كنص في كل الحالات عشان نعرف البايثون بيرجع إيه بالظبط
                 var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
 
                 if (!response.IsSuccessStatusCode)
@@ -47,12 +45,16 @@ namespace EnterpriseAiCopilot.Infrastructure.ExternalServices
                     };
                 }
 
-                // 👇 لو البايثون خلص ونجح (200 OK)، هنرجع اللي هو ولده جوه إيرور وهمي عشان نقراه في الـ Swagger
-                return new AiSemanticDraftResult
+                var result = await response.Content.ReadFromJsonAsync<AiSemanticDraftResult>(cancellationToken: cancellationToken);
+
+                if (result != null)
                 {
-                    IsSuccess = false,
-                    ErrorMessage = $"PYTHON_SUCCESS_BODY: {responseText}"
-                };
+                    result.IsSuccess = true;
+                    result.ContentJson = responseText;
+                    return result;
+                }
+
+                return new AiSemanticDraftResult { IsSuccess = true, ContentJson = responseText };
             }
             catch (Exception ex)
             {
