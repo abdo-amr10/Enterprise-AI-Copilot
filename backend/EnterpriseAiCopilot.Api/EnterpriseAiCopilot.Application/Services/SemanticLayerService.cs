@@ -20,14 +20,18 @@ namespace EnterpriseAiCopilot.Application.Services
         private readonly IFileStorage _fileStorage;
         private readonly ICurrentUserService _currentUserService;
 
+        private readonly IAiSemanticClient _aiSemanticClient;
+
         public SemanticLayerService(
             IApplicationDbContext context,
             IFileStorage fileStorage,
-            ICurrentUserService currentUserService)
+            ICurrentUserService currentUserService,
+            IAiSemanticClient aiSemanticClient) 
         {
             _context = context;
             _fileStorage = fileStorage;
             _currentUserService = currentUserService;
+            _aiSemanticClient = aiSemanticClient;
         }
 
         public async Task<Result<UploadDataSourcesResponse>> UploadDataSourcesAsync(UploadDataSourcesRequest request, CancellationToken cancellationToken = default)
@@ -154,13 +158,22 @@ namespace EnterpriseAiCopilot.Application.Services
             if (semanticLayer == null)
                 return Result<GenerateDraftResponse>.Failure("Semantic Layer not found.");
 
-            string generatedJson = "{ \"mock\": \"data\" }";
+            var aiDraftResult = await _aiSemanticClient.GenerateDraftAsync(request, cancellationToken);
+            if (!aiDraftResult.IsSuccess)
+                return Result<GenerateDraftResponse>.Failure($"AI_RUNTIME_ERROR: Failed to generate draft. {aiDraftResult.ErrorMessage}");
 
-            int objectsCount = request.TriggerType == "FullRebuild" ? 15 : (request.AffectedObjects?.Count ?? 0);
+            string generatedJson = aiDraftResult.ContentJson ?? "{}";
+
+            int objectsCount = aiDraftResult.RegeneratedObjectsCount > 0
+                                ? aiDraftResult.RegeneratedObjectsCount
+                                : (request.TriggerType == "FullRebuild" ? 15 : (request.AffectedObjects?.Count ?? 0));
+
             int nextVersion = semanticLayer.Revisions.Any() ? semanticLayer.Revisions.Max(r => r.VersionNumber) + 1 : 1;
 
+            var newRevisionId = Guid.NewGuid();
             var revision = new SemanticRevision
             {
+                Id = newRevisionId,
                 VersionNumber = nextVersion,
                 ContentJson = generatedJson,
                 Status = "PendingReview",
@@ -176,7 +189,7 @@ namespace EnterpriseAiCopilot.Application.Services
             {
                 Status = "DraftGenerated",
                 SemanticLayerId = request.SemanticLayerId,
-                RevisionId = revision.Id.ToString(),
+                RevisionId = newRevisionId.ToString(), 
                 RegeneratedObjectsCount = objectsCount,
                 BuildTimestamp = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
                 LastRegenerationType = request.TriggerType
@@ -208,6 +221,10 @@ namespace EnterpriseAiCopilot.Application.Services
 
             if (revision.Status.Equals("Approved", StringComparison.OrdinalIgnoreCase))
                 return Result<ReviewRevisionResponse>.Failure("This revision is already approved.");
+
+            var aiReviewResult = await _aiSemanticClient.ReviewDraftAsync(request.RevisionId, request.Decision, request.Comments, cancellationToken);
+            if (!aiReviewResult.IsSuccess)
+                return Result<ReviewRevisionResponse>.Failure($"AI_RUNTIME_ERROR: Failed to submit review to AI. {aiReviewResult.ErrorMessage}");
 
             var currentUser = _currentUserService.Email ?? "System_Admin";
             var timeNow = DateTime.UtcNow;
@@ -315,10 +332,8 @@ namespace EnterpriseAiCopilot.Application.Services
                 RevisionId = revision.Id.ToString(),
                 Status = revision.Status,
                 Version = revision.Status == "PendingReview" ? "draft" : $"v{revision.VersionNumber}.0",
-
                 BuildTimestamp = revision.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ"),
                 LastRegenerationType = string.IsNullOrEmpty(revision.RegenerationType) ? "Unknown" : revision.RegenerationType,
-
                 Content = parsedContent,
                 CreatedAt = revision.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ")
             };
@@ -334,6 +349,10 @@ namespace EnterpriseAiCopilot.Application.Services
             if (revision == null)
                 return Result<SubmitRevisionResponse>.Failure("Revision not found.");
 
+            var aiValidationResult = await _aiSemanticClient.ValidateDraftAsync(revisionId.ToString(), cancellationToken);
+            if (!aiValidationResult.IsSuccess)
+                return Result<SubmitRevisionResponse>.Failure($"VALIDATION_FAILED: AI Runtime rejected the draft. {aiValidationResult.ErrorMessage}");
+
             revision.Status = "Submitted";
 
             await _context.SaveChangesAsync(cancellationToken);
@@ -343,7 +362,7 @@ namespace EnterpriseAiCopilot.Application.Services
                 Status = "Submitted",
                 SemanticLayerId = revision.SemanticLayerId.ToString(),
                 RevisionId = revision.Id.ToString(),
-                Message = "Revision submitted for validation."
+                Message = "Revision submitted and validated successfully by AI Runtime."
             };
 
             return Result<SubmitRevisionResponse>.Success(response);
@@ -372,7 +391,6 @@ namespace EnterpriseAiCopilot.Application.Services
                 Status = latestRevision.Status,
                 Version = latestRevision.Status == "Approved" ? $"v{latestRevision.VersionNumber}.0" : "draft",
                 RevisionId = latestRevision.Id.ToString(),
-
                 BuildTimestamp = latestRevision.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ"),
                 LastRegenerationType = string.IsNullOrEmpty(latestRevision.RegenerationType) ? "Unknown" : latestRevision.RegenerationType
             };

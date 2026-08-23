@@ -1,5 +1,7 @@
 ﻿using EnterpriseAiCopilot.Application.Common.Interfaces;
 using EnterpriseAiCopilot.Application.Services;
+using EnterpriseAiCopilot.Infrastructure.Data;
+using EnterpriseAiCopilot.Infrastructure.ExternalServices;
 using EnterpriseAiCopilot.Infrastructure.FileStorage;
 using EnterpriseAiCopilot.Infrastructure.Identity;
 using EnterpriseAiCopilot.Infrastructure.Identity.Services;
@@ -21,6 +23,10 @@ namespace EnterpriseAiCopilot.Api.Extensions
             services.AddScoped<IAuthService, AuthService>();
             services.AddScoped<IFileStorage, LocalFileStorage>();
             services.AddScoped<ISemanticLayerService, SemanticLayerService>();
+            services.AddScoped<ICopilotService, CopilotService>();
+            services.AddScoped<IDynamicSqlExecutor, DynamicSqlExecutor>();
+            services.AddHttpClient<IAiRuntimeClient, AiRuntimeHttpClient>();
+            services.AddHttpClient<IAiSemanticClient, AiSemanticHttpClient>();
             return services;
         }
     }
