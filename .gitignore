@@ -28,3 +28,6 @@ wwwroot/lib/
 
 # Logs
 *.log
+
+# AI Runtime local secrets/configuration
+ai/.env

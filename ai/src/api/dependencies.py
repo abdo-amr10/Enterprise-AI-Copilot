@@ -1,7 +1,13 @@
-"""Composition root for Backend-authoritative retrieval and Text-to-SQL."""
+"""Composition root for Backend-authoritative retrieval and Text-to-SQL.
+
+``AI_LOCAL_DEV_MODE=true`` enables explicit offline development artifacts.
+The default remains Backend-authoritative runtime wiring.
+"""
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 
 from src.application.pipelines.context_retrieval.semantic_retrieval_pipeline import (
     SemanticRetrievalPipeline,
@@ -41,11 +47,21 @@ from src.infrastructure.llm.model_config import (
     SQL_CRITIC_CONFIG,
 )
 from src.infrastructure.llm.ollama_client import OllamaClient
+from src.infrastructure.semantic_layer.ingestion.database_schema_provider import (
+    DatabaseSchemaProvider,
+)
 from src.infrastructure.semantic_layer.retrieval.backend_semantic_repository import BackendSemanticRepository
 from src.infrastructure.semantic_layer.ingestion.backend_database_schema_provider import BackendDatabaseSchemaProvider
+from src.infrastructure.semantic_layer.retrieval.file_semantic_repository import (
+    FileSemanticRepository,
+)
 
 _SETTINGS = SemanticSettings()
 _SELF_CORRECTION_SETTINGS = SelfCorrectionSettings()
+_AI_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = _AI_ROOT.parent
+_LOCAL_APPROVED_LAYER = _AI_ROOT / "outputs" / "semantic_layer" / "approved_semantic_layer.json"
+_LOCAL_SCHEMA = _REPO_ROOT / "docs" / "database_metadata" / "schema.json"
 
 # --------------------------------------------------------------------------
 # Singletons. Built once per process: the embedding model, the vector
@@ -53,15 +69,25 @@ _SELF_CORRECTION_SETTINGS = SelfCorrectionSettings()
 # or pointless to reload per request.
 # --------------------------------------------------------------------------
 
-_semantic_repository: BackendSemanticRepository | None = None
+_semantic_repository: BackendSemanticRepository | FileSemanticRepository | None = None
 _context_retrieval_service: ContextRetrievalService | None = None
 _self_correction_service: SelfCorrectionService | None = None
 
 
-def get_semantic_repository() -> BackendSemanticRepository:
+def is_local_development_mode() -> bool:
+    """Return whether explicit offline development mode is enabled."""
+
+    return os.getenv("AI_LOCAL_DEV_MODE", "").casefold() == "true"
+
+
+def get_semantic_repository() -> BackendSemanticRepository | FileSemanticRepository:
     global _semantic_repository
     if _semantic_repository is None:
-        _semantic_repository = BackendSemanticRepository()
+        _semantic_repository = (
+            FileSemanticRepository(_LOCAL_APPROVED_LAYER)
+            if is_local_development_mode()
+            else BackendSemanticRepository()
+        )
     return _semantic_repository
 
 
@@ -76,6 +102,8 @@ def get_context_service() -> ContextRetrievalService:
 
 
 def get_schema_provider():
+    if is_local_development_mode():
+        return DatabaseSchemaProvider(_LOCAL_SCHEMA)
     return BackendDatabaseSchemaProvider()
 
 
