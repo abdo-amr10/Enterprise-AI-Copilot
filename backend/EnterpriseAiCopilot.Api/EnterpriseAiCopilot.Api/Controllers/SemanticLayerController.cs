@@ -52,6 +52,7 @@ namespace EnterpriseAiCopilot.Api.Controllers
         }
 
         [HttpGet("files/{fileId}")]
+        [AllowAnonymous]
         public async Task<IActionResult> GetSourceFile(Guid fileId, CancellationToken cancellationToken)
         {
             var result = await _semanticLayerService.GetSourceFileAsync(fileId, cancellationToken);
