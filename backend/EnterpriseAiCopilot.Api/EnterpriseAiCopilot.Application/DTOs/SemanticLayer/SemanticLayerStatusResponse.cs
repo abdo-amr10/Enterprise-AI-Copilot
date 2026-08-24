@@ -12,5 +12,6 @@ namespace EnterpriseAiCopilot.Application.DTOs.SemanticLayer
         public string RevisionId { get; set; } = string.Empty;
         public string BuildTimestamp { get; set; } = string.Empty;
         public string LastRegenerationType { get; set; } = string.Empty;
+        public SemanticSources Sources { get; set; } = new();
     }
 }
