@@ -29,7 +29,8 @@ namespace EnterpriseAiCopilot.Api.Controllers
                 return Unauthorized("User ID claim is missing.");
             }
 
-            if (!int.TryParse(User.FindFirstValue("branch_id"), out var branchId))
+            var branchId = User.FindFirstValue("branchId");
+            if (string.IsNullOrWhiteSpace(branchId))
             {
                 return BadRequest("Branch ID claim is missing or invalid.");
             }
@@ -52,7 +53,8 @@ namespace EnterpriseAiCopilot.Api.Controllers
                 return Unauthorized("User ID claim is missing.");
             }
 
-            if (!int.TryParse(User.FindFirstValue("branch_id"), out var branchId))
+            var branchId = User.FindFirstValue("branchId");
+            if (string.IsNullOrWhiteSpace(branchId))
             {
                 return BadRequest("Branch ID claim is missing or invalid.");
             }
@@ -75,7 +77,8 @@ namespace EnterpriseAiCopilot.Api.Controllers
                 return Unauthorized("User ID claim is missing.");
             }
 
-            if (!int.TryParse(User.FindFirstValue("branch_id"), out var branchId))
+            var branchId = User.FindFirstValue("branchId");
+            if (string.IsNullOrWhiteSpace(branchId))
             {
                 return BadRequest("Branch ID claim is missing or invalid.");
             }

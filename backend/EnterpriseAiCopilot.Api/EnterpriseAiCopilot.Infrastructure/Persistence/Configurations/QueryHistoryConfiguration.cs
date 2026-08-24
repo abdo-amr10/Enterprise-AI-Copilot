@@ -23,6 +23,10 @@ namespace EnterpriseAiCopilot.Infrastructure.Persistence.Configurations
                 .IsRequired()
                 .HasMaxLength(1500); 
 
+            builder.Property(q => q.BranchId)
+                .IsRequired()
+                .HasMaxLength(50);
+
             builder.Property(q => q.GeneratedSql)
                 .HasColumnType("nvarchar(max)");
 

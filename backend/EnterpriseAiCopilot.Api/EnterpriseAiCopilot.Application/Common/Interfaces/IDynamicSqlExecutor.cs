@@ -7,6 +7,6 @@ namespace EnterpriseAiCopilot.Application.Common.Interfaces
 {
     public interface IDynamicSqlExecutor
     {
-        Task<Result<object>> ExecuteQueryAsync(string sqlQuery, int branchId, CancellationToken cancellationToken = default);
+        Task<Result<object>> ExecuteQueryAsync(string sqlQuery, string branchId, CancellationToken cancellationToken = default);
     }
 }
