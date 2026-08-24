@@ -7,10 +7,10 @@ namespace EnterpriseAiCopilot.Application.Common.Interfaces
 {
     public interface ICopilotService
     {
-        Task<Result<AskCopilotResponse>> AskQuestionAsync(AskCopilotRequest request, string userId, int branchId, CancellationToken cancellationToken = default);
+        Task<Result<AskCopilotResponse>> AskQuestionAsync(AskCopilotRequest request, string userId, string branchId, CancellationToken cancellationToken = default);
 
-        Task<Result<QueryHistoryResponse>> GetUserHistoryAsync(string userId, int branchId, CancellationToken cancellationToken = default);
+        Task<Result<QueryHistoryResponse>> GetUserHistoryAsync(string userId, string branchId, CancellationToken cancellationToken = default);
 
-        Task<Result<QueryDetailsResponse>> GetQueryDetailsAsync(string queryId, string userId, int branchId, CancellationToken cancellationToken = default);
+        Task<Result<QueryDetailsResponse>> GetQueryDetailsAsync(string queryId, string userId, string branchId, CancellationToken cancellationToken = default);
     }
 }

@@ -153,6 +153,7 @@ namespace EnterpriseAiCopilot.Application.Services
 
             var semanticLayer = await _context.SemanticLayers
                 .Include(s => s.Revisions)
+                .Include(s => s.SourceFiles)
                 .FirstOrDefaultAsync(s => s.Id == layerId, cancellationToken);
 
             if (semanticLayer == null)
@@ -372,6 +373,7 @@ namespace EnterpriseAiCopilot.Application.Services
         {
             var semanticLayer = await _context.SemanticLayers
                 .Include(s => s.Revisions)
+                .Include(s => s.SourceFiles)
                 .OrderByDescending(s => s.CreatedAt)
                 .FirstOrDefaultAsync(cancellationToken);
 
@@ -392,7 +394,12 @@ namespace EnterpriseAiCopilot.Application.Services
                 Version = latestRevision.Status == "Approved" ? $"v{latestRevision.VersionNumber}.0" : "draft",
                 RevisionId = latestRevision.Id.ToString(),
                 BuildTimestamp = latestRevision.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ"),
-                LastRegenerationType = string.IsNullOrEmpty(latestRevision.RegenerationType) ? "Unknown" : latestRevision.RegenerationType
+                LastRegenerationType = string.IsNullOrEmpty(latestRevision.RegenerationType) ? "Unknown" : latestRevision.RegenerationType,
+                Sources = new SemanticSources
+                {
+                    // The schema is the first source saved when a layer is uploaded.
+                    SchemaFileId = semanticLayer.SourceFiles.FirstOrDefault()?.Id.ToString()
+                }
             };
 
             return Result<SemanticLayerStatusResponse>.Success(response);

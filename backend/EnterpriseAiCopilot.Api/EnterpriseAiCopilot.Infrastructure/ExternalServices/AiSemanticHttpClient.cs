@@ -19,7 +19,7 @@ namespace EnterpriseAiCopilot.Infrastructure.ExternalServices
             _httpClient = httpClient;
             _logger = logger;
 
-            _httpClient.Timeout = TimeSpan.FromMinutes(10);
+            _httpClient.Timeout = TimeSpan.FromMinutes(30);
 
             var baseUrl = configuration["AiRuntime:BaseUrl"];
             if (!string.IsNullOrWhiteSpace(baseUrl))
