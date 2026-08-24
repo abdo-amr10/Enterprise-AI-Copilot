@@ -54,14 +54,20 @@ class SemanticGenerateRequest(StrictModel):
 
 
 class SemanticValidateRequest(StrictModel):
-    """Backend-to-AI submit-validation acknowledgement request.
+    """Support both Backend acknowledgement and in-memory coverage validation.
 
-    The current Backend sends only the persisted revision identifier. It owns
-    the source files and revision state, so this endpoint must accept that
-    contract rather than requiring an in-memory draft payload.
+    The current Backend submits a persisted ``revisionId`` only. Direct AI
+    callers may instead provide a draft plus its authoritative schema to run
+    the full coverage validator. At least one of these forms is required by
+    the router.
     """
 
-    revisionId: str = Field(min_length=1)
+    revisionId: str | None = Field(default=None, min_length=1)
+    draft: dict[str, Any] | None = None
+    schema: dict[str, Any] | None = None
+    relationships: list[dict[str, Any]] = Field(default_factory=list)
+    documentation: str | None = None
+    businessGlossary: str | None = None
 
 
 class SemanticReviewRequest(StrictModel):

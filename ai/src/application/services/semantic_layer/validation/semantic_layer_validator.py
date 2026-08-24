@@ -23,6 +23,7 @@ class SemanticLayerValidator:
         draft: dict[str, Any],
         schema: dict[str, Any],
         relationships: list[dict[str, Any]],
+        has_semantic_context: bool = False,
     ) -> dict[str, Any]:
         """Validate a Semantic Layer draft.
 
@@ -98,12 +99,24 @@ class SemanticLayerValidator:
             warnings,
             errors,
         )
+        self._check_entity_coverage(
+            draft.get("entities", []),
+            tables,
+            errors,
+            require_all_source_tables=trigger_type == "FullRebuild",
+        )
 
         self._check_dimensions(
             draft.get("dimensions", []),
             tables,
             warnings,
             errors,
+        )
+        self._check_dimension_coverage(
+            draft.get("dimensions", []),
+            tables,
+            errors,
+            require_all_source_columns=trigger_type == "FullRebuild",
         )
 
         self._check_measures(
@@ -116,6 +129,13 @@ class SemanticLayerValidator:
         self._check_business_rules(
             draft.get("business_rules", []),
             warnings,
+        )
+        self._check_required_semantic_sections(
+            draft,
+            errors,
+            require_complete_baseline=(
+                trigger_type == "FullRebuild" and has_semantic_context
+            ),
         )
 
         self._check_validation_issues(
@@ -380,6 +400,35 @@ class SemanticLayerValidator:
                 })
 
     @staticmethod
+    def _check_entity_coverage(
+        items: list[dict[str, Any]],
+        tables: dict[str, Any],
+        errors: list[dict[str, Any]],
+        require_all_source_tables: bool,
+    ) -> None:
+        """Require Full Rebuilds to represent every source table as an entity."""
+
+        if not require_all_source_tables:
+            return
+
+        represented_tables = {
+            item.get("mapping") or item.get("table")
+            for item in items
+            if isinstance(item, dict)
+        }
+        for table_name in sorted(set(tables) - represented_tables):
+            errors.append(
+                {
+                    "category": "coverage",
+                    "code": "missing_entity_mapping",
+                    "message": (
+                        "FullRebuild must include an entity for source "
+                        f"table '{table_name}'."
+                    ),
+                }
+            )
+
+    @staticmethod
     def _check_dimensions(
         items: list[dict[str, Any]],
         tables: dict[str, Any],
@@ -425,6 +474,49 @@ class SemanticLayerValidator:
                         ),
                     }
                 )
+
+    @staticmethod
+    def _check_dimension_coverage(
+        items: list[dict[str, Any]],
+        tables: dict[str, Any],
+        errors: list[dict[str, Any]],
+        require_all_source_columns: bool,
+    ) -> None:
+        """Require a Full Rebuild to expose every physical source column.
+
+        Validating only the mappings that happen to be present lets a model
+        return a structurally-valid but incomplete Semantic Layer.  A full
+        rebuild is expected to create the complete queryable baseline, while
+        an incremental draft is intentionally allowed to contain only changes.
+        """
+
+        if not require_all_source_columns:
+            return
+
+        represented_mappings = {
+            item.get("mapping")
+            for item in items
+            if isinstance(item, dict) and isinstance(item.get("mapping"), str)
+        }
+        expected_mappings = {
+            f"{table_name}.{column.get('name')}"
+            for table_name, table in tables.items()
+            if isinstance(table, dict)
+            for column in table.get("columns", [])
+            if isinstance(column, dict) and column.get("name")
+        }
+
+        for mapping in sorted(expected_mappings - represented_mappings):
+            errors.append(
+                {
+                    "category": "coverage",
+                    "code": "missing_dimension_mapping",
+                    "message": (
+                        "FullRebuild must include a dimension for source "
+                        f"column '{mapping}'."
+                    ),
+                }
+            )
 
     @staticmethod
     def _check_measures(
@@ -614,6 +706,37 @@ class SemanticLayerValidator:
                         "code": "missing_metadata_field",
                         "message": (
                             f"Metadata field '{field}' is required."
+                        ),
+                    }
+                )
+
+    @staticmethod
+    def _check_required_semantic_sections(
+        draft: dict[str, Any],
+        errors: list[dict[str, Any]],
+        require_complete_baseline: bool,
+    ) -> None:
+        """Prevent empty semantic enrichment sections from being approved.
+
+        A Full Rebuild with documentation or a business glossary establishes
+        a reusable semantic baseline, so it must include enrichment.  With
+        schema-only input, enrichment is optional and is left for human
+        review rather than forcing the model to invent business meaning.
+        Incremental drafts may legitimately leave either section unchanged.
+        """
+
+        if not require_complete_baseline:
+            return
+
+        for section in ("measures", "business_rules"):
+            if not draft.get(section):
+                errors.append(
+                    {
+                        "category": "coverage",
+                        "code": f"missing_{section}",
+                        "message": (
+                            "FullRebuild must include at least one "
+                            f"{section[:-1].replace('_', ' ')}."
                         ),
                     }
                 )

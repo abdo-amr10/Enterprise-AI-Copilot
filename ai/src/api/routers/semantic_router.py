@@ -172,8 +172,35 @@ def generate_draft(
 @router.post("/validate")
 def validate_draft(
     request: SemanticValidateRequest,
+    pipeline: SemanticLayerValidationPipeline = Depends(
+        get_semantic_validation_pipeline
+    ),
 ) -> dict[str, Any]:
-    """Acknowledge validation for the Backend-owned persisted revision."""
+    """Validate a supplied draft or acknowledge the current Backend contract."""
+
+    if request.draft is not None or request.schema is not None:
+        if request.draft is None or request.schema is None:
+            raise HTTPException(
+                status_code=422,
+                detail="draft and schema must be supplied together for validation.",
+            )
+        final_draft, validation = pipeline.run(
+            draft=request.draft,
+            schema=request.schema,
+            relationships=request.relationships,
+            has_semantic_context=bool(
+                (request.documentation and request.documentation.strip())
+                or (request.businessGlossary and request.businessGlossary.strip())
+            ),
+        )
+        return {"status": "Success", "draft": final_draft, "validation": validation}
+
+    if not request.revisionId:
+        raise HTTPException(
+            status_code=422,
+            detail="revisionId or draft plus schema is required.",
+        )
+
     return {
         "status": "Success",
         "revisionId": request.revisionId,

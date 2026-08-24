@@ -50,6 +50,61 @@ def test_incremental_validates_merged_content_without_missing_source_relationshi
     assert result["status"] == "passed"
 
 
+def test_full_rebuild_rejects_missing_source_column_dimensions():
+    draft = _draft()
+    draft["relationships"] = RELATIONSHIPS
+    draft["dimensions"] = [
+        {"name": "Customer ID", "mapping": "customers.id"},
+        {"name": "Customer Name", "mapping": "customers.name"},
+        {"name": "Order Customer ID", "mapping": "orders.customer_id"},
+    ]
+
+    result = SemanticLayerValidator().validate(
+        draft, SCHEMA, RELATIONSHIPS, has_semantic_context=True
+    )
+
+    assert result["status"] == "failed"
+    assert any(
+        error["code"] == "missing_dimension_mapping"
+        and "orders.amount" in error["message"]
+        for error in result["errors"]
+    )
+
+
+def test_full_rebuild_rejects_missing_entities_and_empty_semantic_sections():
+    draft = _draft()
+    draft["relationships"] = RELATIONSHIPS
+    draft["dimensions"] = [
+        {"name": "Customer ID", "mapping": "customers.id"},
+        {"name": "Customer Name", "mapping": "customers.name"},
+        {"name": "Order Customer ID", "mapping": "orders.customer_id"},
+        {"name": "Order Amount", "mapping": "orders.amount"},
+    ]
+
+    result = SemanticLayerValidator().validate(
+        draft, SCHEMA, RELATIONSHIPS, has_semantic_context=True
+    )
+
+    codes = {error["code"] for error in result["errors"]}
+    assert {"missing_entity_mapping", "missing_measures", "missing_business_rules"} <= codes
+
+
+def test_schema_only_full_rebuild_allows_empty_enrichment_sections():
+    draft = _draft()
+    draft["entities"].append({"name": "Order", "mapping": "orders"})
+    draft["relationships"] = RELATIONSHIPS
+    draft["dimensions"] = [
+        {"name": "Customer ID", "mapping": "customers.id"},
+        {"name": "Customer Name", "mapping": "customers.name"},
+        {"name": "Order Customer ID", "mapping": "orders.customer_id"},
+        {"name": "Order Amount", "mapping": "orders.amount"},
+    ]
+
+    result = SemanticLayerValidator().validate(draft, SCHEMA, RELATIONSHIPS)
+
+    assert result["status"] == "passed"
+
+
 def test_relationship_and_mapping_errors_are_detected():
     draft = _draft("Incremental")
     draft["relationships"] = [{**RELATIONSHIPS[0], "to_column": "missing"}]

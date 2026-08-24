@@ -33,6 +33,7 @@ class SemanticLayerValidationPipeline:
         draft: dict[str, Any],
         schema: dict[str, Any],
         relationships: list[dict[str, Any]],
+        has_semantic_context: bool = False,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
 
         current = draft
@@ -43,6 +44,7 @@ class SemanticLayerValidationPipeline:
                 draft=current,
                 schema=schema,
                 relationships=relationships,
+                has_semantic_context=has_semantic_context,
             )
 
             if validation["status"] == "passed":

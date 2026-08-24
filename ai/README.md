@@ -82,3 +82,19 @@ pytest
 
 See `docs/semantic-layer-architecture.html` for the Backend-owned Semantic
 Layer lifecycle.
+
+## Promote a successful live Semantic Layer test
+
+The live Semantic Layer integration test creates timestamped output folders.
+To use its newest approved result with the local Text-to-SQL runtime, run:
+
+```powershell
+cd ai
+python -m scripts.use_latest_live_semantic_artifact
+$env:AI_LOCAL_DEV_MODE = "true"
+```
+
+The command verifies approval, validation, and review result files before
+copying the approved layer and index artifacts to `outputs/semantic_layer/`.
+Use `--dry-run` to inspect the selected artifact, or `--artifact-dir <path>`
+to choose one explicitly.
