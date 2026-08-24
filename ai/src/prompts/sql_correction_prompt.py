@@ -31,22 +31,9 @@ RULES
 8. Fix only the listed issues.
 9. Do not include markdown code fences.
 10. Do not include explanations, comments, or any text other than the SQL.
-11. The corrected SQL MUST include ``@UserBranchId`` in a WHERE clause.
-    Apply it to an approved ``branch_id`` column, joining through approved
-    relationships if the original table has no branch_id column.
-12. When more than one table is used, alias every table and qualify every
+11. When more than one table is used, alias every table and qualify every
     column reference with its table alias. Never leave a joined column
     unqualified (for example use ``c.customer_id``, not ``customer_id``).
-13. In the active banking schema, use ``a.branch_id = @UserBranchId`` for
-    customers, cards, transactions and merchants. The ``loans`` exception is
-    rule 14: it must join ``branches`` and use ``b.branch_id =
-    @UserBranchId``. Do not use branch_id on customers, loans, cards,
-    transactions, or merchants.
-14. For loans, use this complete required RLS path before the branch filter:
-    ``loans AS l INNER JOIN customers AS c ON l.customer_id = c.customer_id
-    INNER JOIN accounts AS a ON c.customer_id = a.customer_id INNER JOIN
-    branches AS b ON a.branch_id = b.branch_id WHERE b.branch_id =
-    @UserBranchId``.
 
 ==================================================
 ORIGINAL USER QUESTION

@@ -70,7 +70,7 @@ class SQLCriticService:
 
         if status == "UNKNOWN":
             # UNKNOWN is not a confirmed defect. The deterministic validators
-            # already enforce syntax, schema, relationship, and RLS safety.
+            # already enforce syntax, schema, and relationship safety.
             return CriticResult(status="UNKNOWN", issues=(CriticIssue(
                 type="CRITIC_UNKNOWN",
                 description="SQL critic could not determine whether the SQL answers the request.",

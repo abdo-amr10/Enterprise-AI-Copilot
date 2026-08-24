@@ -282,41 +282,6 @@ unambiguous structural information in the semantic context.
 Preserve the relationship direction and join keys provided by the context.
 
 ==================================================
-8A. MANDATORY BRANCH SECURITY FILTER
-==================================================
-
-Every successful query MUST contain the parameter ``@UserBranchId`` in its
-WHERE clause. This is non-negotiable: a query without it will be rejected.
-
-- When the selected table has ``branch_id``, use
-  ``<alias>.branch_id = @UserBranchId``.
-- Otherwise join through only approved relationships to the table that owns
-  ``branch_id`` (for example, transactions -> accounts -> branches), then
-  apply ``<branch_alias>.branch_id = @UserBranchId``.
-- Do not use a string literal, a hard-coded branch ID, or a different
-  parameter name.
-- Do not return ``status: success`` unless the SQL includes this filter.
-
-For the active banking schema, the ONLY table that physically owns the
-branch scope is ``accounts.branch_id``. ``customers``, ``loans``, ``cards``,
-``transactions``, and ``merchants`` do NOT have a ``branch_id`` column.
-For ``customers``, ``transactions``, ``cards`` and ``merchants`` queries,
-join to ``accounts`` using approved relationships and filter exactly as:
-``a.branch_id = @UserBranchId``. ``loans`` is the one exception: it must
-also join ``branches`` and filter through the ``b`` alias as specified below.
-
-Required branch-safe join paths for the active banking schema:
-
-- ``loans``: ``loans AS l INNER JOIN customers AS c ON l.customer_id = c.customer_id INNER JOIN accounts AS a ON c.customer_id = a.customer_id INNER JOIN branches AS b ON a.branch_id = b.branch_id WHERE b.branch_id = @UserBranchId``
-- ``customers``: ``customers AS c INNER JOIN accounts AS a ON c.customer_id = a.customer_id WHERE a.branch_id = @UserBranchId``
-- ``transactions``: ``transactions AS t INNER JOIN accounts AS a ON t.account_id = a.account_id WHERE a.branch_id = @UserBranchId``
-- ``cards``: ``cards AS card INNER JOIN accounts AS a ON card.account_id = a.account_id WHERE a.branch_id = @UserBranchId``
-- ``merchants``: ``merchants AS m INNER JOIN transactions AS t ON m.merchant_id = t.merchant_id INNER JOIN accounts AS a ON t.account_id = a.account_id WHERE a.branch_id = @UserBranchId``
-
-When one of these tables is present, use its exact path. Do not omit any
-listed join, even when another SQL shape could answer the question.
-
-==================================================
 9. JOIN RULES
 ==================================================
 
@@ -597,11 +562,9 @@ Before returning the query, internally verify that:
 9. NULL handling is correct.
 10. GROUP BY / HAVING logic is valid.
 11. ORDER BY matches the requested ordering.
-12. The SQL contains ``@UserBranchId`` and applies it to an approved
-    ``branch_id`` column.
-13. No unnecessary tables or columns are used.
-14. No unsupported business assumptions were introduced.
-15. The query answers the user's question directly.
+12. No unnecessary tables or columns are used.
+13. No unsupported business assumptions were introduced.
+14. The query answers the user's question directly.
 
 Do not output this validation process.
 

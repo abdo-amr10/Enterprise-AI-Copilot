@@ -49,6 +49,19 @@ def test_valid_sql_always_enters_critic_and_passes_without_correction():
     assert critic.calls == ["SELECT 1"] and correction.calls == []
 
 
+def test_branch_scoped_sql_is_not_locally_rejected_for_backend_rls():
+    critic = _Critic([CriticResult("PASS")])
+    correction = _Correction([])
+    outcome = _service(_Validator(), critic, correction).run(
+        "Show customers in a branch",
+        "SELECT c.customer_id FROM customers AS c",
+        "context",
+    )
+
+    assert outcome.is_valid
+    assert outcome.attempts_used == 0
+
+
 def test_critic_failure_corrects_then_revalidates_and_recritiques():
     critic = _Critic([CriticResult("FAIL"), CriticResult("PASS")])
     correction = _Correction(["SELECT 2"])

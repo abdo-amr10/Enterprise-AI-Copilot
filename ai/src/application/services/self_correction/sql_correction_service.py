@@ -9,7 +9,6 @@ previous conversation.
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from src.application.dto.llm.generation_request import GenerationRequest
@@ -32,10 +31,6 @@ class SQLCorrectionService:
         relevant_schema: dict[str, Any],
         relevant_relationships: list[dict[str, Any]],
     ) -> str | None:
-        deterministic = self._deterministic_rls_correction(current_sql, issues)
-        if deterministic is not None:
-            return deterministic
-
         prompt = SQL_CORRECTION_PROMPT.format(
             question=question,
             current_sql=current_sql,
@@ -47,84 +42,6 @@ class SQLCorrectionService:
         response = self._llm_client.generate(GenerationRequest(prompt=prompt))
 
         return self._extract_sql(response.text)
-
-    @staticmethod
-    def _deterministic_rls_correction(
-        current_sql: str,
-        issues: list[ValidationIssue],
-    ) -> str | None:
-        """Repair the mandatory banking RLS shape without another model call.
-
-        RLS is a backend security contract, so the required loans path is
-        deterministic. This fallback prevents a local model from repeating
-        an invalid query or returning prose during the correction loop.
-        """
-        if not any(issue.type == "rls" for issue in issues):
-            return None
-
-        if not re.search(r"\bFROM\s+(?:[\w]+\.)?loans\b", current_sql, re.IGNORECASE):
-            return None
-
-        if re.search(r"\bJOIN\s+customers\b", current_sql, re.IGNORECASE):
-            return None
-
-        from_match = re.search(
-            r"\bFROM\s+((?:[\w]+\.)?loans)"
-            r"(?:\s+(?:AS\s+)?([A-Za-z_]\w*))?",
-            current_sql,
-            re.IGNORECASE,
-        )
-        if from_match is None:
-            return None
-
-        table_ref = from_match.group(1)
-        alias = from_match.group(2)
-        if alias and alias.upper() in {
-            "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "JOIN", "WHERE",
-            "GROUP", "ORDER", "HAVING", "LIMIT", "OFFSET",
-        }:
-            alias = None
-        loan_ref = alias or table_ref
-        joins = (
-            f" INNER JOIN customers AS c ON {loan_ref}.customer_id = c.customer_id"
-            " INNER JOIN accounts AS a ON c.customer_id = a.customer_id"
-            " INNER JOIN branches AS b ON a.branch_id = b.branch_id "
-        )
-
-        clause = re.search(
-            r"\b(WHERE|GROUP\s+BY|HAVING|ORDER\s+BY|OFFSET)\b",
-            current_sql[from_match.end():],
-            re.IGNORECASE,
-        )
-        insert_at = from_match.end() + clause.start() if clause else len(current_sql)
-        corrected = current_sql[:insert_at] + joins + current_sql[insert_at:]
-
-        where_match = re.search(r"\bWHERE\b", corrected, re.IGNORECASE)
-        branch_filter = "b.branch_id = @UserBranchId"
-        if where_match:
-            tail = corrected[where_match.end():]
-            boundary = re.search(
-                r"\b(GROUP\s+BY|HAVING|ORDER\s+BY|OFFSET)\b",
-                tail,
-                re.IGNORECASE,
-            )
-            condition = tail[:boundary.start()] if boundary else tail
-            suffix = tail[boundary.start():] if boundary else ""
-            corrected = (
-                corrected[:where_match.end()]
-                + f" {branch_filter} AND ({condition.strip()})"
-                + suffix
-            )
-        else:
-            boundary = re.search(
-                r"\b(GROUP\s+BY|HAVING|ORDER\s+BY|OFFSET)\b",
-                corrected[insert_at:],
-                re.IGNORECASE,
-            )
-            at = insert_at + boundary.start() if boundary else len(corrected)
-            corrected = corrected[:at] + f" WHERE {branch_filter} " + corrected[at:]
-
-        return corrected.strip()
 
     @staticmethod
     def _render_issues(issues: list[ValidationIssue]) -> str:
