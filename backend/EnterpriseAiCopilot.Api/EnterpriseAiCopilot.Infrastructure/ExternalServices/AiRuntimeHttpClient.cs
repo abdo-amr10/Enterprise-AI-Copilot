@@ -26,6 +26,14 @@ namespace EnterpriseAiCopilot.Infrastructure.ExternalServices
             _configuration = configuration;
             _logger = logger;
 
+            var timeoutSeconds = int.TryParse(
+                _configuration["AiRuntime:TimeoutSeconds"],
+                out var configuredTimeoutSeconds)
+                && configuredTimeoutSeconds > 0
+                    ? configuredTimeoutSeconds
+                    : 600;
+            _httpClient.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+
             var baseUrl = _configuration["AiRuntime:BaseUrl"];
             if (!string.IsNullOrWhiteSpace(baseUrl))
             {
@@ -50,7 +58,8 @@ namespace EnterpriseAiCopilot.Infrastructure.ExternalServices
 
                 var payload = new
                 {
-                    question = request.Question
+                    question = request.Question,
+                    conversation = request.Conversation
                 };
 
                 var response = await _httpClient.PostAsJsonAsync(endpoint, payload, cancellationToken);
@@ -79,6 +88,17 @@ namespace EnterpriseAiCopilot.Infrastructure.ExternalServices
                 }
 
                 return aiResponse;
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogError(
+                    "AI Runtime request timed out after {TimeoutSeconds} seconds.",
+                    _httpClient.Timeout.TotalSeconds);
+                return new AiRuntimeResponse
+                {
+                    IsSuccess = false,
+                    ErrorMessage = "AI_RUNTIME_ERROR: AI runtime request timed out."
+                };
             }
             catch (OperationCanceledException)
             {

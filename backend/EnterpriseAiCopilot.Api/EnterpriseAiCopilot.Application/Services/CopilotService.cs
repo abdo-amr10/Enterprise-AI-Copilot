@@ -34,23 +34,19 @@ namespace EnterpriseAiCopilot.Application.Services
         public async Task<Result<AskCopilotResponse>> AskQuestionAsync(
             AskCopilotRequest request,
             string userId,
-            int branchId,
+            string branchId,
             CancellationToken cancellationToken = default)
         {
-            var stopwatch = Stopwatch.StartNew();
             Guid layerId;
 
             try
             {
                 var activeLayer = await _context.SemanticLayers
-                    .FirstOrDefaultAsync(
-                        sl => sl.IsActive,
-                        cancellationToken);
+                    .FirstOrDefaultAsync(sl => sl.IsActive, cancellationToken);
 
                 if (activeLayer == null)
                 {
-                    return Result<AskCopilotResponse>.Failure(
-                        "SEMANTIC_LAYER_NOT_APPROVED: No active semantic layer found to process the request.");
+                    return Result<AskCopilotResponse>.Failure("SEMANTIC_LAYER_NOT_APPROVED: No active semantic layer found to process the request.");
                 }
 
                 layerId = activeLayer.Id;
@@ -61,118 +57,112 @@ namespace EnterpriseAiCopilot.Application.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(
-                    ex,
-                    "Failed to retrieve active semantic layer.");
-
-                return Result<AskCopilotResponse>.Failure(
-                    "DATABASE_ERROR: Could not retrieve semantic layer.");
+                _logger.LogError(ex, "Failed to retrieve active semantic layer.");
+                return Result<AskCopilotResponse>.Failure("DATABASE_ERROR: Could not retrieve semantic layer.");
             }
 
-            AiRuntimeResponse aiResponse;
+            int maxRetries = 3;
+            int attempt = 0;
+            string originalPrompt = request.Question;
+            long totalExecutionTimeMs = 0;
+            var stopwatch = new Stopwatch();
 
-            try
+            AiRuntimeResponse aiResponse = null;
+            Result<object> executionResult = null;
+            string finalErrorMessage = null;
+
+            while (attempt < maxRetries)
             {
-                aiResponse =
-                    await _aiRuntimeClient.ProcessQuestionAsync(
-                        request,
-                        cancellationToken);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
+                stopwatch.Restart();
+                var currentRequest = new AskCopilotRequest
+                {
+                    Question = originalPrompt,
+                    Conversation = request.Conversation ?? new List<ConversationMessage>()
+                };
+
+                try
+                {
+                    aiResponse = await _aiRuntimeClient.ProcessQuestionAsync(currentRequest, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "AI Runtime client failed.");
+                    finalErrorMessage = "AI_RUNTIME_ERROR: Failed to process question with AI.";
+                    break;
+                }
+
+                if (!aiResponse.IsSuccess || string.IsNullOrWhiteSpace(aiResponse.GeneratedSql))
+                {
+                    finalErrorMessage = aiResponse.ErrorMessage ?? "SQL_GENERATION_FAILED";
+                    break;
+                }
+
+                _logger.LogInformation(
+                    "Copilot SQL generated on attempt {Attempt}: {GeneratedSql}",
+                    attempt + 1,
+                    aiResponse.GeneratedSql);
+
+                executionResult = await _sqlExecutor.ExecuteQueryAsync(aiResponse.GeneratedSql, branchId, cancellationToken);
+                
                 stopwatch.Stop();
+                totalExecutionTimeMs += stopwatch.ElapsedMilliseconds;
 
-                _logger.LogError(
-                    ex,
-                    "AI Runtime client failed.");
+                if (executionResult.IsSuccess)
+                {
+                    finalErrorMessage = null;
+                    break;
+                }
 
-                await LogQueryHistorySafeAsync(
-                    userId,
-                    branchId,
-                    request.Question,
-                    null,
-                    layerId,
-                    "Failed",
-                    "AI_RUNTIME_ERROR: Failed to process question with AI.",
-                    stopwatch.ElapsedMilliseconds,
-                    cancellationToken);
-
-                return Result<AskCopilotResponse>.Failure(
-                    "AI_RUNTIME_ERROR: Failed to process question with AI.");
+                finalErrorMessage = executionResult.ErrorMessage;
+                
+                if (finalErrorMessage.StartsWith("SQL_VALIDATION_FAILED") || 
+                    finalErrorMessage.StartsWith("RLS_ERROR") || 
+                    finalErrorMessage.StartsWith("DATABASE_EXECUTION_ERROR"))
+                {
+                    _logger.LogWarning($"Attempt {attempt + 1} failed. Triggering Self-Correction. Error: {finalErrorMessage}");
+                    
+                    currentRequest.Conversation.Add(new ConversationMessage
+                    {
+                        Role = "system",
+                        Content = $"RLS_CORRECTION: The previous SQL was '{aiResponse.GeneratedSql}'. " +
+                                  $"It failed with '{finalErrorMessage}'. Generate a replacement SQL query " +
+                                  "that fixes this exact policy failure while preserving the original question."
+                    });
+                    request.Conversation = currentRequest.Conversation;
+                    
+                    attempt++;
+                }
+                else
+                {
+                    break;
+                }
             }
 
-            if (!aiResponse.IsSuccess ||
-                string.IsNullOrWhiteSpace(aiResponse.GeneratedSql))
-            {
-                stopwatch.Stop();
+            var status = (executionResult != null && executionResult.IsSuccess) ? "Completed" : "Failed";
 
-                var errorMessage =
-                    aiResponse.ErrorMessage ??
-                    "SQL_GENERATION_FAILED";
-
-                await LogQueryHistorySafeAsync(
-                    userId,
-                    branchId,
-                    request.Question,
-                    null,
-                    layerId,
-                    "Failed",
-                    errorMessage,
-                    stopwatch.ElapsedMilliseconds,
-                    cancellationToken);
-
-                return Result<AskCopilotResponse>.Failure(errorMessage);
-            }
-
-            var executionResult =
-                await _sqlExecutor.ExecuteQueryAsync(
-                    aiResponse.GeneratedSql,
-                    branchId,
-                    cancellationToken);
-
-            stopwatch.Stop();
-
-            var executionError =
-                executionResult.IsSuccess
-                    ? null
-                    : executionResult.ErrorMessage;
-
-            var queryResult =
-                executionResult.IsSuccess
-                    ? executionResult.Data
-                    : null;
-
-            var status =
-                executionError == null
-                    ? "Completed"
-                    : "Failed";
-
-            var historyId =
-                await LogQueryHistorySafeAsync(
-                    userId,
-                    branchId,
-                    request.Question,
-                    aiResponse.GeneratedSql,
-                    layerId,
-                    status,
-                    executionError,
-                    stopwatch.ElapsedMilliseconds,
-                    cancellationToken);
+            var historyId = await LogQueryHistorySafeAsync(
+                userId,
+                branchId,
+                originalPrompt,
+                aiResponse?.GeneratedSql,
+                layerId,
+                status,
+                finalErrorMessage,
+                totalExecutionTimeMs,
+                cancellationToken);
 
             if (historyId == Guid.Empty)
             {
-                return Result<AskCopilotResponse>.Failure(
-                    "DATABASE_ERROR: Failed to persist query history audit.");
+                return Result<AskCopilotResponse>.Failure("DATABASE_ERROR: Failed to persist query history audit.");
             }
 
-            if (executionError != null)
+            if (finalErrorMessage != null)
             {
-                return Result<AskCopilotResponse>.Failure(
-                    executionError);
+                return Result<AskCopilotResponse>.Failure(finalErrorMessage);
             }
 
             var response = new AskCopilotResponse
@@ -181,12 +171,9 @@ namespace EnterpriseAiCopilot.Application.Services
                 Status = "Completed",
                 Report = new CopilotReport
                 {
-                    TextSummary =
-                        aiResponse.TextSummary ??
-                        "Query executed successfully.",
-                    PresentationType =
-                        aiResponse.PresentationType,
-                    Data = queryResult
+                    TextSummary = aiResponse.TextSummary ?? "Query executed successfully.",
+                    PresentationType = aiResponse.PresentationType,
+                    Data = executionResult.Data
                 }
             };
 
@@ -195,33 +182,27 @@ namespace EnterpriseAiCopilot.Application.Services
 
         public async Task<Result<QueryHistoryResponse>> GetUserHistoryAsync(
             string userId,
-            int branchId,
+            string branchId,
             CancellationToken cancellationToken = default)
         {
             try
             {
-                var historyItems =
-                    await _context.CopilotQueryHistories
-                        .Where(h =>
-                            h.UserId == userId &&
-                            h.BranchId == branchId)
-                        .OrderByDescending(h => h.CreatedAt)
-                        .Select(h => new QueryHistoryItemResponse
-                        {
-                            QueryId = h.Id.ToString(),
-                            Question = h.UserPrompt,
-                            Status = h.Status,
-                            CreatedAt =
-                                h.CreatedAt.ToString(
-                                    "yyyy-MM-ddTHH:mm:ssZ")
-                        })
-                        .ToListAsync(cancellationToken);
-
-                return Result<QueryHistoryResponse>.Success(
-                    new QueryHistoryResponse
+                var historyItems = await _context.CopilotQueryHistories
+                    .Where(h => h.UserId == userId && h.BranchId == branchId)
+                    .OrderByDescending(h => h.CreatedAt)
+                    .Select(h => new QueryHistoryItemResponse
                     {
-                        Items = historyItems
-                    });
+                        QueryId = h.Id.ToString(),
+                        Question = h.UserPrompt,
+                        Status = h.Status,
+                        CreatedAt = h.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ")
+                    })
+                    .ToListAsync(cancellationToken);
+
+                return Result<QueryHistoryResponse>.Success(new QueryHistoryResponse
+                {
+                    Items = historyItems
+                });
             }
             catch (OperationCanceledException)
             {
@@ -229,44 +210,30 @@ namespace EnterpriseAiCopilot.Application.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(
-                    ex,
-                    "Error retrieving query history for user {UserId} and branch {BranchId}",
-                    userId,
-                    branchId);
-
-                return Result<QueryHistoryResponse>.Failure(
-                    "DATABASE_ERROR: Failed to retrieve history.");
+                _logger.LogError(ex, "Error retrieving query history for user {UserId} and branch {BranchId}", userId, branchId);
+                return Result<QueryHistoryResponse>.Failure("DATABASE_ERROR: Failed to retrieve history.");
             }
         }
 
         public async Task<Result<QueryDetailsResponse>> GetQueryDetailsAsync(
             string queryId,
             string userId,
-            int branchId,
+            string branchId,
             CancellationToken cancellationToken = default)
         {
             if (!Guid.TryParse(queryId, out var id))
             {
-                return Result<QueryDetailsResponse>.Failure(
-                    "Invalid Query ID format.");
+                return Result<QueryDetailsResponse>.Failure("Invalid Query ID format.");
             }
 
             try
             {
-                var history =
-                    await _context.CopilotQueryHistories
-                        .FirstOrDefaultAsync(
-                            h =>
-                                h.Id == id &&
-                                h.UserId == userId &&
-                                h.BranchId == branchId,
-                            cancellationToken);
+                var history = await _context.CopilotQueryHistories
+                    .FirstOrDefaultAsync(h => h.Id == id && h.UserId == userId && h.BranchId == branchId, cancellationToken);
 
                 if (history == null)
                 {
-                    return Result<QueryDetailsResponse>.Failure(
-                        "Query not found or you do not have permission to view it.");
+                    return Result<QueryDetailsResponse>.Failure("Query not found or you do not have permission to view it.");
                 }
 
                 var response = new QueryDetailsResponse
@@ -274,24 +241,15 @@ namespace EnterpriseAiCopilot.Application.Services
                     QueryId = history.Id.ToString(),
                     Question = history.UserPrompt,
                     Status = history.Status,
-                    CreatedAt =
-                        history.CreatedAt.ToString(
-                            "yyyy-MM-ddTHH:mm:ssZ"),
+                    CreatedAt = history.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ"),
                     GeneratedSql = history.GeneratedSql,
                     ExecutionTimeMs = history.ExecutionTimeMs,
                     ErrorMessage = history.ErrorMessage,
-                    SemanticLayerId =
-                        history.SemanticLayerId.ToString(),
+                    SemanticLayerId = history.SemanticLayerId.ToString(),
                     Result = new CopilotReportSummary
                     {
-                        TextSummary =
-                            history.Status == "Completed"
-                                ? "Query executed successfully."
-                                : $"Query failed: {history.ErrorMessage}",
-                        PresentationType =
-                            history.Status == "Completed"
-                                ? "DataTable"
-                                : "ErrorCard"
+                        TextSummary = history.Status == "Completed" ? "Query executed successfully." : $"Query failed: {history.ErrorMessage}",
+                        PresentationType = history.Status == "Completed" ? "DataTable" : "ErrorCard"
                     }
                 };
 
@@ -303,19 +261,14 @@ namespace EnterpriseAiCopilot.Application.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(
-                    ex,
-                    "Error retrieving query details for ID {QueryId}",
-                    queryId);
-
-                return Result<QueryDetailsResponse>.Failure(
-                    "DATABASE_ERROR: Failed to retrieve query details.");
+                _logger.LogError(ex, "Error retrieving query details for ID {QueryId}", queryId);
+                return Result<QueryDetailsResponse>.Failure("DATABASE_ERROR: Failed to retrieve query details.");
             }
         }
 
         private async Task<Guid> LogQueryHistorySafeAsync(
             string userId,
-            int branchId,
+            string branchId,
             string prompt,
             string? sql,
             Guid layerId,
@@ -339,9 +292,7 @@ namespace EnterpriseAiCopilot.Application.Services
                 };
 
                 _context.CopilotQueryHistories.Add(history);
-
-                await _context.SaveChangesAsync(
-                    cancellationToken);
+                await _context.SaveChangesAsync(cancellationToken);
 
                 return history.Id;
             }
@@ -351,10 +302,7 @@ namespace EnterpriseAiCopilot.Application.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(
-                    ex,
-                    "Critical error: Failed to save query history to database.");
-
+                _logger.LogError(ex, "Critical error: Failed to save query history to database.");
                 return Guid.Empty;
             }
         }
