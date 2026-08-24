@@ -67,6 +67,13 @@ class BackendSemanticClient:
             metadata = {}
         metadata.setdefault("semantic_layer_id", payload.get("semanticLayerId"))
         metadata.setdefault("revision_id", payload.get("revisionId"))
+        # ``status`` belongs to the Backend revision envelope rather than its
+        # content.  Preserve it in the in-memory retrieval copy so the
+        # approved-only embedding/indexing pipeline can enforce the same
+        # lifecycle boundary as the Backend.
+        status = payload.get("status")
+        if isinstance(status, str):
+            metadata.setdefault("status", status.casefold())
         result["metadata"] = metadata
 
         # Backend JSON uses camelCase, while the AI domain model uses these

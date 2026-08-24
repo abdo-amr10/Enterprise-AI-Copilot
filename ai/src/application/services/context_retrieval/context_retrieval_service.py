@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from collections import deque
-import re
 from typing import Any
 
 from src.application.ports.semantic_repository import SemanticRepository
@@ -22,7 +21,7 @@ class ContextRetrievalService:
     def build_llm_context(self, question: str, top_k: int | None = None) -> str:
         results = self.retrieve(question, top_k)
         layer = self._semantic_repository.load()
-        seed_tables = self._seed_tables(question, results, layer)
+        seed_tables = self._seed_tables(results)
         relationships = self._connecting_relationships(
             seed_tables, layer.get("relationships", [])
         )
@@ -44,7 +43,14 @@ class ContextRetrievalService:
         return "\n".join(lines)
 
     @staticmethod
-    def _seed_tables(question: str, results: list[dict[str, Any]], layer: dict[str, Any]) -> set[str]:
+    def _seed_tables(results: list[dict[str, Any]]) -> set[str]:
+        """Derive context only from retrieved semantic documents.
+
+        The repository owns relevance ranking.  Do not add tables through a
+        second keyword-matching pass here, otherwise the LLM context can grow
+        beyond the vector-retrieved semantic slice.
+        """
+
         tables: set[str] = set()
         for result in results:
             payload = result.get("payload", {})
@@ -56,15 +62,6 @@ class ContextRetrievalService:
             for key in ("from_table", "to_table"):
                 if isinstance(payload.get(key), str):
                     tables.add(payload[key])
-
-        question_words = set(re.findall(r"[a-z]+", question.casefold().replace("'s", "")))
-        for entity in layer.get("entities", []):
-            if not isinstance(entity, dict):
-                continue
-            name = str(entity.get("name", "")).casefold()
-            mapping = entity.get("mapping")
-            if isinstance(mapping, str) and (name in question_words or f"{name}s" in question_words):
-                tables.add(mapping)
         return tables
 
     @staticmethod

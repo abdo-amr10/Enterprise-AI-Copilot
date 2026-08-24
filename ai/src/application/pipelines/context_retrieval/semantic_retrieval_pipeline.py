@@ -16,7 +16,12 @@ from src.application.services.context_retrieval.context_retrieval_service import
 
 
 class SemanticRetrievalPipeline:
-    """Return only the relevant approved semantic context to the AI runtime."""
+    """Expose the vector-retrieved approved semantic slice to internal callers.
+
+    Relevance is delegated to ``ContextRetrievalService`` and its production
+    ``BackendSemanticRepository``; this adapter only projects those selected
+    documents onto the existing internal response contract.
+    """
 
     def __init__(self, retrieval_service: ContextRetrievalService) -> None:
         self._retrieval_service = retrieval_service

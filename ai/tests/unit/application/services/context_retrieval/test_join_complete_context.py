@@ -52,6 +52,6 @@ def test_context_includes_columns_and_join_path_between_retrieved_tables() -> No
     )
 
     assert "customers.first_name" not in context  # Context uses concise table-qualified sections.
-    assert "first_name (Customer First Name)" in context
+    assert "balance_usd (Account Balance)" in context
     assert "accounts.account_id -> transactions.account_id" in context
-    assert "customers.customer_id -> accounts.customer_id" in context
+    assert "customers.customer_id -> accounts.customer_id" not in context

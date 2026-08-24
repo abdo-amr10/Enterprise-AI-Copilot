@@ -51,6 +51,8 @@ from src.infrastructure.semantic_layer.ingestion.database_schema_provider import
     DatabaseSchemaProvider,
 )
 from src.infrastructure.semantic_layer.retrieval.backend_semantic_repository import BackendSemanticRepository
+from src.infrastructure.semantic_layer.retrieval.embedding_service import EmbeddingService
+from src.infrastructure.semantic_layer.retrieval.faiss_vector_index import FaissVectorIndex
 from src.infrastructure.semantic_layer.ingestion.backend_database_schema_provider import BackendDatabaseSchemaProvider
 from src.infrastructure.semantic_layer.retrieval.file_semantic_repository import (
     FileSemanticRepository,
@@ -83,10 +85,27 @@ def is_local_development_mode() -> bool:
 def get_semantic_repository() -> BackendSemanticRepository | FileSemanticRepository:
     global _semantic_repository
     if _semantic_repository is None:
+        embedding_service = EmbeddingService(
+            _SETTINGS.production_embedding_model_path,
+            model_name=_SETTINGS.production_embedding_model_name,
+            device=_SETTINGS.embedding_device,
+            batch_size=_SETTINGS.embedding_batch_size,
+            normalize=_SETTINGS.normalize_embeddings,
+        )
         _semantic_repository = (
-            FileSemanticRepository(_LOCAL_APPROVED_LAYER)
+            FileSemanticRepository(
+                _LOCAL_APPROVED_LAYER,
+                embedding_service=embedding_service,
+                vector_store=FaissVectorIndex(
+                    _AI_ROOT / "outputs" / "semantic_layer" / _SETTINGS.vector_index_filename
+                ),
+            )
             if is_local_development_mode()
-            else BackendSemanticRepository()
+            else BackendSemanticRepository(
+                embedding_service=embedding_service,
+                vector_index=FaissVectorIndex(),
+                settings=_SETTINGS,
+            )
         )
     return _semantic_repository
 
