@@ -7,9 +7,12 @@ using System.Threading.Tasks;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
 using Dapper;
 using EnterpriseAiCopilot.Application.Common.Interfaces;
 using EnterpriseAiCopilot.Application.Common.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace EnterpriseAiCopilot.Infrastructure.Data
 {
@@ -17,6 +20,9 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
     {
         private readonly IConfiguration _configuration;
         private readonly ILogger<DynamicSqlExecutor> _logger;
+        // 🚨 دول ناقصين عندك عشان نقدر نكلم الكاش والداتا بيز!
+        private readonly IMemoryCache _cache;
+        private readonly IServiceScopeFactory _scopeFactory;
 
         private readonly string[] _forbiddenKeywords =
         {
@@ -25,18 +31,37 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
             "REVOKE", "XP_", "SP_"
         };
 
-        private readonly HashSet<string> _allowedTables = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "branches", "accounts", "transactions", "cards", 
-            "customers", "loans", "merchants"
-        };
+        // 🚨 مسحنا الـ HashSet الثابتة من هنا تماماً!
 
         public DynamicSqlExecutor(
             IConfiguration configuration,
-            ILogger<DynamicSqlExecutor> logger)
+            ILogger<DynamicSqlExecutor> logger,
+            IMemoryCache cache,
+            IServiceScopeFactory scopeFactory)
         {
             _configuration = configuration;
             _logger = logger;
+            _cache = cache;
+            _scopeFactory = scopeFactory;
+        }
+
+        // 🚨 دي الدالة اللي بتجيب الجداول من الكاش أو الداتا بيز
+        private async Task<HashSet<string>> GetAllowedTablesAsync()
+        {
+            if (!_cache.TryGetValue("AllowedTablesCacheKey", out HashSet<string> allowedTables))
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var dbContext = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
+
+                var tablesFromDb = await dbContext.AllowedTables
+                    .Where(t => t.IsAllowed)
+                    .Select(t => t.TableName.ToLower())
+                    .ToListAsync();
+
+                allowedTables = new HashSet<string>(tablesFromDb, StringComparer.OrdinalIgnoreCase);
+                _cache.Set("AllowedTablesCacheKey", allowedTables, TimeSpan.FromHours(24));
+            }
+            return allowedTables;
         }
 
         public async Task<Result<object>> ExecuteQueryAsync(
@@ -49,7 +74,10 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
                 return Result<object>.Failure("SQL query cannot be empty.");
             }
 
-            var validationError = ValidateAndSanitizeSql(sqlQuery);
+            // 🚨 هنجيب الجداول المسموحة ديناميكياً قبل ما نفحص الكويري
+            var allowedTables = await GetAllowedTablesAsync();
+            var validationError = ValidateAndSanitizeSql(sqlQuery, allowedTables);
+
             if (validationError != null)
             {
                 return Result<object>.Failure(validationError);
@@ -58,7 +86,7 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
             try
             {
                 var connectionString = _configuration.GetConnectionString("DefaultConnection");
-                
+
                 if (string.IsNullOrWhiteSpace(connectionString))
                 {
                     return Result<object>.Failure("DATABASE_CONFIGURATION_ERROR: Database connection string is missing.");
@@ -78,10 +106,7 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
                 var result = await connection.QueryAsync<dynamic>(command);
                 return Result<object>.Success(result.ToList());
             }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
+            catch (OperationCanceledException) { throw; }
             catch (SqlException ex)
             {
                 _logger.LogError(ex, "Database execution error during dynamic SQL execution.");
@@ -94,7 +119,7 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
             }
         }
 
-        private string? ValidateAndSanitizeSql(string sqlQuery)
+        private string? ValidateAndSanitizeSql(string sqlQuery, HashSet<string> allowedTables)
         {
             if (sqlQuery.Contains(';'))
             {
@@ -142,10 +167,12 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
             {
                 if (!match.Success || match.Groups.Count <= 1) continue;
 
-                var tableName = match.Groups[1].Value;
-                if (!_allowedTables.Contains(tableName))
+                var tableName = match.Groups[1].Value.ToLower(); // 🚨 حولناها Lower عشان تطابق صح
+
+                // 🚨 هنا بنفحص من اللستة الديناميكية مش من الثابتة
+                if (!allowedTables.Contains(tableName))
                 {
-                    return $"SQL_VALIDATION_FAILED: Access to table '{tableName}' is not allowed.";
+                    return $"SQL_VALIDATION_FAILED: Access to table '{tableName}' is not allowed or it is disabled by Admin.";
                 }
             }
 
@@ -163,19 +190,19 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
                 return "RLS_ERROR: For 'loans', use loans -> customers -> accounts -> branches and filter branches.branch_id = @UserBranchId.";
             }
 
-            if (upperSql.Contains("MERCHANTS") && 
+            if (upperSql.Contains("MERCHANTS") &&
                (!upperSql.Contains("JOIN TRANSACTIONS") || !upperSql.Contains("JOIN ACCOUNTS")))
             {
                 return "RLS_ERROR: For 'merchants' table, you MUST strictly enforce this rule: INNER JOIN transactions ON merchants.merchant_id = transactions.merchant_id INNER JOIN accounts ON transactions.account_id = accounts.account_id WHERE accounts.branch_id = @UserBranchId";
             }
 
-            if (upperSql.Contains("CUSTOMERS") && 
-                !upperSql.Contains("JOIN ACCOUNTS") && !upperSql.Contains("LOANS")) 
+            if (upperSql.Contains("CUSTOMERS") &&
+                !upperSql.Contains("JOIN ACCOUNTS") && !upperSql.Contains("LOANS"))
             {
                 return "RLS_ERROR: For 'customers' table, you MUST strictly enforce this rule: INNER JOIN accounts ON customers.customer_id = accounts.customer_id WHERE accounts.branch_id = @UserBranchId";
             }
 
-            if ((upperSql.Contains("TRANSACTIONS") || upperSql.Contains("CARDS")) && 
+            if ((upperSql.Contains("TRANSACTIONS") || upperSql.Contains("CARDS")) &&
                 !upperSql.Contains("JOIN ACCOUNTS") && !upperSql.Contains("MERCHANTS"))
             {
                 return "RLS_ERROR: For 'transactions' or 'cards' tables, you MUST strictly enforce this rule: INNER JOIN accounts ON [table].account_id = accounts.account_id WHERE accounts.branch_id = @UserBranchId";
