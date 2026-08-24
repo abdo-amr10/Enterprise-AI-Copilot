@@ -13,6 +13,7 @@ namespace EnterpriseAiCopilot.Application.Common.Interfaces
         DbSet<SemanticSourceFile> SemanticSourceFiles { get; }
         DbSet<SemanticRevision> SemanticRevisions { get; }
         DbSet<CopilotQueryHistory> CopilotQueryHistories { get; }
+        DbSet<AllowedTable> AllowedTables { get; }
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     }
 }

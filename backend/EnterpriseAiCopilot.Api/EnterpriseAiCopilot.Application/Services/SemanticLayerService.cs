@@ -4,11 +4,14 @@ using EnterpriseAiCopilot.Application.DTOs;
 using EnterpriseAiCopilot.Application.DTOs.SemanticLayer;
 using EnterpriseAiCopilot.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -21,17 +24,22 @@ namespace EnterpriseAiCopilot.Application.Services
         private readonly ICurrentUserService _currentUserService;
 
         private readonly IAiSemanticClient _aiSemanticClient;
-
+        private readonly IMemoryCache _cache;
+        private readonly ILogger<SemanticLayerService> _logger;
         public SemanticLayerService(
             IApplicationDbContext context,
             IFileStorage fileStorage,
             ICurrentUserService currentUserService,
-            IAiSemanticClient aiSemanticClient) 
+            IAiSemanticClient aiSemanticClient,
+            IMemoryCache cache,
+            ILogger<SemanticLayerService> logger)
         {
             _context = context;
             _fileStorage = fileStorage;
             _currentUserService = currentUserService;
             _aiSemanticClient = aiSemanticClient;
+            _cache = cache;
+            _logger = logger;
         }
 
         public async Task<Result<UploadDataSourcesResponse>> UploadDataSourcesAsync(UploadDataSourcesRequest request, CancellationToken cancellationToken = default)
@@ -120,6 +128,16 @@ namespace EnterpriseAiCopilot.Application.Services
                     SemanticLayerId = semanticLayer.Id
                 };
                 _context.SemanticSourceFiles.Add(sampleDataFile);
+            }
+
+            if (schemaResult.IsSuccess && schemaResult.Data != null)
+            {
+                var fileContentResult = await _fileStorage.GetFileAsync(schemaResult.Data, cancellationToken);
+                if (fileContentResult.IsSuccess && fileContentResult.Data != null)
+                {
+                    string contentStr = System.Text.Encoding.UTF8.GetString(fileContentResult.Data);
+                    await ExtractAndSaveTablesFromSchemaAsync(contentStr, semanticLayer.Id, cancellationToken);
+                }
             }
 
             await _context.SaveChangesAsync(cancellationToken);
@@ -524,6 +542,74 @@ namespace EnterpriseAiCopilot.Application.Services
             };
 
             return Result<RetrieveSourceFileResponse>.Success(response);
+        }
+
+        private async Task<Result<bool>> ExtractAndSaveTablesFromSchemaAsync(string fileContent, Guid semanticLayerId, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(fileContent))
+                return Result<bool>.Failure("File content cannot be empty.");
+
+            try
+            {
+                var tableMatches = Regex.Matches(
+                    fileContent,
+                    @"\bCREATE\s+TABLE\s+(?:\[?[a-zA-Z0-9_]+\]?\.)?\[?([a-zA-Z0-9_]+)\]?",
+                    RegexOptions.IgnoreCase);
+
+                var extractedTables = tableMatches.Select(m => m.Groups[1].Value.ToLower()).Distinct();
+
+                foreach (var tableName in extractedTables)
+                {
+                    if (!await _context.AllowedTables.AnyAsync(t => t.TableName == tableName, cancellationToken))
+                    {
+                        _context.AllowedTables.Add(new AllowedTable
+                        {
+                            TableName = tableName,
+                            IsAllowed = true,
+                            SemanticLayerId = semanticLayerId
+                        });
+                    }
+                }
+
+                await _context.SaveChangesAsync(cancellationToken);
+                _cache.Remove("AllowedTablesCacheKey");
+
+                return Result<bool>.Success(true);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error extracting tables for Layer {LayerId}", semanticLayerId);
+                return Result<bool>.Failure("DATABASE_ERROR: Failed to extract tables.");
+            }
+        }
+
+        public async Task<Result<bool>> ToggleTablePermissionAsync(string tableName, bool isAllowed, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(tableName))
+                return Result<bool>.Failure("Table name cannot be empty.");
+
+            try
+            {
+                var table = await _context.AllowedTables
+                    .FirstOrDefaultAsync(t => t.TableName.ToLower() == tableName.ToLower(), cancellationToken);
+
+                if (table == null)
+                    return Result<bool>.Failure($"NOT_FOUND: Table '{tableName}' was not found.");
+
+                table.IsAllowed = isAllowed;
+                await _context.SaveChangesAsync(cancellationToken);
+
+                _cache.Remove("AllowedTablesCacheKey");
+
+                return Result<bool>.Success(true);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error toggling permission for table {TableName}", tableName);
+                return Result<bool>.Failure("DATABASE_ERROR: Failed to update permission.");
+            }
         }
     }
 }
