@@ -17,7 +17,7 @@ POST /internal/copilot/text-to-sql
   -> validated SQL returned to Backend
   -> Backend executes SQL
   -> optional Backend RLS/execution rejection retry
-  -> POST /internal/copilot/correct-backend-rejection
+  -> Backend re-calls POST /internal/copilot/text-to-sql with RLS_CORRECTION feedback in conversation
   -> AI correction -> validation -> corrected SQL returned to Backend
   -> POST /internal/copilot/format-execution-result
   -> deterministic text/table/Excel response
@@ -29,8 +29,8 @@ schema before correction. Every corrected statement runs the complete
 deterministic and critic sequence again.
 
 RLS remains exclusively Backend-owned. If the Backend rejects an already
-validated SQL statement, it can send the rejected SQL and its error to the AI
-correction endpoint. See
+validated SQL statement, it retries the same internal route with the rejected
+SQL and error in a system `RLS_CORRECTION:` conversation message. See
 [the Backend RLS-rejection retry contract](docs/backend-rls-retry-contract.md)
 for the exact handoff and the required Backend call.
 
@@ -110,3 +110,10 @@ The command verifies approval, validation, and review result files before
 copying the approved layer and index artifacts to `outputs/semantic_layer/`.
 Use `--dry-run` to inspect the selected artifact, or `--artifact-dir <path>`
 to choose one explicitly.
+
+To promote that artifact automatically immediately before a local question:
+
+```powershell
+$env:AI_LOCAL_DEV_MODE = "true"
+python scripts/run_text_to_sql_pipeline.py --use-latest-approved-semantic --question "Show all customers" --verbose
+```

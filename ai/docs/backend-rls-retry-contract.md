@@ -17,41 +17,34 @@ The existing Backend client calls `POST /internal/copilot/text-to-sql`.
 {"question":"Show transactions completed today"}
 ```
 
-`naturalLanguageQuery` is also accepted as a compatibility alias for
-`question`. The response uses the established AI SQL contract:
+The response uses the established AI SQL contract:
 
 ```json
 {"status":"Success","sql":"SELECT ..."}
 ```
 
-## Backend-rejection correction request
+## Backend-rejection retry
 
-When Backend RLS or database execution rejects the generated SQL, it may call
-`POST /internal/copilot/correct-backend-rejection`.
+There is no separate correction endpoint. When Backend RLS or database
+execution rejects generated SQL, the Backend may re-call the same route with
+the original question and one system conversation message:
 
 ```json
 {
   "question": "Show transactions completed today",
-  "sql": "SELECT ...",
-  "backendError": "RLS_ERROR: Query must include branch filtering."
+  "conversation": [
+    {
+      "role": "system",
+      "content": "RLS_CORRECTION: The previous SQL was 'SELECT ...'. It failed with 'RLS_ERROR: Query must include branch filtering.'. Generate a replacement SQL query that fixes this exact policy failure while preserving the original question."
+    }
+  ]
 }
 ```
 
-The response is the same `CopilotResponse` contract used by
-`/text-to-sql`. The AI sends the Backend error to the correction model as a
-confirmed issue, then re-runs syntax, schema, relationship, and critic checks
-on the corrected SQL before returning it.
-
-## Required Backend integration
-
-The current Backend implementation calls `/text-to-sql` once and returns an
-RLS/execution failure to the public caller. It does **not** currently call the
-correction endpoint after an execution failure. Therefore an automatic
-Backend-to-AI retry cannot occur until Backend adds that single internal call.
-
-This is an integration requirement, not a change to RLS ownership or RLS
-logic. The Backend remains the only component that decides whether an RLS
-failure occurred and whether a retry is permitted.
+The runtime extracts only `RLS_CORRECTION:` system messages as correction
+feedback. It then generates a replacement and runs its regular read-only,
+syntax, schema, relationship, critic, and self-correction checks before
+returning the same response contract.
 
 ## Retry safety
 
@@ -61,3 +54,5 @@ failure occurred and whether a retry is permitted.
 - Limit the Backend retry count and stop after a non-retryable error.
 - Execute only the SQL returned with `status: "Success"`.
 - Keep Backend validation and parameter binding active for every retry.
+- Backend remains the sole RLS authority; this feedback helps SQL generation
+  but is not an authorization decision.

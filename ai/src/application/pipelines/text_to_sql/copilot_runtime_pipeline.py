@@ -55,6 +55,10 @@ class CopilotRuntimePipeline:
         r"EXEC(?:UTE)?|SELECT\s+INTO|USE|GRANT|REVOKE|DENY|DBCC|BACKUP|RESTORE)\b",
         re.IGNORECASE,
     )
+    _WRITE_INTENT = re.compile(
+        r"\b(insert|add|create|update|edit|modify|delete|remove|drop|alter|truncate)\b",
+        re.IGNORECASE,
+    )
 
     def __init__(
         self,
@@ -69,6 +73,18 @@ class CopilotRuntimePipeline:
         request: CopilotAskRequest,
         trace_observer: Callable[[dict[str, Any]], None] | None = None,
     ) -> TextToSQLRuntimeResponse:
+        if self._WRITE_INTENT.search(request.question):
+            return TextToSQLRuntimeResponse.failure(
+                "READ_ONLY_REQUEST_REQUIRED",
+                "This Copilot supports read-only questions only.",
+                failure_reason=(
+                    "The request asks to create, modify, or delete data. "
+                    "INSERT, UPDATE, DELETE, and other write operations are not supported."
+                ),
+                suggestions=(
+                    "Ask to view or summarize existing data instead.",
+                ),
+            )
         try:
             semantic_context = self._text_to_sql_pipeline.build_context(request.question)
             correction_feedback = "\n".join(

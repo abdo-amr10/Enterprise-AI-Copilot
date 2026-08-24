@@ -26,7 +26,6 @@ reports, or persists user history. Those actions are Backend-owned.
 | Route | Purpose | Backend role |
 |---|---|---|
 | `POST /internal/copilot/text-to-sql` | Generate and internally validate read-only SQL. | Send question; execute only successful SQL. |
-| `POST /internal/copilot/correct-backend-rejection` | Correct SQL rejected by Backend RLS/execution, then re-run AI validation. | Call only after a retryable Backend rejection. |
 | `POST /internal/copilot/format-execution-result` | Format a Backend-owned result without executing SQL. | Supply the execution result. |
 | `POST /internal/semantic/retrieve` | Retrieve approved semantic context. | Provide the question. |
 | `POST /internal/semantic/generate-draft` | Generate an unpersisted Semantic Layer draft. | Own source files and revision persistence. |
@@ -42,8 +41,10 @@ reports, or persists user history. Those actions are Backend-owned.
    are filtered through `CriticFindingVerifier` before correction.
 5. A correction is attempted only for a confirmed issue and is revalidated
    from step 3. The default limit is three corrections.
-6. Backend enforces RLS and executes the SQL. A later Backend rejection may
-   enter the separate retry contract documented in
+6. Backend enforces RLS and executes the SQL. A retryable Backend rejection
+   re-calls the same Text-to-SQL route with a `RLS_CORRECTION:` system message
+   in `conversation`; the runtime uses that feedback and performs its normal
+   correction and validation sequence. The contract is documented in
    [backend-rls-retry-contract.md](backend-rls-retry-contract.md).
 
 ## Documentation convention

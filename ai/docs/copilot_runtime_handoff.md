@@ -57,9 +57,9 @@ frontend; it executes the approved SQL and returns the public `report` contract.
 ## Backend RLS/execution retry
 
 RLS and execution remain Backend-owned. For a rejected query, the AI supports
-`POST /internal/copilot/correct-backend-rejection` with the original question,
-rejected SQL, and Backend error. The current Backend must explicitly call that
-route after a retryable RLS/execution rejection; no AI endpoint can receive an
-error that Backend has not sent. The complete request/response contract and
-safety constraints are in
+the existing `POST /internal/copilot/text-to-sql` route with the original
+question and a system conversation message beginning with `RLS_CORRECTION:`.
+The Backend adds this message only after a retryable RLS/execution rejection;
+the AI receives no branch ID or policy rule and never enforces RLS itself. The
+complete request/response contract and safety constraints are in
 [backend-rls-retry-contract.md](backend-rls-retry-contract.md).
