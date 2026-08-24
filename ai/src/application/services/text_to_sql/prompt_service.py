@@ -12,7 +12,13 @@ class PromptService:
     generation, or SQL validation.
     """
 
-    def build_request(self,question: str,semantic_context: str,current_date: str,) -> GenerationRequest:
+    def build_request(
+        self,
+        question: str,
+        semantic_context: str,
+        current_date: str,
+        correction_feedback: str = "",
+    ) -> GenerationRequest:
         """Build a generation request from question and semantic context.
 
         Args:
@@ -35,6 +41,7 @@ class PromptService:
             question=question,
             semantic_context=semantic_context,
             current_date=current_date,
+            correction_feedback=correction_feedback,
         )
 
         return GenerationRequest(prompt=prompt)

@@ -38,13 +38,13 @@ def text_to_sql(
     result = pipeline.run(ask_request)
 
     return CopilotResponse(
-        status=result.status,
-        sql=result.sql,
-        errorCode=result.error_code,
-        message=result.message,
-        failureReason=result.failure_reason,
-        rewrittenQuestion=result.rewritten_question,
-        suggestions=list(result.suggestions),
+        isSuccess=result.status == "Success",
+        generatedSql=result.sql,
+        errorMessage=(
+            None
+            if result.status == "Success"
+            else result.failure_reason or result.message or result.error_code
+        ),
     )
 
 

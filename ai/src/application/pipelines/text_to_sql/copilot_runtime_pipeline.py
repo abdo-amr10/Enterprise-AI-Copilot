@@ -71,16 +71,23 @@ class CopilotRuntimePipeline:
     ) -> TextToSQLRuntimeResponse:
         try:
             semantic_context = self._text_to_sql_pipeline.build_context(request.question)
+            correction_feedback = "\n".join(
+                str(message.get("content", ""))
+                for message in request.conversation
+                if message.get("role") == "system"
+                and str(message.get("content", "")).startswith("RLS_CORRECTION:")
+            )
             generated = self._text_to_sql_pipeline.run(
                 question=request.question,
                 semantic_context=semantic_context,
+                correction_feedback=correction_feedback,
             )
         except Exception as exc:
             logger.exception("Text-to-SQL generation failed")
             return TextToSQLRuntimeResponse.failure(
                 "SQL_GENERATION_FAILED",
                 "The system could not generate SQL for this request.",
-                failure_reason=f"Generation service failed: {type(exc).__name__}.",
+                failure_reason=f"Generation service failed: {type(exc).__name__}: {exc}",
             )
         try:
             payload = self._parse_generation_response(generated.text)
@@ -139,7 +146,7 @@ class CopilotRuntimePipeline:
             return TextToSQLRuntimeResponse.failure(
                 "SQL_VALIDATION_FAILED",
                 "The system could not validate the generated SQL.",
-                failure_reason=f"Validation service failed: {type(exc).__name__}.",
+                failure_reason=f"Validation service failed: {type(exc).__name__}: {exc}",
             )
 
         if not outcome.is_valid:

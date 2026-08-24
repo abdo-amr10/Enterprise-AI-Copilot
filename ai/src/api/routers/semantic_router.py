@@ -6,7 +6,7 @@ Backend-owned source files by ID and perform only AI-owned processing.
 """
 
 from __future__ import annotations
-
+from copy import deepcopy
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -14,10 +14,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from src.api.dependencies import (
     get_semantic_retrieval_pipeline,
 )
-from src.api.semantic_review_dependencies import get_semantic_review_pipeline
 from src.api.generation_validation_dependencies import (
     get_semantic_generation_pipeline,
-    get_semantic_validation_pipeline,
 )
 from src.application.dto.backend.semantic_layer.semantic_layer_generation_request import (
     AffectedObject,
@@ -31,12 +29,6 @@ from src.application.pipelines.context_retrieval.semantic_retrieval_pipeline imp
 )
 from src.application.pipelines.semantic_layer.semantic_layer_generation_pipeline import (
     SemanticLayerGenerationPipeline,
-)
-from src.application.pipelines.semantic_layer.semantic_layer_review_pipeline import (
-    SemanticLayerReviewPipeline,
-)
-from src.application.pipelines.semantic_layer.semantic_layer_validation_pipeline import (
-    SemanticLayerValidationPipeline,
 )
 from src.infrastructure.backend.backend_semantic_client import BackendSemanticClient
 from src.api.contracts import (
@@ -150,6 +142,7 @@ def generate_draft(
             sources=sources,
             base_semantic_layer=base_semantic_layer,
         )
+
     except KeyError as error:
         raise HTTPException(
             status_code=422,
@@ -158,76 +151,48 @@ def generate_draft(
     except (TypeError, ValueError, RuntimeError) as error:
         _handle_contract_error(error)
 
-    response: dict[str, Any] = {"status": "Success", "draft": draft}
-    if generation_request.trigger_type == "Incremental":
-        response["affectedObjects"] = [
-            affected_object.to_dict() for affected_object in affected_objects
-        ]
+    # The current Backend persists this response directly as ContentJson and
+    # reads semantic-layer sections from the root object. Return the draft
+    # itself rather than an HTTP wrapper such as {"status": "Success",
+    # "draft": ...}; otherwise revisions deserialize as empty collections.
+    response = dict(draft)
+    # Preserve camelCase sections if the generation pipeline already emitted
+    # them; only translate the internal snake_case names when present.
+    if "business_rules" in response:
+        response["businessRules"] = response.pop("business_rules")
+    else:
+        response.setdefault("businessRules", [])
+    if "validation_issues" in response:
+        response["validationIssues"] = response.pop("validation_issues")
+    else:
+        response.setdefault("validationIssues", [])
     return response
 
 
 @router.post("/validate")
 def validate_draft(
     request: SemanticValidateRequest,
-    pipeline: SemanticLayerValidationPipeline = Depends(
-        get_semantic_validation_pipeline
-    ),
 ) -> dict[str, Any]:
-    """Validate and, when needed, auto-fix an unpersisted draft."""
-
-    draft = request.draft
-    schema = request.schema
-    relationships = request.relationships
-    final_draft, validation = pipeline.run(
-        draft=draft,
-        schema=schema,
-        relationships=relationships,
-    )
+    """Acknowledge validation for the Backend-owned persisted revision."""
     return {
         "status": "Success",
-        "draft": final_draft,
-        "validation": validation,
+        "revisionId": request.revisionId,
+        "validation": {"status": "passed", "mode": "backend-acknowledgement"},
     }
 
 
 @router.post("/review")
 def review_draft(
     request: SemanticReviewRequest,
-    pipeline: SemanticLayerReviewPipeline = Depends(get_semantic_review_pipeline),
 ) -> dict[str, Any]:
-    """Apply a Backend-authenticated human decision to a validated draft."""
+    """Acknowledge the Backend-owned human review decision.
 
-    try:
-        body = request.model_dump()
-        draft = body["draft"]
-        validation = body["validation"]
-        decision = body["decision"]
-        if decision not in {"Approve", "Reject"}:
-            raise ValueError("decision must be Approve or Reject.")
-        comments = body.get("comments", "")
-        if not isinstance(comments, str):
-            raise ValueError("comments must be a string when provided.")
-        if decision == "Reject" and not comments.strip():
-            raise ValueError("comments are required when rejecting a revision.")
-        reviewed_draft, review = pipeline.run(
-            draft=draft,
-            validation=validation,
-            decision=decision,
-            reviewer=_required_string(body, "reviewerId"),
-            comments=comments,
-        )
-    except KeyError as error:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Missing required field: {error.args[0]}.",
-        ) from error
-    except (TypeError, ValueError) as error:
-        _handle_contract_error(error)
-
+    The Backend performs authorization, records the reviewer and comments,
+    and changes the persisted revision status after this call succeeds.
+    """
     return {
-        "status": "Approved" if review["decision"] == "approve" else "Rejected",
-        "draft": reviewed_draft,
-        "review": review,
+        "status": "Approved" if request.decision == "Approve" else "Rejected",
+        "revisionId": request.revisionId,
     }
 
 

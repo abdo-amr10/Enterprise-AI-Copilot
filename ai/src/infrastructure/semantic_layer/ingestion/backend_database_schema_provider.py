@@ -15,9 +15,12 @@ class BackendDatabaseSchemaProvider:
     def get_schema(self) -> dict[str, Any]:
         status = self._client.get_status()
         sources = status.get("sources")
-        if not isinstance(sources, dict) or not isinstance(sources.get("schema"), str):
+        if not isinstance(sources, dict):
             raise RuntimeError("Backend status did not provide the active schema file ID.")
-        payload = self._client._get(f"/api/v1/semantic-layer/files/{sources['schema']}")
+        schema_file_id = sources.get("schema") or sources.get("schemaFileId")
+        if not isinstance(schema_file_id, str) or not schema_file_id:
+            raise RuntimeError("Backend status did not provide the active schema file ID.")
+        payload = self._client._get(f"/api/v1/semantic-layer/files/{schema_file_id}")
         content = payload.get("content")
         if not isinstance(content, dict):
             raise RuntimeError("Backend schema source must be JSON.")

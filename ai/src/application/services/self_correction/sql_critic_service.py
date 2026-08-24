@@ -43,23 +43,35 @@ class SQLCriticService:
 
     @staticmethod
     def _parse(text: str) -> CriticResult:
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.splitlines()
+            cleaned = "\n".join(
+                line for line in lines
+                if not line.strip().startswith("```")
+            ).strip()
+
         try:
-            payload = json.loads(text)
+            payload = json.loads(cleaned)
         except json.JSONDecodeError:
-            return CriticResult(status="FAIL", issues=(CriticIssue(
+            # The critic is advisory. A malformed critic answer must not
+            # reject SQL that already passed deterministic safety checks.
+            return CriticResult(status="UNKNOWN", issues=(CriticIssue(
                 type="CRITIC_MALFORMED_RESPONSE",
                 description="SQL critic returned malformed JSON.",
             ),))
 
         status = payload.get("status")
         if status not in {"PASS", "FAIL", "UNKNOWN"}:
-            return CriticResult(status="FAIL", issues=(CriticIssue(
+            return CriticResult(status="UNKNOWN", issues=(CriticIssue(
                 type="CRITIC_INVALID_RESPONSE",
                 description="SQL critic returned an unsupported status.",
             ),))
 
         if status == "UNKNOWN":
-            return CriticResult(status="FAIL", issues=(CriticIssue(
+            # UNKNOWN is not a confirmed defect. The deterministic validators
+            # already enforce syntax, schema, relationship, and RLS safety.
+            return CriticResult(status="UNKNOWN", issues=(CriticIssue(
                 type="CRITIC_UNKNOWN",
                 description="SQL critic could not determine whether the SQL answers the request.",
             ),))

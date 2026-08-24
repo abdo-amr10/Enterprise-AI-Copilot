@@ -25,6 +25,7 @@ every attempt in the loop, per the "retrieve once" principle.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -213,6 +214,94 @@ class SelfCorrectionService:
                 # Stop at the first failing layer: an invalid JOIN cannot be
                 # judged reliably before syntax/schema are already correct.
                 return list(result.issues)
+        return self._rls_issues(sql)
+
+    @staticmethod
+    def _rls_issues(sql: str) -> list[ValidationIssue]:
+        """Apply the Backend's banking RLS paths before returning SQL to it.
+
+        This keeps invalid branch-scoped SQL inside the AI correction loop,
+        where the correction model receives a concrete, deterministic error,
+        instead of relying solely on a later Backend retry.
+        """
+        normalized = re.sub(r"\s+", " ", sql.upper())
+
+        def issue(message: str) -> list[ValidationIssue]:
+            return [ValidationIssue("rls", message, "rls_validator")]
+
+        def has_branch_filter(*aliases: str) -> bool:
+            names = "|".join(re.escape(alias) for alias in aliases)
+            return bool(
+                re.search(
+                    rf"(?:{names})\.BRANCH_ID\s*=\s*@USERBRANCHID\b",
+                    normalized,
+                )
+            )
+
+        if "@USERBRANCHID" not in normalized:
+            return issue("Query must include @UserBranchId in its WHERE clause.")
+
+        if "LOANS" in normalized:
+            has_required_path = all(
+                fragment in normalized
+                for fragment in ("JOIN CUSTOMERS", "JOIN ACCOUNTS", "JOIN BRANCHES")
+            )
+            has_branch_filter = has_branch_filter("B", "BRANCHES")
+            if not has_required_path or not has_branch_filter:
+                return issue(
+                    "For loans, use exactly the RLS path loans -> customers -> "
+                    "accounts -> branches and filter b.branch_id = @UserBranchId."
+                )
+
+        if "MERCHANTS" in normalized:
+            if (
+                "JOIN TRANSACTIONS" not in normalized
+                or "JOIN ACCOUNTS" not in normalized
+                or not has_branch_filter("A", "ACCOUNTS")
+            ):
+                return issue(
+                    "For merchants, join merchants -> transactions -> accounts "
+                    "and filter a.branch_id = @UserBranchId."
+                )
+
+        if "CUSTOMERS" in normalized and "LOANS" not in normalized:
+            if (
+                "JOIN ACCOUNTS" not in normalized
+                or not has_branch_filter("A", "ACCOUNTS")
+            ):
+                return issue(
+                    "For customers, join customers -> accounts and filter "
+                    "a.branch_id = @UserBranchId."
+                )
+
+        if (
+            ("TRANSACTIONS" in normalized and "MERCHANTS" not in normalized)
+            or "CARDS" in normalized
+        ):
+            if (
+                "JOIN ACCOUNTS" not in normalized
+                or not has_branch_filter("A", "ACCOUNTS")
+            ):
+                return issue(
+                    "For transactions or cards, join the table -> accounts and "
+                    "filter a.branch_id = @UserBranchId."
+                )
+
+        if "ACCOUNTS" in normalized and not any(
+            table in normalized
+            for table in ("LOANS", "CUSTOMERS", "TRANSACTIONS", "CARDS", "MERCHANTS")
+        ):
+            if not has_branch_filter("A", "ACCOUNTS"):
+                return issue(
+                    "For accounts, filter accounts.branch_id = @UserBranchId."
+                )
+
+        if "BRANCHES" in normalized and "LOANS" not in normalized:
+            if not has_branch_filter("B", "BRANCHES"):
+                return issue(
+                    "For branches, filter branches.branch_id = @UserBranchId."
+                )
+
         return []
 
     def _relevant_schema(self, sql: str) -> dict:

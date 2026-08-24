@@ -30,4 +30,4 @@ wwwroot/lib/
 *.log
 
 # AI Runtime local secrets/configuration
-ai/.env
+#

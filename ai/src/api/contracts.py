@@ -16,13 +16,13 @@ class CopilotRequest(StrictModel):
 
 
 class CopilotResponse(StrictModel):
-    status: Literal["Success", "Failed"]
-    sql: str | None
-    errorCode: str | None = None
-    message: str | None = None
-    failureReason: str | None = None
-    rewrittenQuestion: str | None = None
-    suggestions: list[str] = Field(default_factory=list)
+    """Response contract consumed by the .NET ``AiRuntimeResponse`` DTO."""
+
+    isSuccess: bool
+    generatedSql: str | None = None
+    textSummary: str | None = None
+    presentationType: str = "DataTable"
+    errorMessage: str | None = None
 
 
 class SemanticRetrieveRequest(CopilotRequest):
@@ -54,17 +54,27 @@ class SemanticGenerateRequest(StrictModel):
 
 
 class SemanticValidateRequest(StrictModel):
-    draft: dict[str, Any]
-    schema: dict[str, Any]
-    relationships: list[dict[str, Any]] = Field(default_factory=list)
+    """Backend-to-AI submit-validation acknowledgement request.
+
+    The current Backend sends only the persisted revision identifier. It owns
+    the source files and revision state, so this endpoint must accept that
+    contract rather than requiring an in-memory draft payload.
+    """
+
+    revisionId: str = Field(min_length=1)
 
 
 class SemanticReviewRequest(StrictModel):
-    draft: dict[str, Any]
-    validation: dict[str, Any]
+    """Backend-to-AI review acknowledgement request.
+
+    The Backend owns revision persistence, validation state, the authenticated
+    reviewer, and the final status transition. It sends only the revision ID
+    and the human decision to this internal endpoint.
+    """
+
+    revisionId: str = Field(min_length=1)
     decision: Literal["Approve", "Reject"]
-    reviewerId: str = Field(min_length=1)
-    comments: str = ""
+    comments: str | None = None
 
 
 class ExecutionResultRequest(StrictModel):
