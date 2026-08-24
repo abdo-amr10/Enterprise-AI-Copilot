@@ -53,3 +53,13 @@ Failure response:
 
 This is an internal handoff only. The Backend must not return the SQL to the
 frontend; it executes the approved SQL and returns the public `report` contract.
+
+## Backend RLS/execution retry
+
+RLS and execution remain Backend-owned. For a rejected query, the AI supports
+`POST /internal/copilot/correct-backend-rejection` with the original question,
+rejected SQL, and Backend error. The current Backend must explicitly call that
+route after a retryable RLS/execution rejection; no AI endpoint can receive an
+error that Backend has not sent. The complete request/response contract and
+safety constraints are in
+[backend-rls-retry-contract.md](backend-rls-retry-contract.md).

@@ -16,6 +16,9 @@ POST /internal/copilot/text-to-sql
   -> at most 3 corrections
   -> validated SQL returned to Backend
   -> Backend executes SQL
+  -> optional Backend RLS/execution rejection retry
+  -> POST /internal/copilot/correct-backend-rejection
+  -> AI correction -> validation -> corrected SQL returned to Backend
   -> POST /internal/copilot/format-execution-result
   -> deterministic text/table/Excel response
 ```
@@ -24,6 +27,12 @@ The critic is always called after deterministic validation succeeds. Its
 findings are advisory and table/column claims are checked against the physical
 schema before correction. Every corrected statement runs the complete
 deterministic and critic sequence again.
+
+RLS remains exclusively Backend-owned. If the Backend rejects an already
+validated SQL statement, it can send the rejected SQL and its error to the AI
+correction endpoint. See
+[the Backend RLS-rejection retry contract](docs/backend-rls-retry-contract.md)
+for the exact handoff and the required Backend call.
 
 ## Model configuration
 
@@ -79,6 +88,9 @@ status, each correction, final SQL, and correction count.
 cd ai
 pytest
 ```
+
+For a package-level architecture and ownership map, see
+[AI Runtime Documentation Guide](docs/ai-runtime-documentation.md).
 
 See `docs/semantic-layer-architecture.html` for the Backend-owned Semantic
 Layer lifecycle.
