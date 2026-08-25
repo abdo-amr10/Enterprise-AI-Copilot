@@ -20,7 +20,6 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
     {
         private readonly IConfiguration _configuration;
         private readonly ILogger<DynamicSqlExecutor> _logger;
-        // 🚨 دول ناقصين عندك عشان نقدر نكلم الكاش والداتا بيز!
         private readonly IMemoryCache _cache;
         private readonly IServiceScopeFactory _scopeFactory;
 
@@ -30,8 +29,6 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
             "TRUNCATE", "EXEC", "EXECUTE", "CREATE", "GRANT",
             "REVOKE", "XP_", "SP_"
         };
-
-        // 🚨 مسحنا الـ HashSet الثابتة من هنا تماماً!
 
         public DynamicSqlExecutor(
             IConfiguration configuration,
@@ -45,10 +42,9 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
             _scopeFactory = scopeFactory;
         }
 
-        // 🚨 دي الدالة اللي بتجيب الجداول من الكاش أو الداتا بيز
         private async Task<HashSet<string>> GetAllowedTablesAsync()
         {
-            if (!_cache.TryGetValue("AllowedTablesCacheKey", out HashSet<string> allowedTables))
+            if (!_cache.TryGetValue("AllowedTablesCacheKey", out HashSet<string>? allowedTables) || allowedTables == null)
             {
                 using var scope = _scopeFactory.CreateScope();
                 var dbContext = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
@@ -61,6 +57,7 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
                 allowedTables = new HashSet<string>(tablesFromDb, StringComparer.OrdinalIgnoreCase);
                 _cache.Set("AllowedTablesCacheKey", allowedTables, TimeSpan.FromHours(24));
             }
+
             return allowedTables;
         }
 
@@ -167,9 +164,8 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
             {
                 if (!match.Success || match.Groups.Count <= 1) continue;
 
-                var tableName = match.Groups[1].Value.ToLower(); // 🚨 حولناها Lower عشان تطابق صح
+                var tableName = match.Groups[1].Value.ToLower(); 
 
-                // 🚨 هنا بنفحص من اللستة الديناميكية مش من الثابتة
                 if (!allowedTables.Contains(tableName))
                 {
                     return $"SQL_VALIDATION_FAILED: Access to table '{tableName}' is not allowed or it is disabled by Admin.";

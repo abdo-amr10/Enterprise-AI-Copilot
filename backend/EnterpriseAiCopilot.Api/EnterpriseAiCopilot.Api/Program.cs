@@ -41,7 +41,7 @@ builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
 builder.Services.AddDistributedMemoryCache();
-
+builder.Services.AddMemoryCache();
 var app = builder.Build();
 
 app.UseExceptionHandler();
