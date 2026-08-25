@@ -26,7 +26,12 @@ public class AuthController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return Unauthorized(new { Message = result.ErrorMessage });
+            return Unauthorized(new
+            {
+                status = "Failed",
+                errorCode = "UNAUTHORIZED",
+                message = result.ErrorMessage
+            });
         }
 
         return Ok(result.Data);
@@ -42,7 +47,12 @@ public class AuthController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(new { Message = result.ErrorMessage });
+            return BadRequest(new
+            {
+                status = "Failed",
+                errorCode = "BUSINESS_ERROR",
+                message = result.ErrorMessage
+            });
         }
 
         return Ok(result.Data);
@@ -56,7 +66,12 @@ public class AuthController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return NotFound(new { Message = result.ErrorMessage });
+            return NotFound(new
+            {
+                status = "Failed",
+                errorCode = "NOT_FOUND",
+                message = result.ErrorMessage
+            });
         }
 
         return Ok(new { Message = result.Data });
@@ -70,7 +85,12 @@ public class AuthController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return NotFound(new { Message = result.ErrorMessage });
+            return NotFound(new
+            {
+                status = "Failed",
+                errorCode = "NOT_FOUND",
+                message = result.ErrorMessage
+            });
         }
 
         return Ok(new { Message = "User deleted successfully." });
@@ -84,7 +104,15 @@ public class AuthController : ControllerBase
 
         var result = await _authService.LogoutAsync(token, cancellationToken);
 
-        if (!result.IsSuccess) return BadRequest(new { Message = result.ErrorMessage });
+        if (!result.IsSuccess)
+        {
+            return BadRequest(new
+            {
+                status = "Failed",
+                errorCode = "BUSINESS_ERROR",
+                message = result.ErrorMessage
+            });
+        }
 
         return Ok(result.Data);
     }
@@ -97,7 +125,12 @@ public class AuthController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(new { Message = result.ErrorMessage });
+            return BadRequest(new
+            {
+                status = "Failed",
+                errorCode = "BUSINESS_ERROR",
+                message = result.ErrorMessage
+            });
         }
 
         return Ok(new { Message = result.Data });
