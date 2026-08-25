@@ -30,6 +30,7 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
             "REVOKE", "XP_", "SP_"
         };
 
+
         public DynamicSqlExecutor(
             IConfiguration configuration,
             ILogger<DynamicSqlExecutor> logger,
@@ -71,7 +72,6 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
                 return Result<object>.Failure("SQL query cannot be empty.");
             }
 
-            // 🚨 هنجيب الجداول المسموحة ديناميكياً قبل ما نفحص الكويري
             var allowedTables = await GetAllowedTablesAsync();
             var validationError = ValidateAndSanitizeSql(sqlQuery, allowedTables);
 

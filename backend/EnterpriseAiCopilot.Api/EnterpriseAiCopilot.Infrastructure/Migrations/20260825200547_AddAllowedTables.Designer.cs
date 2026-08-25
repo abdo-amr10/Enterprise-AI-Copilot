@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace EnterpriseAiCopilot.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260825195021_AddAllowedTables")]
+    [Migration("20260825200547_AddAllowedTables")]
     partial class AddAllowedTables
     {
         /// <inheritdoc />
