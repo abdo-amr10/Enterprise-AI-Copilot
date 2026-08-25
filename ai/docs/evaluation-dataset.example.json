@@ -1,0 +1,9 @@
+{
+  "cases": [
+    {
+      "case_id": "sales-by-region",
+      "question": "Show total sales by region",
+      "tags": ["aggregation", "regional"]
+    }
+  ]
+}
