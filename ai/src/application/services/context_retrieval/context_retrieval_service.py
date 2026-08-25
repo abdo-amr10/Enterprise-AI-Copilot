@@ -15,13 +15,18 @@ class ContextRetrievalService:
         self._default_top_k = default_top_k
 
     def retrieve(self, question: str, top_k: int | None = None) -> list[dict[str, Any]]:
-        limit = top_k if top_k is not None else self._default_top_k
+        limit = top_k if top_k is not None else self._candidate_limit(question)
         return self._semantic_repository.retrieve(question, limit)
 
     def build_llm_context(self, question: str, top_k: int | None = None) -> str:
         results = self.retrieve(question, top_k)
         layer = self._semantic_repository.load()
-        seed_tables = self._seed_tables(results)
+        requested_tables = self._planned_tables(question, layer)
+        # For a multi-entity question, table coverage is more important than
+        # allowing a few high-scoring attribute documents to introduce
+        # unrelated tables.  The vector search above is deliberately wider;
+        # this is the compact, approved-schema projection passed to the LLM.
+        seed_tables = requested_tables | self._seed_tables(results)
         relationships = self._connecting_relationships(
             seed_tables, layer.get("relationships", [])
         )
@@ -39,8 +44,104 @@ class ContextRetrievalService:
         self._append_entities(lines, layer.get("entities", []), tables)
         self._append_columns(lines, layer, tables)
         self._append_relationships(lines, relationships)
+        self._append_query_scope(lines, seed_tables, relationships)
         self._append_retrieved_rules(lines, results)
         return "\n".join(lines)
+
+    def _candidate_limit(self, question: str) -> int:
+        """Return a wider retrieval candidate set for multi-table questions.
+
+        Semantic objects are indexed independently (one document per entity,
+        dimension, measure, relationship, or rule).  A fixed eight-document
+        search cannot reliably cover a question that explicitly mentions many
+        tables.  This only widens the retrieval candidate set; the final LLM
+        context remains restricted to the requested join-complete subgraph.
+        """
+
+        layer = self._semantic_repository.load()
+        table_count = len(self._planned_tables(question, layer))
+        if table_count < 3:
+            return self._default_top_k
+        return max(self._default_top_k, table_count * 4)
+
+    @staticmethod
+    def _tables_explicitly_requested(question: str, layer: dict[str, Any]) -> set[str]:
+        """Match table/entity names as whole words, only from approved metadata."""
+
+        normalized_question = " ".join(
+            "".join(character if character.isalnum() else " " for character in question.casefold()).split()
+        )
+        words = set(normalized_question.split())
+        tables: set[str] = set()
+        for entity in layer.get("entities", []):
+            if not isinstance(entity, dict):
+                continue
+            mapping = entity.get("mapping")
+            name = entity.get("name")
+            if not isinstance(mapping, str) or not mapping:
+                continue
+            labels = [mapping, name] if isinstance(name, str) else [mapping]
+            for label in labels:
+                normalized_label = " ".join(
+                    "".join(character if character.isalnum() else " " for character in label.casefold()).split()
+                )
+                if not normalized_label:
+                    continue
+                label_words = normalized_label.split()
+                singular_or_plural_match = (
+                    len(label_words) == 1
+                    and (label_words[0] in words or f"{label_words[0]}s" in words)
+                )
+                if normalized_label in normalized_question or singular_or_plural_match:
+                    tables.add(mapping)
+                    break
+        return tables
+
+    @classmethod
+    def _planned_tables(cls, question: str, layer: dict[str, Any]) -> set[str]:
+        """Build a deterministic, metadata-grounded table plan for a question.
+
+        Entity mentions cover requests such as "customers with cards".  Metric
+        and attribute names cover requests whose table is implicit, such as
+        "average credit score".  Both sources are restricted to the approved
+        semantic layer, so the planner cannot introduce a table the model was
+        not authorized to use.
+        """
+
+        tables = cls._tables_explicitly_requested(question, layer)
+        question_words = set(cls._normalized_words(question))
+        for section in ("dimensions", "measures"):
+            for item in layer.get(section, []):
+                if not isinstance(item, dict):
+                    continue
+                mapping = item.get("mapping")
+                name = item.get("name")
+                if not isinstance(mapping, str) or "." not in mapping:
+                    continue
+                if isinstance(name, str) and cls._semantic_name_matches(name, question_words):
+                    tables.add(mapping.split(".", 1)[0])
+        return tables
+
+    @staticmethod
+    def _normalized_words(value: str) -> list[str]:
+        return "".join(
+            character if character.isalnum() else " " for character in value.casefold()
+        ).split()
+
+    @classmethod
+    def _semantic_name_matches(cls, name: str, question_words: set[str]) -> bool:
+        """Require a specific semantic phrase, not a generic one-word overlap."""
+
+        name_words = set(cls._normalized_words(name))
+        if len(name_words) < 2:
+            return False
+        # A phrase is relevant when all of its semantic words occur in the
+        # question, or when all but one occur in a three-or-more-word label.
+        # The latter covers "average transaction amount" -> "Transaction Amount".
+        matched = len(name_words & question_words)
+        return matched == len(name_words) or (
+            len(name_words) >= 3 and matched >= len(name_words) - 1
+        )
 
     @staticmethod
     def _seed_tables(results: list[dict[str, Any]]) -> set[str]:
@@ -132,6 +233,30 @@ class ContextRetrievalService:
             lines.append(
                 f"- {relationship['from_table']}.{relationship['from_column']} "
                 f"-> {relationship['to_table']}.{relationship['to_column']}"
+            )
+        lines.append("")
+
+    @staticmethod
+    def _append_query_scope(
+        lines: list[str], seed_tables: set[str], relationships: list[dict[str, Any]]
+    ) -> None:
+        """Add compact, deterministic guidance for complex aggregation shape."""
+
+        if not seed_tables:
+            return
+        lines.extend((
+            "QUERY SCOPE:",
+            "- Required tables: " + ", ".join(sorted(seed_tables)),
+        ))
+        degree: dict[str, int] = {}
+        for relationship in relationships:
+            for table in (relationship["from_table"], relationship["to_table"]):
+                degree[table] = degree.get(table, 0) + 1
+        if any(count >= 3 for count in degree.values()):
+            lines.append(
+                "- SAFE AGGREGATION: For independent one-to-many paths, aggregate each "
+                "path to the requested grain in a separate CTE or subquery before joining "
+                "the aggregates. Do not join raw child rows together before SUM, COUNT, or AVG."
             )
         lines.append("")
 

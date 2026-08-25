@@ -42,10 +42,10 @@ QWEN_CONFIG =ModelConfig(
     model_name="qwen2.5-coder:7b",
     runtime="ollama",
     temperature=0.0,
-    # Text-to-SQL prompts are compact. A 32k context exhausts local
-    # resources for a 7B model and causes Ollama generation failures.
-    context_length=8192,
-    max_output_tokens=1024
+    # Keep below the 32k setting that exhausts local resources, while leaving
+    # enough room for multi-CTE analytical SQL and its JSON wrapper.
+    context_length=12288,
+    max_output_tokens=2048
 )
 
 SEMANTIC_LAYER_CONFIG = ModelConfig(
