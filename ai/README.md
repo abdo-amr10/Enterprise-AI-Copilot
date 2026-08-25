@@ -11,7 +11,7 @@ POST /internal/copilot/text-to-sql
   -> approved semantic retrieval
   -> Text-to-SQL generation (Ollama through LLMClient)
   -> structured-response and independent read-only checks
-  -> syntax -> schema -> relationship validation
+  -> syntax -> schema -> relationship -> parameterized RLS-shape validation
   -> SQL critic -> verified findings -> correction
   -> at most 3 corrections
   -> validated SQL returned to Backend
@@ -28,9 +28,13 @@ findings are advisory and table/column claims are checked against the physical
 schema before correction. Every corrected statement runs the complete
 deterministic and critic sequence again.
 
-RLS remains exclusively Backend-owned. If the Backend rejects an already
-validated SQL statement, it retries the same internal route with the rejected
-SQL and error in a system `RLS_CORRECTION:` conversation message. See
+The Backend remains the sole authority for authentication and the actual branch
+value. The AI validates the required *parameterized SQL shape* from the
+Backend's RLS mapping: it emits `@UserBranchId` and the required joins, while
+the Backend binds that parameter from the JWT and enforces execution. If the
+Backend rejects an already validated SQL statement, it retries the same
+internal route with the rejected SQL and error in a system `RLS_CORRECTION:`
+conversation message. See
 [the Backend RLS-rejection retry contract](docs/backend-rls-retry-contract.md)
 for the exact handoff and the required Backend call.
 

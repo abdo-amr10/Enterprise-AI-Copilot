@@ -28,6 +28,6 @@ def test_copilot_runtime_transcript_matches_the_backend_handoff_contract() -> No
     assert rejected["response"] == {
         "queryId": "req-991",
         "status": "Failed",
-        "errorCode": "SQL_VALIDATION_FAILED",
-        "message": "The system could not generate a safe read-only query for this request.",
+        "errorCode": "READ_ONLY_REQUEST_REQUIRED",
+        "message": "This Copilot supports read-only questions only.",
     }

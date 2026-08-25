@@ -6,8 +6,11 @@ The Backend owns authentication, the authenticated user's branch identity,
 Row-Level Security (RLS) enforcement, SQL execution, and retry decisions. The
 AI runtime owns SQL generation, correction, and deterministic SQL validation.
 
-The AI runtime does not receive a branch ID and must never apply an RLS policy
-or substitute a branch value in a query.
+The AI runtime does not receive a branch ID and must never substitute a branch
+value in a query. It emits only the Backend-bound `@UserBranchId` parameter
+and validates the documented SQL join shape for branches, accounts,
+transactions, cards, customers, loans, and merchants. The Backend remains the
+sole authority that obtains and binds the branch value from the JWT.
 
 ## Initial SQL request
 
@@ -54,5 +57,6 @@ returning the same response contract.
 - Limit the Backend retry count and stop after a non-retryable error.
 - Execute only the SQL returned with `status: "Success"`.
 - Keep Backend validation and parameter binding active for every retry.
-- Backend remains the sole RLS authority; this feedback helps SQL generation
-  but is not an authorization decision.
+- Backend remains the sole authorization and parameter-binding authority; the
+  AI's structural RLS validation is a preflight check, not an authorization
+  decision.

@@ -32,6 +32,7 @@ from src.application.services.self_correction.validators.sql_schema_validator im
 from src.application.services.self_correction.validators.sql_syntax_validator import (
     SQLSyntaxValidator,
 )
+from src.application.services.self_correction.validators.sql_rls_validator import SQLRlsValidator
 from src.application.services.context_retrieval.context_retrieval_service import (
     ContextRetrievalService,
 )
@@ -139,6 +140,10 @@ def get_self_correction_service() -> SelfCorrectionService:
             syntax_validator=syntax_validator,
             schema_validator=schema_validator,
         )
+        rls_validator = SQLRlsValidator(
+            syntax_validator=syntax_validator,
+            schema_validator=schema_validator,
+        )
         critic_service = SQLCriticService(
             llm_client=OllamaClient(config=SQL_CRITIC_CONFIG)
         )
@@ -155,6 +160,7 @@ def get_self_correction_service() -> SelfCorrectionService:
             finding_verifier=CriticFindingVerifier(get_schema_provider()),
             correction_service=correction_service,
             max_attempts=_SELF_CORRECTION_SETTINGS.max_attempts,
+            rls_validator=rls_validator,
         )
     return _self_correction_service
 

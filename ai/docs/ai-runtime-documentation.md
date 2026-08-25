@@ -3,7 +3,8 @@
 ## Scope and ownership
 
 `src/` is the AI runtime. It generates and validates SQL but never connects to
-the production database, executes a query, enforces RLS, creates public
+the production database, executes a query, binds the authenticated branch
+value, creates public
 reports, or persists user history. Those actions are Backend-owned.
 
 ## Package map
@@ -36,12 +37,13 @@ reports, or persists user history. Those actions are Backend-owned.
 
 1. The runtime retrieves approved semantic context once.
 2. It generates a structured, read-only SQL candidate.
-3. It validates syntax, physical schema references, and approved joins.
+3. It validates syntax, physical schema references, approved joins, and the
+   Backend's parameterized RLS join/filter shape.
 4. A critic evaluates whether the valid SQL answers the question; its claims
    are filtered through `CriticFindingVerifier` before correction.
 5. A correction is attempted only for a confirmed issue and is revalidated
    from step 3. The default limit is three corrections.
-6. Backend enforces RLS and executes the SQL. A retryable Backend rejection
+6. Backend binds `@UserBranchId`, enforces RLS, and executes the SQL. A retryable Backend rejection
    re-calls the same Text-to-SQL route with a `RLS_CORRECTION:` system message
    in `conversation`; the runtime uses that feedback and performs its normal
    correction and validation sequence. The contract is documented in

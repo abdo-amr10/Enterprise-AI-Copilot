@@ -55,7 +55,12 @@ class FakeTextToSQLPipeline:
     def build_context(self, question: str) -> str:
         return "approved semantic context"
 
-    def run(self, question: str, semantic_context: str | None = None) -> GenerationResponse:
+    def run(
+        self,
+        question: str,
+        semantic_context: str | None = None,
+        correction_feedback: str = "",
+    ) -> GenerationResponse:
         return GenerationResponse(text=self._generated_text)
 
 

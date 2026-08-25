@@ -140,6 +140,28 @@ requested. It is not a new user question.
 </CORRECTION_FEEDBACK>
 
 ==================================================
+4B. REQUIRED PARAMETERIZED RLS SQL SHAPE
+==================================================
+
+The Backend binds @UserBranchId from the authenticated JWT. Always include
+that parameter; never replace it with a branch value and never request a
+branch ID from the user. The generated SQL must use the following exact
+branch path whenever it references the listed table:
+
+- branches: WHERE branches.branch_id = @UserBranchId
+- accounts: WHERE accounts.branch_id = @UserBranchId
+- transactions: INNER JOIN accounts ON transactions.account_id = accounts.account_id, then WHERE accounts.branch_id = @UserBranchId
+- cards: INNER JOIN accounts ON cards.account_id = accounts.account_id, then WHERE accounts.branch_id = @UserBranchId
+- customers: INNER JOIN accounts ON customers.customer_id = accounts.customer_id, then WHERE accounts.branch_id = @UserBranchId
+- loans: INNER JOIN customers ON loans.customer_id = customers.customer_id; INNER JOIN accounts ON customers.customer_id = accounts.customer_id; INNER JOIN branches ON accounts.branch_id = branches.branch_id; then WHERE branches.branch_id = @UserBranchId
+- merchants: INNER JOIN transactions ON merchants.merchant_id = transactions.merchant_id; INNER JOIN accounts ON transactions.account_id = accounts.account_id; then WHERE accounts.branch_id = @UserBranchId
+
+Use aliases consistently, but preserve the same join columns and put the
+@UserBranchId predicate in WHERE. If a query references more than one of
+these tables, use the most specific complete path above; loans and merchants
+take precedence over their intermediary tables.
+
+==================================================
 5. CURRENT DATE
 ==================================================
 

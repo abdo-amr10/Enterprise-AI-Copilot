@@ -46,6 +46,7 @@ from src.application.services.self_correction.validators.sql_schema_validator im
 from src.application.services.self_correction.validators.sql_syntax_validator import (
     SQLSyntaxValidator,
 )
+from src.application.services.self_correction.validators.sql_rls_validator import SQLRlsValidator
 from src.application.services.context_retrieval.context_retrieval_service import (
     ContextRetrievalService,
 )
@@ -68,6 +69,7 @@ class SelfCorrectionService:
         finding_verifier: CriticFindingVerifier,
         correction_service: SQLCorrectionService,
         max_attempts: int = 3,
+        rls_validator: SQLRlsValidator | None = None,
     ) -> None:
         self._context_retrieval_service = context_retrieval_service
         self._syntax_validator = syntax_validator
@@ -77,6 +79,7 @@ class SelfCorrectionService:
         self._finding_verifier = finding_verifier
         self._correction_service = correction_service
         self._max_attempts = max_attempts
+        self._rls_validator = rls_validator
 
     def run(
         self,
@@ -207,6 +210,7 @@ class SelfCorrectionService:
             self._syntax_validator,
             self._schema_validator,
             self._relationship_validator,
+            *(([self._rls_validator]) if self._rls_validator is not None else []),
         ):
             result = validator.validate(sql)
             if not result.is_valid:

@@ -20,8 +20,9 @@ Response shape:
 
 For `POST /api/v1/copilot/ask`, the Backend calls `CopilotRuntimePipeline`.
 It returns either a read-only SQL string or `SQL_GENERATION_FAILED` / 
-`SQL_VALIDATION_FAILED`. The Backend must apply authorization and RLS, execute
-the SQL, build the public `report`, and store history. Query history endpoints
+`SQL_VALIDATION_FAILED`. The AI preflights the parameterized RLS SQL shape,
+but the Backend applies authorization, binds `@UserBranchId` from the JWT,
+executes the SQL, builds the public `report`, and stores history. Query history endpoints
 are Backend-owned and deliberately have no AI implementation.
 
 ## Recommended internal Text-to-SQL handoff
@@ -56,10 +57,12 @@ frontend; it executes the approved SQL and returns the public `report` contract.
 
 ## Backend RLS/execution retry
 
-RLS and execution remain Backend-owned. For a rejected query, the AI supports
+RLS branch identity and execution remain Backend-owned. The AI emits and
+validates the documented parameterized join shape without receiving a branch
+value. For a rejected query, the AI supports
 the existing `POST /internal/copilot/text-to-sql` route with the original
 question and a system conversation message beginning with `RLS_CORRECTION:`.
 The Backend adds this message only after a retryable RLS/execution rejection;
-the AI receives no branch ID or policy rule and never enforces RLS itself. The
+the AI receives no branch ID. The
 complete request/response contract and safety constraints are in
 [backend-rls-retry-contract.md](backend-rls-retry-contract.md).
