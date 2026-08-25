@@ -30,6 +30,7 @@ namespace EnterpriseAiCopilot.Api.Extensions
             services.AddScoped<IDynamicSqlExecutor, DynamicSqlExecutor>();
             services.AddHttpClient<IAiRuntimeClient, AiRuntimeHttpClient>();
             services.AddHttpClient<IAiSemanticClient, AiSemanticHttpClient>();
+            services.AddScoped<IAuditService, AuditService>();
             services.AddOptions<AiRuntimeOptions>()
                 .Bind(configuration.GetSection(AiRuntimeOptions.SectionName))
                 .Validate(options => Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out _),

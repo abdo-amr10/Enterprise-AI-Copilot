@@ -1,14 +1,15 @@
-﻿using System;
+﻿using EnterpriseAiCopilot.Application.Common.Interfaces;
+using EnterpriseAiCopilot.Application.Common.Models;
+using EnterpriseAiCopilot.Application.DTOs.Copilot;
+using EnterpriseAiCopilot.Domain.Constants;
+using EnterpriseAiCopilot.Domain.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using System;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
-using EnterpriseAiCopilot.Application.Common.Interfaces;
-using EnterpriseAiCopilot.Application.Common.Models;
-using EnterpriseAiCopilot.Application.DTOs.Copilot;
-using EnterpriseAiCopilot.Domain.Entities;
 
 namespace EnterpriseAiCopilot.Application.Services
 {
@@ -18,17 +19,20 @@ namespace EnterpriseAiCopilot.Application.Services
         private readonly IAiRuntimeClient _aiRuntimeClient;
         private readonly IDynamicSqlExecutor _sqlExecutor;
         private readonly ILogger<CopilotService> _logger;
+        private readonly IAuditService _auditService; 
 
         public CopilotService(
             IApplicationDbContext context,
             IAiRuntimeClient aiRuntimeClient,
             IDynamicSqlExecutor sqlExecutor,
-            ILogger<CopilotService> logger)
+            ILogger<CopilotService> logger,
+            IAuditService auditService)
         {
             _context = context;
             _aiRuntimeClient = aiRuntimeClient;
             _sqlExecutor = sqlExecutor;
             _logger = logger;
+            _auditService = auditService;
         }
 
         public async Task<Result<AskCopilotResponse>> AskQuestionAsync(
@@ -67,9 +71,9 @@ namespace EnterpriseAiCopilot.Application.Services
             long totalExecutionTimeMs = 0;
             var stopwatch = new Stopwatch();
 
-            AiRuntimeResponse aiResponse = null;
-            Result<object> executionResult = null;
-            string finalErrorMessage = null;
+            AiRuntimeResponse? aiResponse = null;
+            Result<object>? executionResult = null;
+            string? finalErrorMessage = null;
 
             while (attempt < maxRetries)
             {
@@ -118,10 +122,11 @@ namespace EnterpriseAiCopilot.Application.Services
                 }
 
                 finalErrorMessage = executionResult.ErrorMessage;
-                
-                if (finalErrorMessage.StartsWith("SQL_VALIDATION_FAILED") || 
-                    finalErrorMessage.StartsWith("RLS_ERROR") || 
-                    finalErrorMessage.StartsWith("DATABASE_EXECUTION_ERROR"))
+
+                if (finalErrorMessage != null &&
+                       (finalErrorMessage.StartsWith("SQL_VALIDATION_FAILED") ||
+                        finalErrorMessage.StartsWith("RLS_ERROR") ||
+                        finalErrorMessage.StartsWith("DATABASE_EXECUTION_ERROR")))
                 {
                     _logger.LogWarning($"Attempt {attempt + 1} failed. Triggering Self-Correction. Error: {finalErrorMessage}");
                     
@@ -145,15 +150,15 @@ namespace EnterpriseAiCopilot.Application.Services
             var status = (executionResult != null && executionResult.IsSuccess) ? "Completed" : "Failed";
 
             var historyId = await LogQueryHistorySafeAsync(
-                userId,
-                branchId,
-                originalPrompt,
-                aiResponse?.GeneratedSql,
-                layerId,
-                status,
-                finalErrorMessage,
-                totalExecutionTimeMs,
-                cancellationToken);
+                 userId,
+                 branchId,
+                 originalPrompt,
+                 aiResponse?.GeneratedSql,
+                 layerId,
+                 status,
+                 finalErrorMessage,
+                 totalExecutionTimeMs,
+                 cancellationToken);
 
             if (historyId == Guid.Empty)
             {
@@ -162,8 +167,24 @@ namespace EnterpriseAiCopilot.Application.Services
 
             if (finalErrorMessage != null)
             {
+                await _auditService.LogEventAsync(
+                    action: AuditActions.QueryFailed,
+                    userId: userId,
+                    status: "Failed",
+                    resourceId: historyId.ToString(),
+                    cancellationToken: cancellationToken
+                );
+
                 return Result<AskCopilotResponse>.Failure(finalErrorMessage);
             }
+
+            await _auditService.LogEventAsync(
+                action: AuditActions.QueryExecution,
+                userId: userId,
+                status: "Success",
+                resourceId: historyId.ToString(),
+                cancellationToken: cancellationToken
+            );
 
             var response = new AskCopilotResponse
             {
@@ -171,14 +192,14 @@ namespace EnterpriseAiCopilot.Application.Services
                 Status = "Completed",
                 Report = new CopilotReport
                 {
-                    TextSummary = aiResponse.TextSummary ?? "Query executed successfully.",
-                    PresentationType = aiResponse.PresentationType,
-                    Data = executionResult.Data
+                    TextSummary = aiResponse!.TextSummary ?? "Query executed successfully.",
+                    PresentationType = aiResponse!.PresentationType,
+                    Data = executionResult!.Data
                 }
             };
 
             return Result<AskCopilotResponse>.Success(response);
-        }
+        } 
 
         public async Task<Result<QueryHistoryResponse>> GetUserHistoryAsync(
             string userId,
