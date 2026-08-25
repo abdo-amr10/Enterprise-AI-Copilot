@@ -54,6 +54,10 @@ python -m pip install -e ".[dev]"
 python -m scripts.build_semantic_index
 ```
 
+When `AI_LOCAL_DEV_MODE=true`, the Text-to-SQL command also builds this
+derived FAISS index automatically if it is missing. Running the build command
+directly remains useful for preparing the local artifact ahead of time.
+
 ## Ownership boundaries
 
 Semantic generation, validation, review, embedding, and index building process
