@@ -18,6 +18,7 @@ namespace EnterpriseAiCopilot.Infrastructure.Persistence
         public DbSet<SemanticSourceFile> SemanticSourceFiles => Set<SemanticSourceFile>();
         public DbSet<SemanticRevision> SemanticRevisions => Set<SemanticRevision>();
         public DbSet<CopilotQueryHistory> CopilotQueryHistories => Set<CopilotQueryHistory>();
+        public DbSet<AllowedTable> AllowedTables => Set<AllowedTable>();
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
