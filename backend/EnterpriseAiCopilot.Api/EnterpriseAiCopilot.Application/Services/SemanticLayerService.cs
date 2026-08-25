@@ -2,6 +2,7 @@
 using EnterpriseAiCopilot.Application.Common.Models;
 using EnterpriseAiCopilot.Application.DTOs;
 using EnterpriseAiCopilot.Application.DTOs.SemanticLayer;
+using EnterpriseAiCopilot.Domain.Constants;
 using EnterpriseAiCopilot.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -26,13 +27,15 @@ namespace EnterpriseAiCopilot.Application.Services
         private readonly IAiSemanticClient _aiSemanticClient;
         private readonly IMemoryCache _cache;
         private readonly ILogger<SemanticLayerService> _logger;
+        private readonly IAuditService _auditService; 
         public SemanticLayerService(
             IApplicationDbContext context,
             IFileStorage fileStorage,
             ICurrentUserService currentUserService,
             IAiSemanticClient aiSemanticClient,
             IMemoryCache cache,
-            ILogger<SemanticLayerService> logger)
+            ILogger<SemanticLayerService> logger,
+            IAuditService auditService)
         {
             _context = context;
             _fileStorage = fileStorage;
@@ -40,6 +43,7 @@ namespace EnterpriseAiCopilot.Application.Services
             _aiSemanticClient = aiSemanticClient;
             _cache = cache;
             _logger = logger;
+            _auditService = auditService;
         }
 
         public async Task<Result<UploadDataSourcesResponse>> UploadDataSourcesAsync(UploadDataSourcesRequest request, CancellationToken cancellationToken = default)
@@ -161,6 +165,14 @@ namespace EnterpriseAiCopilot.Application.Services
                 HasSampleData = sampleDataFile != null
             };
 
+            await _auditService.LogEventAsync(
+                action: AuditActions.SemanticLayerUpload,
+                userId: currentUser,
+                status: "Success",
+                resourceId: semanticLayer.Id.ToString(),
+                cancellationToken: cancellationToken
+            );
+
             return Result<UploadDataSourcesResponse>.Success(response);
         }
 
@@ -275,6 +287,16 @@ namespace EnterpriseAiCopilot.Application.Services
                 response.RejectedBy = currentUser;
                 response.RejectedAt = timeNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
             }
+
+            var actionToLog = revision.Status == "Approved" ? AuditActions.SemanticLayerApproval : AuditActions.SemanticLayerRejection;
+
+            await _auditService.LogEventAsync(
+                action: actionToLog,
+                userId: currentUser,
+                status: "Success",
+                resourceId: revision.Id.ToString(),
+                cancellationToken: cancellationToken
+            );
 
             await _context.SaveChangesAsync(cancellationToken);
 

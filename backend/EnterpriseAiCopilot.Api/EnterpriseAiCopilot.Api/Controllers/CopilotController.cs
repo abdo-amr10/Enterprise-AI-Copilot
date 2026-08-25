@@ -24,72 +24,126 @@ namespace EnterpriseAiCopilot.Api.Controllers
         public async Task<IActionResult> AskQuestion([FromBody] AskCopilotRequest request, CancellationToken cancellationToken)
         {
             var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+
             if (string.IsNullOrWhiteSpace(userId))
             {
-                return Unauthorized("User ID claim is missing.");
+                return Unauthorized(new
+                {
+                    status = "Failed",
+                    errorCode = "UNAUTHORIZED",
+                    message = "User ID claim is missing."
+                });
             }
 
             var branchId = User.FindFirstValue("branchId");
+
             if (string.IsNullOrWhiteSpace(branchId))
             {
-                return BadRequest("Branch ID claim is missing or invalid.");
+                return BadRequest(new
+                {
+                    status = "Failed",
+                    errorCode = "BAD_REQUEST",
+                    message = "Branch ID claim is missing or invalid."
+                });
             }
 
             var result = await _copilotService.AskQuestionAsync(request, userId, branchId, cancellationToken);
+
             if (!result.IsSuccess)
             {
-                return BadRequest(result);
+                return BadRequest(new
+                {
+                    status = "Failed",
+                    errorCode = "BUSINESS_ERROR",
+                    message = result.ErrorMessage
+                });
             }
 
-            return Ok(result);
+            return Ok(result.Data);
         }
 
         [HttpGet("history")]
         public async Task<IActionResult> GetUserHistory(CancellationToken cancellationToken)
         {
             var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+
             if (string.IsNullOrWhiteSpace(userId))
             {
-                return Unauthorized("User ID claim is missing.");
+                return Unauthorized(new
+                {
+                    status = "Failed",
+                    errorCode = "UNAUTHORIZED",
+                    message = "User ID claim is missing."
+                });
             }
 
             var branchId = User.FindFirstValue("branchId");
+
             if (string.IsNullOrWhiteSpace(branchId))
             {
-                return BadRequest("Branch ID claim is missing or invalid.");
+                return BadRequest(new
+                {
+                    status = "Failed",
+                    errorCode = "BAD_REQUEST",
+                    message = "Branch ID claim is missing or invalid."
+                });
             }
 
             var result = await _copilotService.GetUserHistoryAsync(userId, branchId, cancellationToken);
+
             if (!result.IsSuccess)
             {
-                return BadRequest(result);
+                return BadRequest(new
+                {
+                    status = "Failed",
+                    errorCode = "BUSINESS_ERROR",
+                    message = result.ErrorMessage
+                });
             }
 
-            return Ok(result);
+            return Ok(result.Data);
         }
 
         [HttpGet("history/{queryId}")]
         public async Task<IActionResult> GetQueryDetails(string queryId, CancellationToken cancellationToken)
         {
             var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+
             if (string.IsNullOrWhiteSpace(userId))
             {
-                return Unauthorized("User ID claim is missing.");
+                return Unauthorized(new
+                {
+                    status = "Failed",
+                    errorCode = "UNAUTHORIZED",
+                    message = "User ID claim is missing."
+                });
             }
 
             var branchId = User.FindFirstValue("branchId");
+
             if (string.IsNullOrWhiteSpace(branchId))
             {
-                return BadRequest("Branch ID claim is missing or invalid.");
+                return BadRequest(new
+                {
+                    status = "Failed",
+                    errorCode = "BAD_REQUEST",
+                    message = "Branch ID claim is missing or invalid."
+                });
             }
 
             var result = await _copilotService.GetQueryDetailsAsync(queryId, userId, branchId, cancellationToken);
+
             if (!result.IsSuccess)
             {
-                return NotFound(result);
+                return NotFound(new
+                {
+                    status = "Failed",
+                    errorCode = "NOT_FOUND",
+                    message = result.ErrorMessage
+                });
             }
 
-            return Ok(result);
+            return Ok(result.Data);
         }
     }
 }

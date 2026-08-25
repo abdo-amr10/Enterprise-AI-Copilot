@@ -24,7 +24,12 @@ namespace EnterpriseAiCopilot.Api.Controllers
 
             if (!result.IsSuccess)
             {
-                return BadRequest(new { Message = result.ErrorMessage });
+                return BadRequest(new
+                {
+                    status = "Failed",
+                    errorCode = "BUSINESS_ERROR",
+                    message = result.ErrorMessage
+                });
             }
 
             return Ok(result.Data);
@@ -37,7 +42,12 @@ namespace EnterpriseAiCopilot.Api.Controllers
 
             if (!result.IsSuccess)
             {
-                return BadRequest(new { Message = result.ErrorMessage });
+                return BadRequest(new
+                {
+                    status = "Failed",
+                    errorCode = "BUSINESS_ERROR",
+                    message = result.ErrorMessage
+                });
             }
 
             return Ok(result.Data);
@@ -47,7 +57,17 @@ namespace EnterpriseAiCopilot.Api.Controllers
         public async Task<IActionResult> ReviewRevision([FromBody] ReviewRevisionRequest request, CancellationToken cancellationToken)
         {
             var result = await _semanticLayerService.ReviewRevisionAsync(request, cancellationToken);
-            if (!result.IsSuccess) return BadRequest(new { Message = result.ErrorMessage });
+
+            if (!result.IsSuccess)
+            {
+                return BadRequest(new
+                {
+                    status = "Failed",
+                    errorCode = "BUSINESS_ERROR",
+                    message = result.ErrorMessage
+                });
+            }
+
             return Ok(result.Data);
         }
 
@@ -56,7 +76,17 @@ namespace EnterpriseAiCopilot.Api.Controllers
         public async Task<IActionResult> GetSourceFile(Guid fileId, CancellationToken cancellationToken)
         {
             var result = await _semanticLayerService.GetSourceFileAsync(fileId, cancellationToken);
-            if (!result.IsSuccess) return NotFound(new { Message = result.ErrorMessage });
+
+            if (!result.IsSuccess)
+            {
+                return NotFound(new
+                {
+                    status = "Failed",
+                    errorCode = "NOT_FOUND",
+                    message = result.ErrorMessage
+                });
+            }
+
             return Ok(result.Data);
         }
 
@@ -67,7 +97,12 @@ namespace EnterpriseAiCopilot.Api.Controllers
 
             if (!result.IsSuccess)
             {
-                return NotFound(new { Message = result.ErrorMessage });
+                return NotFound(new
+                {
+                    status = "Failed",
+                    errorCode = "NOT_FOUND",
+                    message = result.ErrorMessage
+                });
             }
 
             return Ok(result.Data);
@@ -80,7 +115,12 @@ namespace EnterpriseAiCopilot.Api.Controllers
 
             if (!result.IsSuccess)
             {
-                return BadRequest(new { Message = result.ErrorMessage });
+                return BadRequest(new
+                {
+                    status = "Failed",
+                    errorCode = "BUSINESS_ERROR",
+                    message = result.ErrorMessage
+                });
             }
 
             return Ok(result.Data);
@@ -93,7 +133,12 @@ namespace EnterpriseAiCopilot.Api.Controllers
 
             if (!result.IsSuccess)
             {
-                return NotFound(new { Message = result.ErrorMessage });
+                return NotFound(new
+                {
+                    status = "Failed",
+                    errorCode = "NOT_FOUND",
+                    message = result.ErrorMessage
+                });
             }
 
             return Ok(result.Data);
@@ -106,7 +151,12 @@ namespace EnterpriseAiCopilot.Api.Controllers
 
             if (!result.IsSuccess)
             {
-                return BadRequest(new { Message = result.ErrorMessage });
+                return BadRequest(new
+                {
+                    status = "Failed",
+                    errorCode = "BUSINESS_ERROR",
+                    message = result.ErrorMessage
+                });
             }
 
             return Ok(new { Message = "Semantic Layer and all associated files deleted successfully." });
@@ -119,7 +169,12 @@ namespace EnterpriseAiCopilot.Api.Controllers
 
             if (!result.IsSuccess)
             {
-                return BadRequest(new { Message = result.ErrorMessage });
+                return BadRequest(new
+                {
+                    status = "Failed",
+                    errorCode = "BUSINESS_ERROR",
+                    message = result.ErrorMessage
+                });
             }
 
             return Ok(new { Message = "Source file deleted successfully." });
@@ -132,12 +187,16 @@ namespace EnterpriseAiCopilot.Api.Controllers
 
             if (!result.IsSuccess)
             {
-                return BadRequest(new { Message = result.ErrorMessage });
+                return BadRequest(new
+                {
+                    status = "Failed",
+                    errorCode = "BUSINESS_ERROR",
+                    message = result.ErrorMessage
+                });
             }
 
             return Ok(result.Data);
         }
-
 
         [HttpPatch("tables/{tableName}/toggle")]
         public async Task<IActionResult> ToggleTableStatus(string tableName, [FromBody] bool isAllowed, CancellationToken cancellationToken)
@@ -145,7 +204,14 @@ namespace EnterpriseAiCopilot.Api.Controllers
             var result = await _semanticLayerService.ToggleTablePermissionAsync(tableName, isAllowed, cancellationToken);
 
             if (!result.IsSuccess)
-                return BadRequest(new { Error = result.ErrorMessage });
+            {
+                return BadRequest(new
+                {
+                    status = "Failed",
+                    errorCode = "BUSINESS_ERROR",
+                    message = result.ErrorMessage
+                });
+            }
 
             return Ok(new { Message = $"Table '{tableName}' access set to {isAllowed}" });
         }

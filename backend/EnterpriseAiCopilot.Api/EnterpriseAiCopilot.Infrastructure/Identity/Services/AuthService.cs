@@ -4,6 +4,7 @@ using EnterpriseAiCopilot.Application.Common.Models;
 using EnterpriseAiCopilot.Application.DTOs.Auth;
 using EnterpriseAiCopilot.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using EnterpriseAiCopilot.Domain.Constants;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
@@ -19,12 +20,14 @@ namespace EnterpriseAiCopilot.Infrastructure.Identity.Services
         private readonly IApplicationDbContext _context;
         private readonly IConfiguration _config;
         private readonly IDistributedCache _cache;
+        private readonly IAuditService _auditService; 
 
-        public AuthService(IApplicationDbContext context, IConfiguration config, IDistributedCache cache)
+        public AuthService(IApplicationDbContext context, IConfiguration config, IDistributedCache cache, IAuditService auditService)
         {
             _context = context;
             _config = config;
             _cache = cache;
+            _auditService = auditService;
         }
 
         public async Task<Result<RegisterResponse>> RegisterAsync(RegisterRequest request, string currentAdminId, CancellationToken cancellationToken = default)
@@ -63,6 +66,14 @@ namespace EnterpriseAiCopilot.Infrastructure.Identity.Services
                 Status: "Success",
                 Message: "User registered successfully.",
                 User: userDto
+            );
+
+            await _auditService.LogEventAsync(
+                action: AuditActions.UserRegistration,
+                userId: currentAdminId,
+                status: "Success",
+                resourceId: $"NewUser:{user.Id}",
+                cancellationToken: cancellationToken
             );
 
             return Result<RegisterResponse>.Success(response);
@@ -109,6 +120,13 @@ namespace EnterpriseAiCopilot.Infrastructure.Identity.Services
                 Status: "Success",
                 Token: tokenString,
                 ExpiresAt: expiresAt
+            );
+
+            await _auditService.LogEventAsync(
+                action: AuditActions.UserLogin,
+                userId: user.Id.ToString(),
+                status: "Success",
+                cancellationToken: cancellationToken
             );
 
             return Result<LoginResponse>.Success(response);
