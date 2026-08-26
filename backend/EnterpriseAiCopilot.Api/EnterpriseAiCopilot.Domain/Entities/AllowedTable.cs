@@ -7,7 +7,7 @@ namespace EnterpriseAiCopilot.Domain.Entities
 {
     public class AllowedTable : BaseEntity
     {
-        public string TableName { get; set; } 
+        public string TableName { get; set; } = string.Empty;
         public bool IsAllowed { get; set; } = true; 
         public Guid SemanticLayerId { get; set; } 
     }

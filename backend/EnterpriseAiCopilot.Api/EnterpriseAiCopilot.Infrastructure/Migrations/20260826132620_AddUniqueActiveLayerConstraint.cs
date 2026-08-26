@@ -10,8 +10,6 @@ namespace EnterpriseAiCopilot.Infrastructure.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.Sql("UPDATE SemanticLayers SET IsActive = 0 WHERE IsActive = 1");
-
             migrationBuilder.CreateIndex(
                 name: "IX_SemanticLayers_IsActive",
                 table: "SemanticLayers",
