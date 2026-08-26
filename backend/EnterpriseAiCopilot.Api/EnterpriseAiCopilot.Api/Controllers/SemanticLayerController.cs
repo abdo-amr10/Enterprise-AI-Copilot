@@ -215,5 +215,24 @@ namespace EnterpriseAiCopilot.Api.Controllers
 
             return Ok(new { Message = $"Table '{tableName}' access set to {isAllowed}" });
         }
+
+
+        [HttpPost("{layerId}/activate")]
+        public async Task<IActionResult> ActivateSemanticLayer(Guid layerId, CancellationToken cancellationToken)
+        {
+            var result = await _semanticLayerService.ActivateSemanticLayerAsync(layerId, cancellationToken);
+
+            if (!result.IsSuccess)
+            {
+                return BadRequest(new
+                {
+                    status = "Failed",
+                    errorCode = "BUSINESS_ERROR",
+                    message = result.ErrorMessage
+                });
+            }
+
+            return Ok(new { Message = "Semantic Layer activated successfully." });
+        }
     }
 }

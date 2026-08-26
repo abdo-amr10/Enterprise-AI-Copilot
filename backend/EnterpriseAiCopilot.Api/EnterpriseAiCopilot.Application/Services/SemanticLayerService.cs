@@ -274,8 +274,22 @@ namespace EnterpriseAiCopilot.Application.Services
 
             if (revision.Status == "Approved")
             {
-                var semanticLayer = await _context.SemanticLayers.FindAsync(new object[] { layerId }, cancellationToken);
-                if (semanticLayer != null) semanticLayer.IsActive = true;
+                var activeLayers = await _context.SemanticLayers
+                    .Where(sl => sl.IsActive)
+                    .ToListAsync(cancellationToken);
+
+                foreach (var activeLayer in activeLayers)
+                {
+                    activeLayer.IsActive = false;
+                }
+
+                var semanticLayer = await _context.SemanticLayers
+                    .FirstOrDefaultAsync(sl => sl.Id == layerId, cancellationToken);
+
+                if (semanticLayer != null)
+                {
+                    semanticLayer.IsActive = true;
+                }
 
                 response.Version = $"v{revision.VersionNumber}.0";
                 response.ApprovedBy = currentUser;
@@ -632,6 +646,36 @@ namespace EnterpriseAiCopilot.Application.Services
                 _logger.LogError(ex, "Error toggling permission for table {TableName}", tableName);
                 return Result<bool>.Failure("DATABASE_ERROR: Failed to update permission.");
             }
+        }
+
+        public async Task<Result<bool>> ActivateSemanticLayerAsync(Guid layerId, CancellationToken cancellationToken = default)
+        {
+            var targetLayer = await _context.SemanticLayers
+                .FirstOrDefaultAsync(sl => sl.Id == layerId, cancellationToken);
+
+            if (targetLayer == null)
+                return Result<bool>.Failure("Semantic Layer not found.");
+
+            var hasApprovedRevision = await _context.SemanticRevisions
+                .AnyAsync(r => r.SemanticLayerId == layerId && r.Status == "Approved", cancellationToken);
+
+            if (!hasApprovedRevision)
+                return Result<bool>.Failure("Cannot activate semantic layer without an approved revision.");
+
+            var activeLayers = await _context.SemanticLayers
+                .Where(sl => sl.IsActive)
+                .ToListAsync(cancellationToken);
+
+            foreach (var layer in activeLayers)
+            {
+                layer.IsActive = false;
+            }
+
+            targetLayer.IsActive = true;
+
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return Result<bool>.Success(true);
         }
     }
 }
