@@ -190,10 +190,25 @@ namespace EnterpriseAiCopilot.Application.Services
                 cancellationToken: cancellationToken
             );
 
-            var formattedReport = await _resultFormatter.FormatExecutionResultAsync(
-                originalPrompt,
-                executionResult!.Data!,
-                cancellationToken);
+            CopilotReport formattedReport;
+            try
+            {
+                formattedReport = await _resultFormatter.FormatExecutionResultAsync(
+                    originalPrompt,
+                    executionResult!.Data!,
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "AI Formatter failed to process the execution result. Using fallback report.");
+
+                formattedReport = new CopilotReport
+                {
+                    TextSummary = "Query executed successfully, but we couldn't generate an AI summary at the moment.",
+                    PresentationType = "DataTable",
+                    Data = executionResult!.Data
+                };
+            }
 
             var response = new AskCopilotResponse
             {
@@ -203,7 +218,7 @@ namespace EnterpriseAiCopilot.Application.Services
                 {
                     TextSummary = formattedReport.TextSummary,
                     PresentationType = formattedReport.PresentationType,
-                    Data = executionResult.Data
+                    Data = executionResult!.Data
                 }
             };
 

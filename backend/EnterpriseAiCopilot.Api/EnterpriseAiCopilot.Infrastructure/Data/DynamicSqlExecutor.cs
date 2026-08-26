@@ -27,9 +27,8 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
         {
             "INSERT", "UPDATE", "DELETE", "DROP", "ALTER",
             "TRUNCATE", "EXEC", "EXECUTE", "CREATE", "GRANT",
-            "REVOKE", "XP_", "SP_"
+            "REVOKE", "XP_", "SP_", "UNION", "MERGE", "CALL" 
         };
-
 
         public DynamicSqlExecutor(
             IConfiguration configuration,
@@ -73,11 +72,12 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
             }
 
             var allowedTables = await GetAllowedTablesAsync();
-            var validationError = ValidateAndSanitizeSql(sqlQuery, allowedTables);
 
-            if (validationError != null)
+            var validation = ValidateAndSanitizeSql(sqlQuery, allowedTables);
+
+            if (validation.Error != null)
             {
-                return Result<object>.Failure(validationError);
+                return Result<object>.Failure(validation.Error);
             }
 
             try
@@ -93,8 +93,9 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
                 await connection.OpenAsync(cancellationToken);
 
                 var parameters = new { UserBranchId = branchId };
+
                 var command = new CommandDefinition(
-                    sqlQuery,
+                    validation.CleanSql,
                     parameters,
                     commandTimeout: 30,
                     cancellationToken: cancellationToken
@@ -116,23 +117,27 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
             }
         }
 
-        private string? ValidateAndSanitizeSql(string sqlQuery, HashSet<string> allowedTables)
+        private static string RemoveSqlComments(string sql)
         {
-            if (sqlQuery.Contains(';'))
-            {
-                var trimmed = sqlQuery.TrimEnd();
-                if (!trimmed.EndsWith(';') || trimmed.Count(c => c == ';') > 1)
-                {
-                    return "SQL_VALIDATION_FAILED: Multiple SQL statements are strictly prohibited.";
-                }
-            }
+            sql = Regex.Replace(sql, @"--.*?$", "", RegexOptions.Multiline);
+            sql = Regex.Replace(sql, @"/\*[\s\S]*?\*/", "");
+            return sql;
+        }
 
-            var upperSql = sqlQuery.ToUpperInvariant();
+        private (string CleanSql, string? Error) ValidateAndSanitizeSql(string sqlQuery, HashSet<string> allowedTables)
+        {
+            var cleanSql = RemoveSqlComments(sqlQuery).Trim();
+            var upperSql = cleanSql.ToUpperInvariant();
             var trimmedSql = upperSql.TrimStart();
 
-            if (!trimmedSql.StartsWith("SELECT") && !trimmedSql.StartsWith("WITH"))
+            if (cleanSql.Contains(';'))
             {
-                return "SQL_VALIDATION_FAILED: Only SELECT and WITH queries are allowed.";
+                return (cleanSql, "SQL_VALIDATION_FAILED: Multiple SQL statements are strictly prohibited.");
+            }
+
+            if (!trimmedSql.StartsWith("SELECT"))
+            {
+                return (cleanSql, "SQL_VALIDATION_FAILED: Only SELECT queries are allowed.");
             }
 
             foreach (var keyword in _forbiddenKeywords)
@@ -140,23 +145,38 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
                 var pattern = keyword.EndsWith("_") ? $@"\b{keyword}" : $@"\b{keyword}\b";
                 if (Regex.IsMatch(upperSql, pattern))
                 {
-                    return "SQL_VALIDATION_FAILED: The query contains forbidden operations or keywords.";
+                    return (cleanSql, "SQL_VALIDATION_FAILED: The query contains forbidden operations or keywords.");
                 }
             }
 
-            if (!sqlQuery.Contains("@UserBranchId", StringComparison.OrdinalIgnoreCase))
+            if (Regex.IsMatch(upperSql, @"\bOR\b"))
             {
-                return "SQL_VALIDATION_FAILED: Security policy violation. Query must include branch filtering (@UserBranchId).";
+                return (cleanSql, "SQL_VALIDATION_FAILED: OR conditions are not allowed in AI-generated SQL.");
+            }
+
+            var hasRlsPredicate = Regex.IsMatch(
+                cleanSql,
+                @"\b[A-Za-z_][A-Za-z0-9_]*\.(?:BranchId|branch_id)\s*=\s*@UserBranchId\b",
+                RegexOptions.IgnoreCase);
+
+            if (!hasRlsPredicate)
+            {
+                return (cleanSql, "RLS_ERROR: Query must include a fully qualified branch filter predicate (e.g., accounts.branch_id = @UserBranchId). Unqualified columns are not allowed.");
+            }
+
+            if (!hasRlsPredicate)
+            {
+                return (cleanSql, "RLS_ERROR: Query must include a real branch filter predicate such as BranchId = @UserBranchId.");
             }
 
             var rlsError = ValidateRlsMapping(upperSql);
             if (rlsError != null)
             {
-                return rlsError;
+                return (cleanSql, rlsError);
             }
 
             var tableMatches = Regex.Matches(
-                sqlQuery,
+                cleanSql,
                 @"\b(?:FROM|JOIN)\s+(?:\[[^\]]+\]\.)?\[?([A-Za-z0-9_]+)\]?",
                 RegexOptions.IgnoreCase);
 
@@ -164,15 +184,15 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
             {
                 if (!match.Success || match.Groups.Count <= 1) continue;
 
-                var tableName = match.Groups[1].Value.ToLower(); 
+                var tableName = match.Groups[1].Value.ToLower();
 
                 if (!allowedTables.Contains(tableName))
                 {
-                    return $"SQL_VALIDATION_FAILED: Access to table '{tableName}' is not allowed or it is disabled by Admin.";
+                    return (cleanSql, $"SQL_VALIDATION_FAILED: Access to table '{tableName}' is not allowed or it is disabled by Admin.");
                 }
             }
 
-            return null;
+            return (cleanSql, null);
         }
 
         private string? ValidateRlsMapping(string upperSql)
