@@ -10,6 +10,7 @@ section, so it is not sufficient for this specific check.
 
 from __future__ import annotations
 
+from typing import Any
 from sqlglot import exp
 
 from src.application.dto.self_correction.validation_issue import ValidationIssue
@@ -33,9 +34,9 @@ class SQLSchemaValidator:
         self._schema_provider = schema_provider
         self._syntax_validator = syntax_validator
 
-    def validate(self, sql: str) -> ValidationResult:
+    def validate(self, sql: str, schema: dict[str, Any] | None = None) -> ValidationResult:
         tree = self._syntax_validator.parse(sql)
-        tables = self._schema_provider.get_schema()["tables"]
+        tables = (schema or self._schema_provider.get_schema())["tables"]
 
         alias_map, unknown_tables = self._resolve_tables(tree, tables)
 
@@ -54,34 +55,34 @@ class SQLSchemaValidator:
             return ValidationResult.fail(issues)
         return ValidationResult.ok()
 
-    def extract_tables(self, sql: str) -> set[str]:
+    def extract_tables(self, sql: str, schema: dict[str, Any] | None = None) -> set[str]:
         """Return the set of real (schema) table names referenced by sql.
 
         Reused by SelfCorrectionService to build the "relevant schema"
         slice passed to the Correction LLM prompt -- so table
         extraction logic lives in exactly one place.
         """
-        return set(self.resolve_table_aliases(sql).values())
+        return set(self.resolve_table_aliases(sql, schema=schema).values())
 
-    def schema_slice(self, sql: str) -> dict[str, dict]:
+    def schema_slice(self, sql: str, schema: dict[str, Any] | None = None) -> dict[str, dict]:
         """Return {table_name: table_definition} for tables referenced by sql.
 
         Reused by SelfCorrectionService to build the "relevant schema"
         slice passed to the Correction LLM prompt, instead of sending
         the entire database schema on every correction attempt.
         """
-        tables = self.extract_tables(sql)
-        all_tables = self._schema_provider.get_schema()["tables"]
+        tables = self.extract_tables(sql, schema=schema)
+        all_tables = (schema or self._schema_provider.get_schema())["tables"]
         return {name: all_tables[name] for name in tables if name in all_tables}
 
-    def resolve_table_aliases(self, sql: str) -> dict[str, str]:
+    def resolve_table_aliases(self, sql: str, schema: dict[str, Any] | None = None) -> dict[str, str]:
         """Return {alias_or_table_name: real_table_name} for sql, excluding CTEs.
 
         Reused by SQLRelationshipValidator so alias resolution is not
         re-implemented for JOIN-condition checking.
         """
         tree = self._syntax_validator.parse(sql)
-        tables = self._schema_provider.get_schema()["tables"]
+        tables = (schema or self._schema_provider.get_schema())["tables"]
         alias_map, _ = self._resolve_tables(tree, tables)
         return alias_map
 

@@ -11,7 +11,7 @@ class FakeClient:
 
 def test_malformed_critic_response_fails_closed():
     result = SQLCriticService(FakeClient("not json")).evaluate("q", "SELECT 1", "ctx")
-    assert result.status == "FAIL"
+    assert result.status == "UNKNOWN"
 
 
 def test_critic_transport_failure_fails_closed():

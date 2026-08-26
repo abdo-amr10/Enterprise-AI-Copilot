@@ -12,6 +12,7 @@ exactly the class of problem deterministic validators cannot make.
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from src.application.dto.self_correction.critic_result import CriticResult
 from src.application.dto.self_correction.validation_issue import ValidationIssue
@@ -27,7 +28,7 @@ class CriticFindingVerifier:
     def __init__(self, schema_provider: PhysicalSchemaRepository) -> None:
         self._schema_provider = schema_provider
 
-    def verify(self, critic_result: CriticResult) -> list[ValidationIssue]:
+    def verify(self, critic_result: CriticResult, schema: dict[str, Any] | None = None) -> list[ValidationIssue]:
         if critic_result.status != "FAIL":
             # PASS -> nothing to verify. UNKNOWN -> insufficient context to
             # judge; per the "never guess" rule, this is not treated as a
@@ -35,7 +36,7 @@ class CriticFindingVerifier:
             # validation is not blocked on an unresolved critic finding.
             return []
 
-        tables = self._schema_provider.get_schema()["tables"]
+        tables = (schema or self._schema_provider.get_schema())["tables"]
         verified: list[ValidationIssue] = []
 
         for issue in critic_result.issues:

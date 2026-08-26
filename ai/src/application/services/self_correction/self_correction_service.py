@@ -28,6 +28,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from src.application.ports.physical_schema_repository import PhysicalSchemaRepository
 from src.application.services.self_correction.critic_finding_verifier import (
     CriticFindingVerifier,
 )
@@ -70,6 +71,7 @@ class SelfCorrectionService:
         correction_service: SQLCorrectionService,
         max_attempts: int = 3,
         rls_validator: SQLRlsValidator | None = None,
+        schema_provider: PhysicalSchemaRepository | None = None,
     ) -> None:
         self._context_retrieval_service = context_retrieval_service
         self._syntax_validator = syntax_validator
@@ -80,7 +82,9 @@ class SelfCorrectionService:
         self._correction_service = correction_service
         self._max_attempts = max_attempts
         self._rls_validator = rls_validator
-
+        self._schema_provider = schema_provider or getattr(
+            schema_validator, "_schema_provider", None
+        )
     def run(
         self,
         question: str,
@@ -94,10 +98,22 @@ class SelfCorrectionService:
         last_issues: list[ValidationIssue] = []
         trace: list[dict[str, object]] = []
         corrections_used = 0
+        cached_schema: dict[str, Any] | None = None
+
+        def _get_schema() -> dict[str, Any]:
+            nonlocal cached_schema
+            if cached_schema is None:
+                if self._schema_provider is not None:
+                    cached_schema = self._schema_provider.get_schema()
+                elif hasattr(self._schema_validator, "_schema_provider") and self._schema_validator._schema_provider is not None:
+                    cached_schema = self._schema_validator._schema_provider.get_schema()
+                else:
+                    cached_schema = {}
+            return cached_schema
 
         for attempt in range(self._max_attempts + 1):
             logger.info("Self-correction attempt %s", attempt)
-            issues = self._deterministic_issues(current_sql)
+            issues = self._deterministic_issues(current_sql, _get_schema)
             trace.append({
                 "attempt": attempt,
                 "sql": current_sql,
@@ -110,7 +126,10 @@ class SelfCorrectionService:
                     sql=current_sql,
                     semantic_context=semantic_context,
                 )
-                issues = self._finding_verifier.verify(critic_result)
+                try:
+                    issues = self._finding_verifier.verify(critic_result, schema=_get_schema())
+                except TypeError:
+                    issues = self._finding_verifier.verify(critic_result)
                 trace[-1]["criticStatus"] = critic_result.status
                 trace[-1]["verifiedCriticIssues"] = [issue.message for issue in issues]
 
@@ -147,8 +166,8 @@ class SelfCorrectionService:
                     question=question,
                     current_sql=current_sql,
                     issues=issues,
-                    relevant_schema=self._relevant_schema(current_sql),
-                    relevant_relationships=self._relevant_relationships(current_sql),
+                    relevant_schema=self._relevant_schema(current_sql, _get_schema),
+                    relevant_relationships=self._relevant_relationships(current_sql, _get_schema),
                 )
             except Exception as exc:
                 logger.warning("SQL correction call failed: %s", type(exc).__name__)
@@ -205,31 +224,59 @@ class SelfCorrectionService:
         except Exception:
             logger.warning("Self-correction trace observer failed", exc_info=True)
 
-    def _deterministic_issues(self, sql: str) -> list[ValidationIssue]:
+    def _deterministic_issues(
+        self,
+        sql: str,
+        schema_getter: Callable[[], dict[str, Any]] | None = None,
+    ) -> list[ValidationIssue]:
+        schema = schema_getter() if schema_getter is not None else None
         for validator in (
             self._syntax_validator,
             self._schema_validator,
             self._relationship_validator,
             *(([self._rls_validator]) if self._rls_validator is not None else []),
         ):
-            result = validator.validate(sql)
+            try:
+                result = validator.validate(sql, schema=schema)
+            except TypeError:
+                result = validator.validate(sql)
             if not result.is_valid:
                 # Stop at the first failing layer: an invalid JOIN cannot be
                 # judged reliably before syntax/schema are already correct.
                 return list(result.issues)
         return []
 
-    def _relevant_schema(self, sql: str) -> dict:
+    def _relevant_schema(
+        self,
+        sql: str,
+        schema_getter: Callable[[], dict[str, Any]] | None = None,
+    ) -> dict:
+        schema = schema_getter() if schema_getter is not None else None
         try:
-            return self._schema_validator.schema_slice(sql)
+            return self._schema_validator.schema_slice(sql, schema=schema)
+        except TypeError:
+            try:
+                return self._schema_validator.schema_slice(sql)
+            except Exception:
+                return {}
         except Exception:
             # SQL could not be parsed (e.g. a syntax-error attempt): fall
             # back to no schema slice rather than failing the correction call.
             return {}
 
-    def _relevant_relationships(self, sql: str) -> list[dict]:
+    def _relevant_relationships(
+        self,
+        sql: str,
+        schema_getter: Callable[[], dict[str, Any]] | None = None,
+    ) -> list[dict]:
+        schema = schema_getter() if schema_getter is not None else None
         try:
-            tables = self._schema_validator.extract_tables(sql)
+            tables = self._schema_validator.extract_tables(sql, schema=schema)
+        except TypeError:
+            try:
+                tables = self._schema_validator.extract_tables(sql)
+            except Exception:
+                return []
         except Exception:
             return []
         return self._relationship_validator.relationships_for_tables(tables)

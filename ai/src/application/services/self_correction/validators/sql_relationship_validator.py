@@ -40,9 +40,9 @@ class SQLRelationshipValidator:
         self._syntax_validator = syntax_validator
         self._schema_validator = schema_validator
 
-    def validate(self, sql: str) -> ValidationResult:
+    def validate(self, sql: str, schema: dict[str, Any] | None = None) -> ValidationResult:
         tree = self._syntax_validator.parse(sql)
-        alias_map = self._schema_validator.resolve_table_aliases(sql)
+        alias_map = self._schema_validator.resolve_table_aliases(sql, schema=schema)
         approved_pairs = self._approved_pairs()
 
         issues: list[ValidationIssue] = []

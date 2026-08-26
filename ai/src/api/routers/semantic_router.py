@@ -6,7 +6,6 @@ Backend-owned source files by ID and perform only AI-owned processing.
 """
 
 from __future__ import annotations
-from copy import deepcopy
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -30,6 +29,9 @@ from src.application.pipelines.context_retrieval.semantic_retrieval_pipeline imp
 )
 from src.application.pipelines.semantic_layer.semantic_layer_generation_pipeline import (
     SemanticLayerGenerationPipeline,
+)
+from src.application.pipelines.semantic_layer.semantic_layer_validation_pipeline import (
+    SemanticLayerValidationPipeline,
 )
 from src.infrastructure.backend.backend_semantic_client import BackendSemanticClient
 from src.api.contracts import (
