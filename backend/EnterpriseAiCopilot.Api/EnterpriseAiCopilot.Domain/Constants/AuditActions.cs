@@ -15,7 +15,8 @@ namespace EnterpriseAiCopilot.Domain.Constants
         public const string SemanticLayerDraftGeneration = "SemanticLayerDraftGeneration";
         public const string SemanticLayerApproval = "Semantic LayerApproval"; 
         public const string SemanticLayerRejection = "Semantic LayerRejection"; 
-        public const string SemanticLayerSubmission = "SemanticLayerSubmission"; 
+        public const string SemanticLayerSubmission = "SemanticLayerSubmission";
+        public const string SemanticLayerActivation = "SemanticLayerActivation";
 
         // (Copilot Execution)
         public const string QueryExecution = "QueryExecution";
