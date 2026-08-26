@@ -675,6 +675,16 @@ namespace EnterpriseAiCopilot.Application.Services
 
             await _context.SaveChangesAsync(cancellationToken);
 
+            var currentUser = _currentUserService.Email ?? "System_Admin";
+
+            await _auditService.LogEventAsync(
+                action: AuditActions.SemanticLayerActivation, 
+                userId: currentUser,
+                status: "Success",
+                resourceId: targetLayer.Id.ToString(),
+                cancellationToken: cancellationToken
+            );
+
             return Result<bool>.Success(true);
         }
     }
