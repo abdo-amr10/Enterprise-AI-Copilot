@@ -332,7 +332,32 @@ namespace EnterpriseAiCopilot.Application.Services
             if (fileResult.Data == null || fileResult.Data.Length == 0)
                 return Result<RetrieveSourceFileResponse>.Failure("File content is empty or corrupted.");
 
-            string fileContentStr = System.Text.Encoding.UTF8.GetString(fileResult.Data);
+            string fileContentStr;
+
+            if (sourceFile.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    using var pdfDocument = UglyToad.PdfPig.PdfDocument.Open(fileResult.Data);
+                    var textBuilder = new System.Text.StringBuilder();
+                    foreach (var page in pdfDocument.GetPages())
+                    {
+                        textBuilder.Append(page.Text);
+                        textBuilder.Append(" ");
+                    }
+                    fileContentStr = textBuilder.ToString();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to parse PDF file {FileId}", fileId);
+                    return Result<RetrieveSourceFileResponse>.Failure("Failed to parse PDF content.");
+                }
+            }
+            else
+            {
+                fileContentStr = System.Text.Encoding.UTF8.GetString(fileResult.Data);
+            }
+
             object finalContent = fileContentStr;
 
             if (sourceFile.FileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
@@ -428,30 +453,51 @@ namespace EnterpriseAiCopilot.Application.Services
             var semanticLayer = await _context.SemanticLayers
                 .Include(s => s.Revisions)
                 .Include(s => s.SourceFiles)
-                .OrderByDescending(s => s.CreatedAt)
+                .Where(s => s.IsActive) 
                 .FirstOrDefaultAsync(cancellationToken);
 
             if (semanticLayer == null)
-                return Result<SemanticLayerStatusResponse>.Failure("No Semantic Layer found.");
+                return Result<SemanticLayerStatusResponse>.Failure("No active Semantic Layer found.");
 
-            var latestRevision = semanticLayer.Revisions
+            var approvedRevision = semanticLayer.Revisions
+                .Where(r => r.Status == "Approved")
                 .OrderByDescending(r => r.VersionNumber)
                 .FirstOrDefault();
 
-            if (latestRevision == null)
-                return Result<SemanticLayerStatusResponse>.Failure("No revisions found for the current Semantic Layer.");
+            if (approvedRevision == null)
+            {
+                var latestRevision = semanticLayer.Revisions
+                    .OrderByDescending(r => r.VersionNumber)
+                    .FirstOrDefault();
+
+                if (latestRevision == null)
+                    return Result<SemanticLayerStatusResponse>.Failure("No revisions found for the current Semantic Layer.");
+
+                return Result<SemanticLayerStatusResponse>.Success(new SemanticLayerStatusResponse
+                {
+                    SemanticLayerId = semanticLayer.Id.ToString(),
+                    Status = "PendingReview",
+                    Version = "draft",
+                    RevisionId = latestRevision.Id.ToString(),
+                    BuildTimestamp = latestRevision.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                    LastRegenerationType = string.IsNullOrEmpty(latestRevision.RegenerationType) ? "Unknown" : latestRevision.RegenerationType,
+                    Sources = new SemanticSources
+                    {
+                        SchemaFileId = semanticLayer.SourceFiles.FirstOrDefault()?.Id.ToString()
+                    }
+                });
+            }
 
             var response = new SemanticLayerStatusResponse
             {
                 SemanticLayerId = semanticLayer.Id.ToString(),
-                Status = latestRevision.Status,
-                Version = latestRevision.Status == "Approved" ? $"v{latestRevision.VersionNumber}.0" : "draft",
-                RevisionId = latestRevision.Id.ToString(),
-                BuildTimestamp = latestRevision.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ"),
-                LastRegenerationType = string.IsNullOrEmpty(latestRevision.RegenerationType) ? "Unknown" : latestRevision.RegenerationType,
+                Status = approvedRevision.Status,
+                Version = $"v{approvedRevision.VersionNumber}.0",
+                RevisionId = approvedRevision.Id.ToString(),
+                BuildTimestamp = approvedRevision.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                LastRegenerationType = string.IsNullOrEmpty(approvedRevision.RegenerationType) ? "Unknown" : approvedRevision.RegenerationType,
                 Sources = new SemanticSources
                 {
-                    // The schema is the first source saved when a layer is uploaded.
                     SchemaFileId = semanticLayer.SourceFiles.FirstOrDefault()?.Id.ToString()
                 }
             };
@@ -580,44 +626,54 @@ namespace EnterpriseAiCopilot.Application.Services
             return Result<RetrieveSourceFileResponse>.Success(response);
         }
 
-        private async Task<Result<bool>> ExtractAndSaveTablesFromSchemaAsync(string fileContent, Guid semanticLayerId, CancellationToken cancellationToken = default)
+        private async Task ExtractAndSaveTablesFromSchemaAsync(string schemaContent, Guid semanticLayerId, CancellationToken cancellationToken)
         {
-            if (string.IsNullOrWhiteSpace(fileContent))
-                return Result<bool>.Failure("File content cannot be empty.");
+            var tableNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             try
             {
-                var tableMatches = Regex.Matches(
-                    fileContent,
-                    @"\bCREATE\s+TABLE\s+(?:\[?[a-zA-Z0-9_]+\]?\.)?\[?([a-zA-Z0-9_]+)\]?",
-                    RegexOptions.IgnoreCase);
-
-                var extractedTables = tableMatches.Select(m => m.Groups[1].Value.ToLower()).Distinct();
-
-                foreach (var tableName in extractedTables)
+                using var jsonDoc = JsonDocument.Parse(schemaContent);
+                if (jsonDoc.RootElement.TryGetProperty("tables", out var tablesElement) && tablesElement.ValueKind == JsonValueKind.Array)
                 {
-                    if (!await _context.AllowedTables.AnyAsync(t => t.TableName == tableName, cancellationToken))
+                    foreach (var table in tablesElement.EnumerateArray())
                     {
-                        _context.AllowedTables.Add(new AllowedTable
+                        if (table.TryGetProperty("name", out var nameElement))
                         {
-                            TableName = tableName,
-                            IsAllowed = true,
-                            SemanticLayerId = semanticLayerId
-                        });
+                            var tableName = nameElement.GetString();
+                            if (!string.IsNullOrWhiteSpace(tableName)) tableNames.Add(tableName);
+                        }
                     }
                 }
-
-                await _context.SaveChangesAsync(cancellationToken);
-                _cache.Remove("AllowedTablesCacheKey");
-
-                return Result<bool>.Success(true);
             }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception ex)
+            catch (JsonException)
             {
-                _logger.LogError(ex, "Error extracting tables for Layer {LayerId}", semanticLayerId);
-                return Result<bool>.Failure("DATABASE_ERROR: Failed to extract tables.");
+                var regex = new Regex(@"CREATE\s+TABLE\s+(?:\[[^\]]+\]\.)?\[?([a-zA-Z0-9_]+)\]?", RegexOptions.IgnoreCase);
+                var matches = regex.Matches(schemaContent);
+                foreach (Match match in matches)
+                {
+                    if (match.Success && match.Groups.Count > 1) tableNames.Add(match.Groups[1].Value);
+                }
             }
+
+            if (!tableNames.Any()) return;
+
+            foreach (var tableName in tableNames)
+            {
+                var existingTable = await _context.AllowedTables
+                    .FirstOrDefaultAsync(t => t.TableName.ToLower() == tableName.ToLower() && t.SemanticLayerId == semanticLayerId, cancellationToken);
+
+                if (existingTable == null)
+                {
+                    _context.AllowedTables.Add(new AllowedTable
+                    {
+                        TableName = tableName,
+                        IsAllowed = true,
+                        SemanticLayerId = semanticLayerId
+                    });
+                }
+            }
+
+            await _context.SaveChangesAsync(cancellationToken);
         }
 
         public async Task<Result<bool>> ToggleTablePermissionAsync(string tableName, bool isAllowed, CancellationToken cancellationToken = default)

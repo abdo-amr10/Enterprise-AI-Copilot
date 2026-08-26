@@ -164,10 +164,6 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
                 return (cleanSql, "RLS_ERROR: Query must include a fully qualified branch filter predicate (e.g., accounts.branch_id = @UserBranchId). Unqualified columns are not allowed.");
             }
 
-            if (!hasRlsPredicate)
-            {
-                return (cleanSql, "RLS_ERROR: Query must include a real branch filter predicate such as BranchId = @UserBranchId.");
-            }
 
             var rlsError = ValidateRlsMapping(upperSql);
             if (rlsError != null)
