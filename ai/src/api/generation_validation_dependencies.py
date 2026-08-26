@@ -45,8 +45,22 @@ from src.infrastructure.llm.model_config import SEMANTIC_LAYER_CONFIG
 from src.infrastructure.llm.ollama_client import OllamaClient
 
 
+from src.infrastructure.backend.backend_semantic_client import (
+    BackendSemanticClient,
+)
+
+
 _semantic_generation_pipeline: SemanticLayerGenerationPipeline | None = None
 _semantic_validation_pipeline: SemanticLayerValidationPipeline | None = None
+_backend_semantic_client: BackendSemanticClient | None = None
+
+
+def get_backend_semantic_client() -> BackendSemanticClient:
+    """Provide the BackendSemanticClient for loading backend-owned sources and revisions."""
+    global _backend_semantic_client
+    if _backend_semantic_client is None:
+        _backend_semantic_client = BackendSemanticClient()
+    return _backend_semantic_client
 
 
 def get_semantic_generation_pipeline() -> SemanticLayerGenerationPipeline:

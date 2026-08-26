@@ -38,8 +38,7 @@ class SemanticLayerSubmitClientImpl:
             raise ValueError("revision_id cannot be empty.")
 
         response = self._http_client.post(
-            f"/api/v1/semantic-layer/"
-            f"{semantic_layer_id}/revisions/{revision_id}/submit",
+            f"/api/v1/semantic-layer/revisions/{revision_id}/submit",
             {},
         )
 

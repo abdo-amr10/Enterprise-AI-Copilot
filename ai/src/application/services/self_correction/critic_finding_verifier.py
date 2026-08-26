@@ -23,12 +23,31 @@ _TABLE_COLUMN_PATTERN = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za
 
 
 class CriticFindingVerifier:
-    """Confirms or discards each critic finding against the approved schema."""
+    """Deterministic verifier that grounds LLM critic findings in physical schema reality.
+
+    Inspects `table.column` references cited as evidence by the SQL Critic LLM. If the
+    cited elements do not exist in the physical schema, the finding is discarded as an LLM
+    hallucination rather than triggering an invalid correction attempt.
+    """
 
     def __init__(self, schema_provider: PhysicalSchemaRepository) -> None:
+        """Initialize the critic finding verifier.
+
+        Args:
+            schema_provider: Physical schema repository for grounding checks.
+        """
         self._schema_provider = schema_provider
 
     def verify(self, critic_result: CriticResult, schema: dict[str, Any] | None = None) -> list[ValidationIssue]:
+        """Filter and verify critic issues against the authoritative physical schema.
+
+        Args:
+            critic_result: Output from SQLCriticService.
+            schema: Optional pre-loaded physical schema dictionary.
+
+        Returns:
+            List of verified ValidationIssue objects grounded in schema evidence or intent rules.
+        """
         if critic_result.status != "FAIL":
             # PASS -> nothing to verify. UNKNOWN -> insufficient context to
             # judge; per the "never guess" rule, this is not treated as a

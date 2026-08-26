@@ -3,12 +3,6 @@ from typing import Protocol
 from src.application.dto.backend.semantic_layer.semantic_layer_revision_response import (
     SemanticLayerRevisionResponse,
 )
-from src.application.dto.backend.semantic_layer.semantic_layer_revision_update_request import (
-    SemanticLayerRevisionUpdateRequest,
-)
-from src.application.dto.backend.semantic_layer.semantic_layer_revision_update_response import (
-    SemanticLayerRevisionUpdateResponse,
-)
 from src.application.dto.backend.semantic_layer.semantic_layer_review_request import (
     SemanticLayerReviewRequest,
 )
@@ -33,20 +27,6 @@ class SemanticLayerRevisionClient(Protocol):
 
         Returns:
             The requested Semantic Layer revision.
-        """
-        ...
-
-    def update_revision(
-        self,
-        request: SemanticLayerRevisionUpdateRequest,
-    ) -> SemanticLayerRevisionUpdateResponse:
-        """Update and submit an edited Semantic Layer revision.
-
-        Args:
-            request: Revision update and submission data.
-
-        Returns:
-            Result of the revision update operation.
         """
         ...
 

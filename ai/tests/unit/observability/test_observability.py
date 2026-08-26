@@ -124,3 +124,45 @@ def test_full_delegates_to_production_pipeline_without_executor_or_history_acces
     result = runner(repo, context, pipeline=lambda: production).run("q", "full")
     assert len(called) == 1 and result.stopping_point == "production validated-SQL boundary"
     assert not hasattr(production, "execute") and not hasattr(production, "history")
+
+
+def test_self_correction_attempts_extracted_when_present() -> None:
+    repo, context = Repository(), Context(Repository())
+    def run_pipeline(request, trace_observer):
+        trace_observer({"event": "initial_generation", "sql": "SELECT 1"})
+        trace_observer({"action": "correction_required", "attempt": 0})
+        trace_observer({"event": "after_correction", "attempt": 1})
+        trace_observer({"event": "final_result", "attemptsUsed": 1, "status": "passed", "sql": "SELECT 1"})
+        return SimpleNamespace(status="Success", sql="SELECT 1")
+
+    production = SimpleNamespace(
+        _text_to_sql_pipeline=SimpleNamespace(_sql_generation_service=SimpleNamespace(_llm_client=SimpleNamespace(_config=None))),
+        run=run_pipeline,
+    )
+    result = runner(repo, context, pipeline=lambda: production).run("q", "full")
+    assert result.metrics["self_correction_attempts_used"] == 1.0
+    assert result.metrics["validation_passed"] == 1.0
+
+
+def test_self_correction_attempts_not_fabricated_when_not_reached() -> None:
+    repo, context = Repository(), Context(Repository())
+    # Generation failure before self-correction
+    def run_pipeline(request, trace_observer):
+        return SimpleNamespace(status="Failed", sql=None, failure_reason="Generation failed")
+
+    production = SimpleNamespace(
+        _text_to_sql_pipeline=SimpleNamespace(_sql_generation_service=SimpleNamespace(_llm_client=SimpleNamespace(_config=None))),
+        run=run_pipeline,
+    )
+    result = runner(repo, context, pipeline=lambda: production).run("q", "full")
+    assert "self_correction_attempts_used" not in result.metrics
+    assert result.metrics["validation_passed"] == 0.0
+
+
+def test_validation_passed_metric_only_present_when_validation_reached() -> None:
+    repo, context = Repository(), Context(Repository())
+    # Retrieval layer does not run validation
+    result_retrieval = runner(repo, context).run("q", "retrieval")
+    assert "validation_passed" not in result_retrieval.metrics
+    assert "self_correction_attempts_used" not in result_retrieval.metrics
+

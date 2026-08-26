@@ -6,14 +6,16 @@ Run with:
 
 from fastapi import FastAPI
 
-from src.api.routers import copilot_router, semantic_router
+from src.api.routers import copilot_router, debug_router, semantic_router
 
 app = FastAPI(title="Enterprise AI Copilot - AI Runtime")
 
 app.include_router(copilot_router.router)
 app.include_router(semantic_router.router)
+app.include_router(debug_router.router)
 
 
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+

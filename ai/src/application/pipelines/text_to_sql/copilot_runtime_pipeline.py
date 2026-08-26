@@ -19,15 +19,28 @@ from src.application.services.text_to_sql.text_to_sql_pipeline import TextToSQLP
 
 logger = logging.getLogger(__name__)
 
-class CopilotRuntimePipeline:
-    """AI-owned portion of `POST /api/v1/copilot/ask`.
 
-    This pipeline never executes SQL. The Backend remains responsible for
-    authorization, RLS, SQL Server execution, result formatting, and history.
+class CopilotRuntimePipeline:
+    """AI orchestration pipeline for Natural Language to SQL generation.
+
+    Coordinates read-only intent validation, context retrieval, initial SQL generation,
+    and self-correction loops. This pipeline never connects to SQL Server or executes
+    queries; it generates and validates SQL candidate strings to hand off to the Backend.
     """
     
     @staticmethod
     def _parse_generation_response(text: str) -> dict:
+        """Parse structured JSON payload from the raw LLM generation response.
+
+        Args:
+            text: Raw string output from the LLM.
+
+        Returns:
+            Parsed JSON dictionary.
+
+        Raises:
+            ValueError: If the text is not a valid JSON object.
+        """
         cleaned = text.strip()
 
         # Remove Markdown code fences if the model wraps JSON in them.
@@ -65,6 +78,12 @@ class CopilotRuntimePipeline:
         text_to_sql_pipeline: TextToSQLPipeline,
         self_correction_service: SelfCorrectionService,
     ) -> None:
+        """Initialize the Copilot runtime pipeline.
+
+        Args:
+            text_to_sql_pipeline: Initial generation pipeline handling context & prompt.
+            self_correction_service: Deterministic and LLM self-correction service.
+        """
         self._text_to_sql_pipeline = text_to_sql_pipeline
         self._self_correction_service = self_correction_service
 
@@ -73,6 +92,15 @@ class CopilotRuntimePipeline:
         request: CopilotAskRequest,
         trace_observer: Callable[[dict[str, Any]], None] | None = None,
     ) -> TextToSQLRuntimeResponse:
+        """Process a natural language question into a validated read-only SQL query.
+
+        Args:
+            request: The Copilot ask request containing question and conversation history.
+            trace_observer: Optional callback for streaming diagnostic telemetry events.
+
+        Returns:
+            TextToSQLRuntimeResponse with success status and SQL string, or failure details.
+        """
         if self._WRITE_INTENT.search(request.question):
             return TextToSQLRuntimeResponse.failure(
                 "READ_ONLY_REQUEST_REQUIRED",
@@ -153,6 +181,7 @@ class CopilotRuntimePipeline:
                 "question": request.question,
                 "sql": sql,
                 "semantic_context": semantic_context,
+                "enforce_rls": bool(correction_feedback),
             }
             if trace_observer is not None:
                 correction_kwargs["trace_observer"] = trace_observer
@@ -206,5 +235,3 @@ class CopilotRuntimePipeline:
             trace_observer(dict(event))
         except Exception:
             logger.warning("Text-to-SQL trace observer failed", exc_info=True)
-
-

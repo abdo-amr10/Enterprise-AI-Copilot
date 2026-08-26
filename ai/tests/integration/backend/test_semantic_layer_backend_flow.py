@@ -113,7 +113,7 @@ def test_semantic_layer_backend_clients_flow() -> None:
         f"/api/v1/semantic-layer/revisions/{revision_id}"
     )
     http_client.post.assert_any_call(
-        f"/api/v1/semantic-layer/{semantic_layer_id}/revisions/{revision_id}/submit",
+        f"/api/v1/semantic-layer/revisions/{revision_id}/submit",
         {},
     )
     http_client.get.assert_any_call(

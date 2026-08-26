@@ -24,17 +24,36 @@ _SOURCE = "schema_validator"
 
 
 class SQLSchemaValidator:
-    """Validates that every referenced table and qualified column exists."""
+    """Deterministic validator verifying that referenced tables and columns exist in the physical schema.
+
+    Parses table references and qualified column identifiers from the AST and validates them
+    against the authoritative database schema provided by PhysicalSchemaRepository.
+    """
 
     def __init__(
         self,
         schema_provider: PhysicalSchemaRepository,
         syntax_validator: SQLSyntaxValidator,
     ) -> None:
+        """Initialize the schema validator.
+
+        Args:
+            schema_provider: Authoritative source for physical database schema metadata.
+            syntax_validator: AST parser for SQL analysis.
+        """
         self._schema_provider = schema_provider
         self._syntax_validator = syntax_validator
 
     def validate(self, sql: str, schema: dict[str, Any] | None = None) -> ValidationResult:
+        """Validate that all tables and qualified columns in the SQL exist in the schema.
+
+        Args:
+            sql: SQL statement string to validate.
+            schema: Optional pre-loaded schema dictionary; if None, queries schema_provider.
+
+        Returns:
+            ValidationResult indicating pass/fail status and UNKNOWN_TABLE / UNKNOWN_COLUMN issues.
+        """
         tree = self._syntax_validator.parse(sql)
         tables = (schema or self._schema_provider.get_schema())["tables"]
 
@@ -56,30 +75,40 @@ class SQLSchemaValidator:
         return ValidationResult.ok()
 
     def extract_tables(self, sql: str, schema: dict[str, Any] | None = None) -> set[str]:
-        """Return the set of real (schema) table names referenced by sql.
+        """Extract the set of real physical table names referenced by a SQL query.
 
-        Reused by SelfCorrectionService to build the "relevant schema"
-        slice passed to the Correction LLM prompt -- so table
-        extraction logic lives in exactly one place.
+        Args:
+            sql: SQL statement string to inspect.
+            schema: Optional pre-loaded physical database schema.
+
+        Returns:
+            Set of physical table name strings referenced in the query.
         """
         return set(self.resolve_table_aliases(sql, schema=schema).values())
 
     def schema_slice(self, sql: str, schema: dict[str, Any] | None = None) -> dict[str, dict]:
-        """Return {table_name: table_definition} for tables referenced by sql.
+        """Extract a minimal schema subset containing only tables referenced by the query.
 
-        Reused by SelfCorrectionService to build the "relevant schema"
-        slice passed to the Correction LLM prompt, instead of sending
-        the entire database schema on every correction attempt.
+        Args:
+            sql: SQL statement string.
+            schema: Optional pre-loaded physical database schema.
+
+        Returns:
+            Dictionary mapping referenced table names to their table definitions.
         """
         tables = self.extract_tables(sql, schema=schema)
         all_tables = (schema or self._schema_provider.get_schema())["tables"]
         return {name: all_tables[name] for name in tables if name in all_tables}
 
     def resolve_table_aliases(self, sql: str, schema: dict[str, Any] | None = None) -> dict[str, str]:
-        """Return {alias_or_table_name: real_table_name} for sql, excluding CTEs.
+        """Resolve table aliases and table names to real schema table names, excluding CTEs.
 
-        Reused by SQLRelationshipValidator so alias resolution is not
-        re-implemented for JOIN-condition checking.
+        Args:
+            sql: SQL statement string.
+            schema: Optional pre-loaded physical database schema.
+
+        Returns:
+            Dictionary mapping table aliases (or unaliased table names) to real table names.
         """
         tree = self._syntax_validator.parse(sql)
         tables = (schema or self._schema_provider.get_schema())["tables"]

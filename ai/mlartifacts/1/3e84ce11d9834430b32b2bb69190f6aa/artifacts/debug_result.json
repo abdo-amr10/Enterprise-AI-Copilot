@@ -1,0 +1,88 @@
+{
+  "requested_layer": "retrieval",
+  "status": "passed",
+  "stopping_point": "retrieval",
+  "metrics": {
+    "retrieval_latency_ms": 0.006600001142942347,
+    "retrieval_result_count": 0.0,
+    "total_latency_ms": 45.77210000024934
+  },
+  "tags": {
+    "run_type": "debug",
+    "debug_layer": "retrieval",
+    "question_hash": "8e35c2cd3bf6641bdb0e2050b76932cbb2e6034a0ddacc1d9bea82a6ba57f7cf",
+    "top_k": 7,
+    "input_tokens": "unavailable",
+    "output_tokens": "unavailable",
+    "total_tokens": "unavailable",
+    "prompt_name": "text_to_sql",
+    "prompt_version": "sha256:5486a26745f6",
+    "prompt_hash": "5486a26745f6bd1d757ceb61d2eb171000fc507f554a2c204640d1f65961f5a0",
+    "semantic_revision": "new",
+    "embedding_provider": "fake",
+    "embedding_model": "embed",
+    "embedding_version": "1",
+    "embedding_dimension": 3,
+    "index_type": "faiss",
+    "index_version": "1",
+    "index_identity": "new",
+    "index_created": false,
+    "index_reused": false,
+    "index_rebuilt": false,
+    "trace_reason": "developer_debug"
+  },
+  "local": {
+    "flow": {
+      "request": {
+        "executed": false,
+        "status": "not_executed",
+        "duration_ms": "unavailable",
+        "reason": "not requested"
+      },
+      "retrieval": {
+        "executed": true,
+        "status": "passed",
+        "duration_ms": 0.006600001142942347,
+        "reason": "not requested",
+        "result_count": 0
+      },
+      "prompt": {
+        "executed": false,
+        "status": "not_executed",
+        "duration_ms": "unavailable",
+        "reason": "not requested"
+      },
+      "generation": {
+        "executed": false,
+        "status": "not_executed",
+        "duration_ms": "unavailable",
+        "reason": "not requested"
+      },
+      "validation": {
+        "executed": false,
+        "status": "not_executed",
+        "duration_ms": "unavailable",
+        "reason": "not requested"
+      },
+      "critic": {
+        "executed": false,
+        "status": "not_executed",
+        "duration_ms": "unavailable",
+        "reason": "not requested"
+      },
+      "correction": {
+        "executed": false,
+        "status": "not_executed",
+        "duration_ms": "unavailable",
+        "reason": "not requested"
+      },
+      "final": {
+        "executed": false,
+        "status": "not_executed",
+        "duration_ms": "unavailable",
+        "reason": "not requested"
+      }
+    },
+    "retrieval": []
+  }
+}

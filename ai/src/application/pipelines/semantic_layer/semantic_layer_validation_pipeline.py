@@ -10,7 +10,11 @@ from src.application.services.semantic_layer.validation.semantic_layer_validator
 
 
 class SemanticLayerValidationPipeline:
-    """Validate and optionally auto-fix a Semantic Layer draft."""
+    """Validate and optionally auto-fix an unpersisted Semantic Layer draft.
+
+    Coordinates deterministic validation against the authoritative schema and relationships.
+    If validation issues are found, delegates to SemanticLayerAutoFixer up to max_fix_attempts.
+    """
 
     def __init__(
         self,
@@ -18,7 +22,16 @@ class SemanticLayerValidationPipeline:
         auto_fixer: SemanticLayerAutoFixer,
         max_fix_attempts: int = 2,
     ) -> None:
+        """Initialize the validation pipeline.
 
+        Args:
+            validator: Deterministic semantic layer validator.
+            auto_fixer: LLM-assisted auto-fixer for repairing validation defects.
+            max_fix_attempts: Maximum auto-fix attempts before returning failed validation.
+
+        Raises:
+            ValueError: If max_fix_attempts is negative.
+        """
         if max_fix_attempts < 0:
             raise ValueError(
                 "max_fix_attempts cannot be negative."
@@ -35,6 +48,17 @@ class SemanticLayerValidationPipeline:
         relationships: list[dict[str, Any]],
         has_semantic_context: bool = False,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Validate and repair a Semantic Layer draft.
+
+        Args:
+            draft: Unpersisted semantic layer draft dictionary.
+            schema: Authoritative physical database schema.
+            relationships: Approved table relationships list.
+            has_semantic_context: Whether documentation/glossary context was provided.
+
+        Returns:
+            A tuple of (validated_draft_or_current, validation_result_dict).
+        """
 
         current = draft
 

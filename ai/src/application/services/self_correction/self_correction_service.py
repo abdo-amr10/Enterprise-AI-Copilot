@@ -58,7 +58,19 @@ TraceObserver = Callable[[dict[str, Any]], None]
 
 
 class SelfCorrectionService:
-    """Runs the deterministic-first, LLM-assisted Self-Correction loop."""
+    """Orchestrates deterministic-first, LLM-assisted SQL self-correction.
+
+    Validates candidate SQL through a strict order:
+        1. SQLSyntaxValidator (Deterministic AST / Read-only parser)
+        2. SQLSchemaValidator (Deterministic Physical Schema verification)
+        3. SQLRelationshipValidator (Deterministic Semantic Relationship verification)
+        4. SQLRlsValidator (Deterministic Parameterized RLS mapping check)
+        5. SQLCriticService (LLM critic - advisory only)
+        6. CriticFindingVerifier (Deterministic evidence grounding check)
+        7. SQLCorrectionService (LLM correction for validated issues only)
+
+    Re-validates all corrections from step 1 up to max_attempts bounded iterations.
+    """
 
     def __init__(
         self,
@@ -73,6 +85,20 @@ class SelfCorrectionService:
         rls_validator: SQLRlsValidator | None = None,
         schema_provider: PhysicalSchemaRepository | None = None,
     ) -> None:
+        """Initialize the SelfCorrectionService.
+
+        Args:
+            context_retrieval_service: Service for retrieving semantic slices.
+            syntax_validator: Deterministic T-SQL parser and safety validator.
+            schema_validator: Deterministic database schema validator.
+            relationship_validator: Deterministic JOIN relationship validator.
+            critic_service: LLM critic service for semantic evaluation.
+            finding_verifier: Deterministic verifier grounding critic claims.
+            correction_service: LLM correction service.
+            max_attempts: Maximum allowed correction iterations (default: 3).
+            rls_validator: Optional deterministic RLS join mapping validator.
+            schema_provider: Optional physical database schema repository.
+        """
         self._context_retrieval_service = context_retrieval_service
         self._syntax_validator = syntax_validator
         self._schema_validator = schema_validator
@@ -85,14 +111,28 @@ class SelfCorrectionService:
         self._schema_provider = schema_provider or getattr(
             schema_validator, "_schema_provider", None
         )
+
     def run(
         self,
         question: str,
         sql: str,
         semantic_context: str | None = None,
         trace_observer: TraceObserver | None = None,
+        enforce_rls: bool = False,
     ) -> SelfCorrectionOutcome:
-        """Validate the original candidate plus at most ``max_attempts`` corrections."""
+        """Validate candidate SQL and run bounded correction loops if defects exist.
+
+        Args:
+            question: User's natural language question.
+            sql: Initial candidate SQL statement string.
+            semantic_context: Optional pre-retrieved semantic context.
+            trace_observer: Optional callback for diagnostic telemetry logging.
+            enforce_rls: Whether to enforce parameterized RLS join policies.
+
+        Returns:
+            SelfCorrectionOutcome containing validity status, final SQL, attempts used,
+            and complete trace history.
+        """
         semantic_context = semantic_context or self._context_retrieval_service.build_llm_context(question)
         current_sql = sql
         last_issues: list[ValidationIssue] = []
@@ -113,7 +153,7 @@ class SelfCorrectionService:
 
         for attempt in range(self._max_attempts + 1):
             logger.info("Self-correction attempt %s", attempt)
-            issues = self._deterministic_issues(current_sql, _get_schema)
+            issues = self._deterministic_issues(current_sql, _get_schema, enforce_rls=enforce_rls)
             trace.append({
                 "attempt": attempt,
                 "sql": current_sql,
@@ -228,6 +268,7 @@ class SelfCorrectionService:
         self,
         sql: str,
         schema_getter: Callable[[], dict[str, Any]] | None = None,
+        enforce_rls: bool = False,
     ) -> list[ValidationIssue]:
         schema = schema_getter() if schema_getter is not None else None
         for validator in (
@@ -237,9 +278,12 @@ class SelfCorrectionService:
             *(([self._rls_validator]) if self._rls_validator is not None else []),
         ):
             try:
-                result = validator.validate(sql, schema=schema)
+                result = validator.validate(sql, schema=schema, enforce_presence=enforce_rls)
             except TypeError:
-                result = validator.validate(sql)
+                try:
+                    result = validator.validate(sql, schema=schema)
+                except TypeError:
+                    result = validator.validate(sql)
             if not result.is_valid:
                 # Stop at the first failing layer: an invalid JOIN cannot be
                 # judged reliably before syntax/schema are already correct.

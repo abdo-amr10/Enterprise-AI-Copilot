@@ -112,23 +112,49 @@ class SemanticLayerSourceClientImpl:
         """
 
         raw_sources = response.get("sources", {})
+        sources: dict[str, SourceFile | None] = {}
 
-        sources: dict[str, SourceFile | None] = {
-            source_type: (
-                SourceFile(
-                    file_id=source_data["fileId"],
-                    file_type=source_data["fileType"],
-                )
-                if source_data is not None
-                else None
+        if isinstance(raw_sources, dict):
+            backend_mapping = {
+                "schema": ("schemaFileId", "schema"),
+                "documentation": ("documentationFileId", "documentation"),
+                "glossary": ("glossaryFileId", "glossary"),
+                "sampleData": ("sampleDataFileId", "sampleData"),
+            }
+            has_file_id_keys = any(
+                field_name in raw_sources
+                for field_name, _ in backend_mapping.values()
             )
-            for source_type, source_data in raw_sources.items()
-        }
+
+            if has_file_id_keys:
+                for source_name, (field_name, file_type) in backend_mapping.items():
+                    file_id = raw_sources.get(field_name)
+                    if file_id is not None and str(file_id).strip():
+                        sources[source_name] = SourceFile(
+                            file_id=str(file_id),
+                            file_type=file_type,
+                        )
+                    else:
+                        sources[source_name] = None
+            else:
+                for source_type, source_data in raw_sources.items():
+                    if isinstance(source_data, dict):
+                        sources[source_type] = SourceFile(
+                            file_id=source_data.get("fileId", ""),
+                            file_type=source_data.get("fileType", source_type),
+                        )
+                    elif isinstance(source_data, str) and source_data.strip():
+                        sources[source_type] = SourceFile(
+                            file_id=source_data,
+                            file_type=source_type,
+                        )
+                    else:
+                        sources[source_type] = None
 
         return UploadSourcesResponse(
-            status=response["status"],
-            semantic_layer_id=response["semanticLayerId"],
-            name=response["name"],
+            status=response.get("status", ""),
+            semantic_layer_id=response.get("semanticLayerId", ""),
+            name=response.get("name", ""),
             description=response.get("description"),
             sources=sources,
         )

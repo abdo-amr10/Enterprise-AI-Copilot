@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    model_config = ConfigDict(extra="forbid", populate_by_name=True, protected_namespaces=())
 
 
 class CopilotRequest(StrictModel):
@@ -97,4 +97,11 @@ class ExecutionResultRequest(StrictModel):
 
 class PostQueryFormatRequest(StrictModel):
     question: str = Field(min_length=1)
-    executionResult: ExecutionResultRequest
+    executionResult: ExecutionResultRequest | list[dict[str, Any]]
+
+
+class DebugRunRequest(StrictModel):
+    question: str = Field(min_length=1)
+    layer: Literal["full", "retrieval", "prompt", "generation", "validation", "critic", "correction"] = "full"
+    show_local_output: bool = True
+

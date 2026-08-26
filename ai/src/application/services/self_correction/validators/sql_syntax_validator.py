@@ -26,9 +26,22 @@ _FORBIDDEN_READ_ONLY = re.compile(
 
 
 class SQLSyntaxValidator:
-    """Validates that a SQL string is a single, parseable, read-only T-SQL SELECT."""
+    """Deterministic validator enforcing valid single-statement read-only T-SQL syntax.
+
+    Uses `sqlglot` configured for the Microsoft SQL Server (`tsql`) dialect to ensure
+    that candidate queries are strictly single-statement read-only SELECT queries without
+    destructive commands, DDL/DML, or syntax errors.
+    """
 
     def validate(self, sql: str) -> ValidationResult:
+        """Validate that a SQL string is a single, parseable, read-only T-SQL SELECT query.
+
+        Args:
+            sql: SQL statement string to validate.
+
+        Returns:
+            ValidationResult indicating pass/fail status and any detected ValidationIssues.
+        """
         if not sql or not sql.strip():
             return ValidationResult.fail(
                 [
@@ -92,11 +105,16 @@ class SQLSyntaxValidator:
         return ValidationResult.ok()
 
     def parse(self, sql: str) -> exp.Expression:
-        """Parse SQL into an AST. Raises sqlglot.errors.ParseError on failure.
+        """Parse a single SQL statement into an AST expression.
 
-        Exposed so other components (schema/relationship validators,
-        correction context building) can reuse the same parse instead
-        of re-parsing the SQL themselves.
+        Args:
+            sql: Single SQL statement string.
+
+        Returns:
+            The parsed sqlglot AST Expression.
+
+        Raises:
+            ParseError: If the SQL cannot be parsed or contains multiple statements.
         """
         statements = self.parse_all(sql)
         if len(statements) != 1:
@@ -105,5 +123,15 @@ class SQLSyntaxValidator:
 
     @staticmethod
     def parse_all(sql: str) -> list[exp.Expression]:
-        """Parse every SQL statement so trailing commands cannot be ignored."""
+        """Parse all SQL statements in a string into AST expressions.
+
+        Args:
+            sql: SQL text containing one or more statements.
+
+        Returns:
+            List of parsed sqlglot AST Expressions.
+
+        Raises:
+            ParseError: If syntax errors occur during parsing.
+        """
         return sqlglot.parse(sql, dialect=_DIALECT, error_level=ErrorLevel.RAISE)

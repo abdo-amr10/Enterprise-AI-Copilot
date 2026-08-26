@@ -24,8 +24,10 @@ class FakeTextToSQLPipeline:
 
 
 class FakeSelfCorrection:
-    def __init__(self, valid=True): self.valid = valid
-    def run(self, question, sql, semantic_context, trace_observer=None):
+    def __init__(self, valid=True):
+        self.valid = valid
+
+    def run(self, question, sql, semantic_context, trace_observer=None, **kwargs):
         from src.application.dto.self_correction.self_correction_outcome import SelfCorrectionOutcome
         return SelfCorrectionOutcome.success(sql, 0) if self.valid else SelfCorrectionOutcome.failure(3, ("invalid",))
 

@@ -14,6 +14,7 @@ from src.api.dependencies import (
     get_semantic_retrieval_pipeline,
 )
 from src.api.generation_validation_dependencies import (
+    get_backend_semantic_client,
     get_semantic_generation_pipeline,
     get_semantic_validation_pipeline,
 )
@@ -99,6 +100,9 @@ def generate_draft(
     pipeline: SemanticLayerGenerationPipeline = Depends(
         get_semantic_generation_pipeline
     ),
+    backend_client: BackendSemanticClient = Depends(
+        get_backend_semantic_client
+    ),
 ) -> dict[str, Any]:
     """Generate an unpersisted draft from Backend-owned source IDs.
 
@@ -124,7 +128,7 @@ def generate_draft(
             base_revision_id=body.get("baseRevisionId"),
             affected_objects=affected_objects,
         )
-        sources = BackendSemanticClient().load_generation_sources(
+        sources = backend_client.load_generation_sources(
             generation_request.source_file_ids
         )
         _validate_resolved_sources(generation_request.trigger_type, sources)
@@ -132,7 +136,7 @@ def generate_draft(
         if generation_request.trigger_type == "Incremental" and base_semantic_layer is None:
             if not generation_request.base_revision_id:
                 raise ValueError("baseRevisionId is required for Incremental generation.")
-            base_semantic_layer = BackendSemanticClient().load_revision(
+            base_semantic_layer = backend_client.load_revision(
                 generation_request.base_revision_id
             )
         if base_semantic_layer is not None and not isinstance(

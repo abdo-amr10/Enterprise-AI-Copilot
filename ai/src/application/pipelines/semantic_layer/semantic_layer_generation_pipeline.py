@@ -49,6 +49,26 @@ class SemanticLayerGenerationPipeline:
         sources: dict[str, Any],
         base_semantic_layer: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Generate a new Semantic Layer draft from source material.
+
+        Coordinates FullRebuild or Incremental build strategies, merges incremental
+        changes into the base layer when applicable, and generates metadata and object IDs.
+
+        Args:
+            request: Configuration specifying trigger_type ('FullRebuild' or 'Incremental'),
+                target semantic_layer_id, source IDs, and affected objects.
+            sources: Loaded source file content dictionary containing schema, relationships,
+                and optional glossary/documentation/sample_data.
+            base_semantic_layer: Current approved layer required for incremental generation;
+                must be None for FullRebuild.
+
+        Returns:
+            A complete unpersisted Semantic Layer draft dictionary with assigned object IDs.
+
+        Raises:
+            ValueError: If trigger_type is invalid or if required parameters for FullRebuild /
+                Incremental modes are violated.
+        """
 
         if request.trigger_type == "FullRebuild":
             if base_semantic_layer is not None:

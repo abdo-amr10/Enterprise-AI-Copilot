@@ -26,20 +26,45 @@ _BRANCH_PARAMETER = re.compile(r"^@USERBRANCHID$", re.IGNORECASE)
 
 
 class SQLRlsValidator:
-    """Require the exact documented join path for every protected table."""
+    """Deterministic validator enforcing required row-level security (RLS) join paths.
+
+    Validates that queries accessing protected domain entities (loans, accounts, cards, customers)
+    include the Backend's parameterized `@UserBranchId` filter and satisfy the required
+    table-to-branch join sequence before execution.
+    """
 
     def __init__(
         self, syntax_validator: SQLSyntaxValidator, schema_validator: SQLSchemaValidator
     ) -> None:
+        """Initialize the RLS validator.
+
+        Args:
+            syntax_validator: AST parser for analyzing SQL join and WHERE structures.
+            schema_validator: Schema validator for resolving table aliases.
+        """
         self._syntax_validator = syntax_validator
         self._schema_validator = schema_validator
 
-    def validate(self, sql: str) -> ValidationResult:
+    def validate(
+        self, sql: str, schema: Any = None, enforce_presence: bool = True
+    ) -> ValidationResult:
+        """Validate that protected tables include proper RLS branch joins and parameter filters.
+
+        Args:
+            sql: SQL statement string to validate.
+            schema: Optional physical database schema.
+            enforce_presence: Whether presence of `@UserBranchId` is mandatory.
+
+        Returns:
+            ValidationResult indicating pass/fail status and any missing RLS mapping issues.
+        """
         if "@UserBranchId".casefold() not in sql.casefold():
-            return self._fail(
-                "RLS_PARAMETER_MISSING",
-                "Query must include the Backend-bound @UserBranchId parameter.",
-            )
+            if enforce_presence:
+                return self._fail(
+                    "RLS_PARAMETER_MISSING",
+                    "Query must include the Backend-bound @UserBranchId parameter.",
+                )
+            return ValidationResult.ok()
 
         tree = self._syntax_validator.parse(sql)
         aliases = self._schema_validator.resolve_table_aliases(sql)

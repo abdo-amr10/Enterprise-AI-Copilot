@@ -27,6 +27,14 @@ class SemanticRetrievalPipeline:
         self._retrieval_service = retrieval_service
 
     def run(self, request: SemanticRetrievalRequest) -> SemanticRetrievalResponse:
+        """Retrieve relevant semantic context and project it onto the response contract.
+
+        Args:
+            request: The semantic retrieval request containing the question and optional top_k.
+
+        Returns:
+            SemanticRetrievalResponse containing sorted relevant tables and unique business rules.
+        """
         documents = self._retrieval_service.retrieve(
             question=request.question,
             top_k=request.top_k,
@@ -51,6 +59,12 @@ class SemanticRetrievalPipeline:
 
     @classmethod
     def _collect_tables(cls, value: Any, tables: set[str]) -> None:
+        """Recursively scan payload dictionary/list structures to collect table names.
+
+        Args:
+            value: The data structure or nested payload to inspect.
+            tables: Set to collect discovered table names into.
+        """
         if isinstance(value, dict):
             for key, item in value.items():
                 if key in {"table", "from_table", "to_table"} and isinstance(item, str):

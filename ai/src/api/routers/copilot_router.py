@@ -20,9 +20,55 @@ from src.application.dto.backend.copilot.copilot_ask_request import CopilotAskRe
 from src.application.pipelines.text_to_sql.copilot_runtime_pipeline import (
     CopilotRuntimePipeline,
 )
-from src.api.contracts import CopilotRequest, CopilotResponse, PostQueryFormatRequest
+from typing import Any
+
+from src.api.contracts import (
+    CopilotRequest,
+    CopilotResponse,
+    ExecutionResultRequest,
+    PostQueryFormatRequest,
+)
 
 router = APIRouter(prefix="/internal/copilot", tags=["copilot"])
+
+
+def _normalize_execution_result(
+    payload: ExecutionResultRequest | list[dict[str, Any]],
+) -> BackendExecutionResult:
+    if isinstance(payload, list):
+        if not payload:
+            return BackendExecutionResult(
+                status="Success",
+                columns=(),
+                rows=(),
+                row_count=0,
+            )
+        seen_columns: dict[str, None] = {}
+        for row in payload:
+            if isinstance(row, dict):
+                for key in row.keys():
+                    seen_columns[str(key)] = None
+        columns = tuple(seen_columns.keys())
+        rows = tuple(
+            tuple(row.get(col) if isinstance(row, dict) else None for col in columns)
+            for row in payload
+        )
+        return BackendExecutionResult(
+            status="Success",
+            columns=columns,
+            rows=rows,
+            row_count=len(rows),
+        )
+
+    return BackendExecutionResult(
+        status=payload.status,
+        columns=tuple(payload.columns),
+        rows=tuple(tuple(row) for row in payload.rows),
+        row_count=payload.rowCount,
+        error_code=payload.errorCode,
+        error_message=payload.errorMessage,
+        metadata=payload.metadata,
+    )
 
 
 @router.post("/text-to-sql")
@@ -56,16 +102,7 @@ def format_execution_result(
     """Format a Backend-owned execution result without executing SQL or persisting files."""
 
     try:
-        payload = request.executionResult
-        result = BackendExecutionResult(
-            status=payload.status,
-            columns=tuple(payload.columns),
-            rows=tuple(tuple(row) for row in payload.rows),
-            row_count=payload.rowCount,
-            error_code=payload.errorCode,
-            error_message=payload.errorMessage,
-            metadata=payload.metadata,
-        )
+        result = _normalize_execution_result(request.executionResult)
         return formatter.format(request.question, result).to_dict()
     except (TypeError, ValueError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error

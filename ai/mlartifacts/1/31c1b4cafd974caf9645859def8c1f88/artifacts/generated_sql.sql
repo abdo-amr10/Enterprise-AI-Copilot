@@ -1,0 +1,1 @@
+SELECT c.first_name, c.last_name, a.balance_usd AS account_balance FROM customers AS c INNER JOIN accounts AS a ON c.customer_id = a.customer_id WHERE a.branch_id = @UserBranchId;

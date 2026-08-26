@@ -1,20 +1,33 @@
-"""Configuration-driven client for Backend-owned semantic source material."""
-
 from __future__ import annotations
 
-import json
 import os
-import ssl
 from typing import Any
-from urllib.parse import urlparse
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+
+import requests
+
+from src.infrastructure.backend.backend_http_client import BackendHttpClient
 
 
 class BackendSemanticClient:
-    """Fetches source files and revisions; it never treats local artifacts as authoritative."""
+    """HTTP client communicating with the Backend API for semantic layer assets.
 
-    def __init__(self) -> None:
+    Fetches authoritative uploaded source files (schema, relationships, glossary, documentation)
+    and revision artifacts from the Backend API over authenticated HTTPS/HTTP.
+    """
+
+    def __init__(self, http_client: BackendHttpClient | None = None) -> None:
+        """Initialize the Backend semantic client from environment variables or shared client.
+
+        Raises:
+            RuntimeError: If BACKEND_API_BASE_URL or BACKEND_SERVICE_BEARER_TOKEN is unset.
+        """
+        if http_client is not None:
+            self._http_client = http_client
+            self._base_url = http_client._base_url
+            self._token = http_client._token
+            self._timeout = float(http_client._timeout)
+            return
+
         self._base_url = os.environ.get("BACKEND_API_BASE_URL", "").rstrip("/")
         self._token = os.environ.get("BACKEND_SERVICE_BEARER_TOKEN", "")
         self._timeout = float(os.environ.get("BACKEND_API_TIMEOUT_SECONDS", "30"))
@@ -27,7 +40,24 @@ class BackendSemanticClient:
         if not self._token:
             raise RuntimeError("BACKEND_SERVICE_BEARER_TOKEN must be configured for semantic runtime requests.")
 
+        self._http_client = BackendHttpClient(
+            base_url=self._base_url,
+            token=self._token,
+            timeout=int(self._timeout),
+        )
+
     def load_generation_sources(self, source_file_ids: dict[str, str]) -> dict[str, Any]:
+        """Fetch and normalize uploaded source files required for draft generation.
+
+        Args:
+            source_file_ids: Mapping of source category names to Backend file IDs.
+
+        Returns:
+            Dictionary containing normalized sources (schema, relationships, business_glossary, etc.).
+
+        Raises:
+            ValueError: If schema content is missing or malformed.
+        """
         sources: dict[str, Any] = {}
         for name, file_id in source_file_ids.items():
             if file_id:
@@ -52,6 +82,17 @@ class BackendSemanticClient:
         return name
 
     def load_revision(self, revision_id: str) -> dict[str, Any]:
+        """Fetch an authoritative semantic layer revision from the Backend by ID.
+
+        Args:
+            revision_id: Unique revision UUID.
+
+        Returns:
+            Semantic layer dictionary with restored metadata.
+
+        Raises:
+            ValueError: If revision content is missing or malformed.
+        """
         payload = self._get(f"/api/v1/semantic-layer/revisions/{revision_id}")
         content = payload.get("content")
         if not isinstance(content, dict):
@@ -115,30 +156,10 @@ class BackendSemanticClient:
         return self._get("/api/v1/semantic-layer/status")
 
     def _get(self, path: str) -> dict[str, Any]:
-        request = Request(f"{self._base_url}{path}", headers={"Authorization": f"Bearer {self._token}"})
         try:
-            with urlopen(
-                request,
-                timeout=self._timeout,
-                context=self._ssl_context(),
-            ) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except HTTPError as error:
-            raise RuntimeError(f"Backend semantic request failed with HTTP {error.code}.") from error
-        except (URLError, TimeoutError, json.JSONDecodeError) as error:
+            return self._http_client.get(path)
+        except requests.HTTPError as error:
+            status_code = error.response.status_code if error.response is not None else "unknown"
+            raise RuntimeError(f"Backend semantic request failed with HTTP {status_code}.") from error
+        except (requests.RequestException, ValueError) as error:
             raise RuntimeError("Backend semantic request failed.") from error
-        if not isinstance(payload, dict):
-            raise RuntimeError("Backend semantic response must be an object.")
-        return payload
-
-    def _ssl_context(self) -> ssl.SSLContext | None:
-        """Allow an untrusted development certificate only for local HTTPS."""
-
-        parsed = urlparse(self._base_url)
-        is_local_https = (
-            parsed.scheme == "https"
-            and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
-        )
-        if self._allow_insecure_local_https and is_local_https:
-            return ssl._create_unverified_context()
-        return None

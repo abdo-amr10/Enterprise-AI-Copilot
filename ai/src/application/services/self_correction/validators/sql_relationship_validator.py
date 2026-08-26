@@ -28,7 +28,11 @@ _SOURCE = "relationship_validator"
 
 
 class SQLRelationshipValidator:
-    """Validates that every JOIN uses an approved relationship."""
+    """Deterministic validator verifying that every SQL JOIN matches an approved relationship.
+
+    Extracts JOIN ON equality conditions from the AST and verifies them against the
+    approved Semantic Layer relationships retrieved via the SemanticRepository port.
+    """
 
     def __init__(
         self,
@@ -36,11 +40,27 @@ class SQLRelationshipValidator:
         syntax_validator: SQLSyntaxValidator,
         schema_validator: SQLSchemaValidator,
     ) -> None:
+        """Initialize the relationship validator.
+
+        Args:
+            semantic_repository: Repository providing approved semantic relationships.
+            syntax_validator: AST parser for analyzing SQL joins.
+            schema_validator: Schema validator for resolving table aliases.
+        """
         self._semantic_repository = semantic_repository
         self._syntax_validator = syntax_validator
         self._schema_validator = schema_validator
 
     def validate(self, sql: str, schema: dict[str, Any] | None = None) -> ValidationResult:
+        """Validate that all JOIN clauses in the SQL correspond to approved relationships.
+
+        Args:
+            sql: SQL statement string to validate.
+            schema: Optional physical schema dictionary for alias resolution.
+
+        Returns:
+            ValidationResult indicating pass/fail status and any unapproved join issues.
+        """
         tree = self._syntax_validator.parse(sql)
         alias_map = self._schema_validator.resolve_table_aliases(sql, schema=schema)
         approved_pairs = self._approved_pairs()

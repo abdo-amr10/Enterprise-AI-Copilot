@@ -1,0 +1,89 @@
+{
+  "requested_layer": "full",
+  "status": "failed",
+  "stopping_point": "production validated-SQL boundary",
+  "metrics": {
+    "request_latency_ms": 0.013500000932253897,
+    "validation_passed": 0.0,
+    "total_latency_ms": 100.13090000029479
+  },
+  "tags": {
+    "run_type": "debug",
+    "debug_layer": "full",
+    "question_hash": "8e35c2cd3bf6641bdb0e2050b76932cbb2e6034a0ddacc1d9bea82a6ba57f7cf",
+    "top_k": 7,
+    "input_tokens": "unavailable",
+    "output_tokens": "unavailable",
+    "total_tokens": "unavailable",
+    "prompt_name": "text_to_sql",
+    "prompt_version": "sha256:5486a26745f6",
+    "prompt_hash": "5486a26745f6bd1d757ceb61d2eb171000fc507f554a2c204640d1f65961f5a0",
+    "semantic_revision": "new",
+    "embedding_provider": "fake",
+    "embedding_model": "embed",
+    "embedding_version": "1",
+    "embedding_dimension": 3,
+    "index_type": "faiss",
+    "index_version": "1",
+    "index_identity": "new",
+    "index_created": false,
+    "index_reused": false,
+    "index_rebuilt": false,
+    "trace_reason": "developer_debug"
+  },
+  "local": {
+    "flow": {
+      "request": {
+        "executed": true,
+        "status": "Failed",
+        "duration_ms": 0.013500000932253897,
+        "reason": "not requested"
+      },
+      "retrieval": {
+        "executed": "unavailable",
+        "status": "unavailable",
+        "duration_ms": "unavailable",
+        "reason": "not exposed independently by production runtime full-flow contract"
+      },
+      "prompt": {
+        "executed": "unavailable",
+        "status": "unavailable",
+        "duration_ms": "unavailable",
+        "reason": "not exposed independently by production runtime full-flow contract"
+      },
+      "generation": {
+        "executed": "unavailable",
+        "status": "unavailable",
+        "duration_ms": "unavailable",
+        "reason": "not exposed independently by production runtime full-flow contract"
+      },
+      "validation": {
+        "executed": "unavailable",
+        "status": "unavailable",
+        "duration_ms": "unavailable",
+        "reason": "not exposed independently by production runtime full-flow contract"
+      },
+      "critic": {
+        "executed": "unavailable",
+        "status": "unavailable",
+        "duration_ms": "unavailable",
+        "reason": "not exposed independently by production runtime full-flow contract"
+      },
+      "correction": {
+        "executed": "unavailable",
+        "status": "unavailable",
+        "duration_ms": "unavailable",
+        "reason": "not exposed independently by production runtime full-flow contract"
+      },
+      "final": {
+        "executed": false,
+        "status": "not_executed",
+        "duration_ms": "unavailable",
+        "reason": "not requested"
+      }
+    },
+    "production_trace_events": [],
+    "final_sql": null,
+    "validation_history_sql": "-- ====================================================================\n-- QUESTION: q\n-- STATUS: FAILED\n-- VALIDATION PASSED: NO\n-- ====================================================================\n"
+  }
+}

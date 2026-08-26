@@ -8,17 +8,47 @@ from src.application.ports.semantic_repository import SemanticRepository
 
 
 class ContextRetrievalService:
-    """Retrieve seed objects, then complete the joins they require."""
+    """Retrieves relevant semantic slice and builds compact, join-complete LLM subgraphs.
+
+    Performs vector similarity search against the approved Semantic Layer, identifies seed tables,
+    calculates shortest-path connecting relationships to ensure all joins are complete,
+    and formats a structured semantic context prompt block for LLM code generation.
+    """
 
     def __init__(self, semantic_repository: SemanticRepository, default_top_k: int = 8) -> None:
+        """Initialize the context retrieval service.
+
+        Args:
+            semantic_repository: Semantic repository port for loading and querying semantic data.
+            default_top_k: Default number of top documents to retrieve from vector search.
+        """
         self._semantic_repository = semantic_repository
         self._default_top_k = default_top_k
 
     def retrieve(self, question: str, top_k: int | None = None) -> list[dict[str, Any]]:
+        """Retrieve top semantic document matches for a user question.
+
+        Args:
+            question: Natural language question.
+            top_k: Optional limit on the number of documents; if None, computes dynamic candidate limit.
+
+        Returns:
+            List of semantic document dictionaries matched by vector similarity.
+        """
         limit = top_k if top_k is not None else self._candidate_limit(question)
         return self._semantic_repository.retrieve(question, limit)
 
     def build_llm_context(self, question: str, top_k: int | None = None) -> str:
+        """Construct a join-complete, formatted semantic context string for LLM prompts.
+
+        Args:
+            question: Natural language question.
+            top_k: Optional top_k limit for initial document retrieval.
+
+        Returns:
+            Formatted plain-text block detailing approved entities, columns, relationships,
+            query scope guidance, and business rules.
+        """
         results = self.retrieve(question, top_k)
         layer = self._semantic_repository.load()
         requested_tables = self._planned_tables(question, layer)
