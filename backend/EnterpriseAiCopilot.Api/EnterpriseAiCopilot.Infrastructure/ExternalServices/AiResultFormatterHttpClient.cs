@@ -43,7 +43,7 @@ public class AiResultFormatterHttpClient : IAiResultFormatterClient
         return new CopilotReport
         {
             TextSummary = aiResponse?.Text ?? "Here is the information you requested.",
-            PresentationType = aiResponse?.PresentationType ?? "Table",
+            PresentationType = aiResponse?.PresentationType ?? "Text",
             Data = executionResult
         };
     }
