@@ -31,6 +31,7 @@ namespace EnterpriseAiCopilot.Api.Extensions
             services.AddHttpClient<IAiRuntimeClient, AiRuntimeHttpClient>();
             services.AddHttpClient<IAiSemanticClient, AiSemanticHttpClient>();
             services.AddScoped<IAuditService, AuditService>();
+            services.AddHttpClient<IAiResultFormatterClient, AiResultFormatterHttpClient>();
             services.AddOptions<AiRuntimeOptions>()
                 .Bind(configuration.GetSection(AiRuntimeOptions.SectionName))
                 .Validate(options => Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out _),

@@ -19,20 +19,22 @@ namespace EnterpriseAiCopilot.Application.Services
         private readonly IAiRuntimeClient _aiRuntimeClient;
         private readonly IDynamicSqlExecutor _sqlExecutor;
         private readonly ILogger<CopilotService> _logger;
-        private readonly IAuditService _auditService; 
-
+        private readonly IAuditService _auditService;
+        private readonly IAiResultFormatterClient _resultFormatter;
         public CopilotService(
             IApplicationDbContext context,
             IAiRuntimeClient aiRuntimeClient,
             IDynamicSqlExecutor sqlExecutor,
             ILogger<CopilotService> logger,
-            IAuditService auditService)
+            IAuditService auditService,
+            IAiResultFormatterClient resultFormatter)
         {
             _context = context;
             _aiRuntimeClient = aiRuntimeClient;
             _sqlExecutor = sqlExecutor;
             _logger = logger;
             _auditService = auditService;
+            _resultFormatter = resultFormatter;
         }
 
         public async Task<Result<AskCopilotResponse>> AskQuestionAsync(
@@ -46,7 +48,9 @@ namespace EnterpriseAiCopilot.Application.Services
             try
             {
                 var activeLayer = await _context.SemanticLayers
-                    .FirstOrDefaultAsync(sl => sl.IsActive, cancellationToken);
+                    .Where(sl => sl.IsActive)
+                    .OrderByDescending(sl => sl.CreatedAt)
+                    .FirstOrDefaultAsync(cancellationToken);
 
                 if (activeLayer == null)
                 {
@@ -186,15 +190,20 @@ namespace EnterpriseAiCopilot.Application.Services
                 cancellationToken: cancellationToken
             );
 
+            var formattedReport = await _resultFormatter.FormatExecutionResultAsync(
+                originalPrompt,
+                executionResult!.Data!,
+                cancellationToken);
+
             var response = new AskCopilotResponse
             {
                 QueryId = historyId.ToString(),
                 Status = "Completed",
                 Report = new CopilotReport
                 {
-                    TextSummary = aiResponse!.TextSummary ?? "Query executed successfully.",
-                    PresentationType = aiResponse!.PresentationType,
-                    Data = executionResult!.Data
+                    TextSummary = formattedReport.TextSummary,
+                    PresentationType = formattedReport.PresentationType,
+                    Data = executionResult.Data
                 }
             };
 

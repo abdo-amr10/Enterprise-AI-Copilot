@@ -33,6 +33,10 @@ namespace EnterpriseAiCopilot.Infrastructure.Persistence.Configurations
                 .WithOne(r => r.SemanticLayer)
                 .HasForeignKey(r => r.SemanticLayerId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            builder.HasIndex(sl => sl.IsActive)
+                .IsUnique()
+                .HasFilter("[IsActive] = 1");
         }
     }
 }
