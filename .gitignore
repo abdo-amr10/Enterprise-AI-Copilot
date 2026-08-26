@@ -31,3 +31,25 @@ wwwroot/lib/
 
 # AI Runtime local secrets/configuration
 #
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+*.db
+mlflow.db
+.env
+.venv
+env/
+venv/
+ENV/
+swagger.json
+
