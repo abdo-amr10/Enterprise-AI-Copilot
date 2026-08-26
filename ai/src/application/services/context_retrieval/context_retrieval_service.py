@@ -58,7 +58,7 @@ class ContextRetrievalService:
         # this is the compact, approved-schema projection passed to the LLM.
         seed_tables = requested_tables | self._seed_tables(results)
         relationships = self._connecting_relationships(
-            seed_tables, layer.get("relationships", [])
+            seed_tables, self._valid_relationships(layer.get("relationships", []))
         )
         tables = seed_tables | {
             table
@@ -194,6 +194,27 @@ class ContextRetrievalService:
                 if isinstance(payload.get(key), str):
                     tables.add(payload[key])
         return tables
+
+    @staticmethod
+    def _valid_relationships(relationships: Any) -> list[dict[str, Any]]:
+        """Keep only relationships that can safely be rendered as SQL joins.
+
+        The approved semantic revision is Backend-owned. An incomplete
+        relationship must not crash request handling or be turned into a
+        guessed join; it simply cannot participate in a join-complete prompt.
+        """
+        if not isinstance(relationships, list):
+            return []
+        required = ("from_table", "from_column", "to_table", "to_column")
+        return [
+            relationship
+            for relationship in relationships
+            if isinstance(relationship, dict)
+            and all(
+                isinstance(relationship.get(field), str) and relationship[field]
+                for field in required
+            )
+        ]
 
     @staticmethod
     def _connecting_relationships(

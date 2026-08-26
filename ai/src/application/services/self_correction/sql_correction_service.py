@@ -66,8 +66,12 @@ class SQLCorrectionService:
         lines = [
             f"{rel['from_table']}.{rel['from_column']} -> {rel['to_table']}.{rel['to_column']}"
             for rel in relationships
+            if all(
+                isinstance(rel.get(field), str) and rel[field]
+                for field in ("from_table", "from_column", "to_table", "to_column")
+            )
         ]
-        return "\n".join(lines)
+        return "\n".join(lines) or "(no complete relationships resolved)"
 
     @staticmethod
     def _extract_sql(text: str) -> str | None:

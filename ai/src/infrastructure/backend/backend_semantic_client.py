@@ -44,6 +44,7 @@ class BackendSemanticClient:
             base_url=self._base_url,
             token=self._token,
             timeout=int(self._timeout),
+            verify_tls=not self._allow_insecure_local_https,
         )
 
     def load_generation_sources(self, source_file_ids: dict[str, str]) -> dict[str, Any]:
@@ -121,16 +122,18 @@ class BackendSemanticClient:
         # snake_case section names internally.
         result.setdefault("business_rules", result.pop("businessRules", []))
         result.setdefault("validation_issues", result.pop("validationIssues", []))
-        self._normalize_relationship_tables(result)
+        self._normalize_relationships(result)
         return result
 
     @staticmethod
-    def _normalize_relationship_tables(layer: dict[str, Any]) -> None:
-        """Translate entity-based Backend relationships to physical tables.
+    def _normalize_relationships(layer: dict[str, Any]) -> None:
+        """Normalize supported Backend relationship key styles for AI consumers.
 
-        The Semantic Layer stores relationships using ``from_entity`` and
-        ``to_entity``. SQL validation and context assembly operate on physical
-        table names, so enrich the runtime copy without changing persistence.
+        The persisted JSON is backend-owned and may use either camelCase or
+        snake_case field names. Convert known aliases into the AI's canonical
+        names, then resolve entity names to physical tables where possible.
+        Missing join columns are deliberately not guessed: downstream context
+        code excludes incomplete relationships rather than fabricating a JOIN.
         """
 
         entity_tables = {
@@ -143,6 +146,27 @@ class BackendSemanticClient:
         for relationship in layer.get("relationships", []):
             if not isinstance(relationship, dict):
                 continue
+            for canonical, aliases in {
+                "from_table": ("fromTable", "source_table", "sourceTable"),
+                "to_table": ("toTable", "target_table", "targetTable"),
+                "from_column": (
+                    "fromColumn", "from_field", "fromField", "from_attribute",
+                    "fromAttribute", "source_column", "sourceColumn",
+                ),
+                "to_column": (
+                    "toColumn", "to_field", "toField", "to_attribute",
+                    "toAttribute", "target_column", "targetColumn",
+                ),
+                "from_entity": ("fromEntity", "source_entity", "sourceEntity"),
+                "to_entity": ("toEntity", "target_entity", "targetEntity"),
+            }.items():
+                if relationship.get(canonical) is None:
+                    value = next(
+                        (relationship[key] for key in aliases if relationship.get(key) is not None),
+                        None,
+                    )
+                    if value is not None:
+                        relationship[canonical] = value
             if not relationship.get("from_table"):
                 relationship["from_table"] = entity_tables.get(
                     relationship.get("from_entity")
@@ -160,6 +184,15 @@ class BackendSemanticClient:
             return self._http_client.get(path)
         except requests.HTTPError as error:
             status_code = error.response.status_code if error.response is not None else "unknown"
-            raise RuntimeError(f"Backend semantic request failed with HTTP {status_code}.") from error
+            detail = ""
+            if error.response is not None:
+                try:
+                    detail = error.response.text.strip()
+                except Exception:
+                    pass
+            suffix = f" Details: {detail[:500]}" if detail else ""
+            raise RuntimeError(
+                f"Backend semantic request failed with HTTP {status_code}.{suffix}"
+            ) from error
         except (requests.RequestException, ValueError) as error:
             raise RuntimeError("Backend semantic request failed.") from error

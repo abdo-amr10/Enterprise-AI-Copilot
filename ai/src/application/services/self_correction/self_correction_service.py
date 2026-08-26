@@ -151,6 +151,16 @@ class SelfCorrectionService:
                     cached_schema = {}
             return cached_schema
 
+        # Normalise only the safe, outer SELECT-list ambiguity case before
+        # deterministic validation.  The validator remains authoritative for
+        # every other ambiguous reference and no WHERE/JOIN predicate is
+        # silently rewritten.
+        qualifier = getattr(
+            self._schema_validator, "qualify_base_table_projection_ambiguities", None
+        )
+        if callable(qualifier) and self._syntax_validator.validate(current_sql).is_valid:
+            current_sql = qualifier(current_sql, schema=_get_schema())
+
         for attempt in range(self._max_attempts + 1):
             logger.info("Self-correction attempt %s", attempt)
             issues = self._deterministic_issues(current_sql, _get_schema, enforce_rls=enforce_rls)

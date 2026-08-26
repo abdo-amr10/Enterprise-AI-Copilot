@@ -11,6 +11,7 @@ class BackendHttpClient:
         base_url: str,
         token: str,
         timeout: int = 30,
+        verify_tls: bool = True,
     ) -> None:
         """Initialize the Backend HTTP client.
 
@@ -35,6 +36,7 @@ class BackendHttpClient:
         self._base_url = base_url.rstrip("/")
         self._token = token
         self._timeout = timeout
+        self._verify_tls = verify_tls
 
     def get(self, endpoint: str) -> dict[str, Any]:
         """Send an authenticated GET request to the Backend.
@@ -57,6 +59,7 @@ class BackendHttpClient:
             self._build_url(endpoint),
             headers=self._json_headers(),
             timeout=self._timeout,
+            **self._tls_options(),
         )
 
         response.raise_for_status()
@@ -97,6 +100,7 @@ class BackendHttpClient:
             headers=self._json_headers(),
             json=payload,
             timeout=self._timeout,
+            **self._tls_options(),
         )
 
         response.raise_for_status()
@@ -120,6 +124,7 @@ class BackendHttpClient:
             data=data,
             files=files,
             timeout=self._timeout,
+            **self._tls_options(),
         )
         response.raise_for_status()
         payload = response.json()
@@ -150,6 +155,7 @@ class BackendHttpClient:
                 "Accept": "application/octet-stream",
             },
             timeout=self._timeout,
+            **self._tls_options(),
         )
 
         response.raise_for_status()
@@ -168,6 +174,10 @@ class BackendHttpClient:
         return (
             f"{self._base_url}/{endpoint.lstrip('/')}"
         )
+
+    def _tls_options(self) -> dict[str, bool]:
+        """Keep normal requests verified; opt out only when explicitly set."""
+        return {} if self._verify_tls else {"verify": False}
 
     def _json_headers(self) -> dict[str, str]:
         """Build headers for authenticated JSON requests.
@@ -212,6 +222,7 @@ class BackendHttpClient:
                 },
                 json=payload,
                 timeout=self._timeout,
+                **self._tls_options(),
             )
 
             response.raise_for_status()

@@ -115,6 +115,73 @@ class SQLSchemaValidator:
         alias_map, _ = self._resolve_tables(tree, tables)
         return alias_map
 
+    def qualify_base_table_projection_ambiguities(
+        self, sql: str, schema: dict[str, Any] | None = None
+    ) -> str:
+        """Safely qualify ambiguous, unqualified columns in the outer SELECT list.
+
+        This is a narrow normalisation step for simple LLM output.  It never
+        rewrites predicates, JOIN conditions, grouping, CTEs, subqueries, or
+        UNIONs because choosing a table in those scopes could change a query's
+        meaning.  When the base ``FROM`` table is unambiguous, qualifying only
+        a projected column preserves the intended result and prevents a
+        downstream ``AMBIGUOUS_COLUMN`` error.
+        """
+        try:
+            tree = self._syntax_validator.parse(sql)
+        except Exception:
+            # Syntax validation is responsible for reporting malformed SQL.
+            return sql
+
+        # Scope-aware rewriting of these query forms needs a resolver; leave
+        # them untouched and let deterministic validation/self-correction act.
+        if any(tree.find(node_type) for node_type in (exp.CTE, exp.Subquery, exp.Union)):
+            return sql
+
+        select = tree if isinstance(tree, exp.Select) else tree.find(exp.Select)
+        if select is None:
+            return sql
+
+        from_clause = select.args.get("from_")
+        base_table = from_clause.this if from_clause is not None else None
+        if not isinstance(base_table, exp.Table):
+            return sql
+
+        schema_tables = (schema or self._schema_provider.get_schema()).get("tables", {})
+        base_table_name = base_table.name
+        base_definition = schema_tables.get(base_table_name)
+        if base_definition is None:
+            return sql
+
+        alias_map, unknown_tables = self._resolve_tables(tree, schema_tables)
+        if unknown_tables:
+            return sql
+
+        base_alias = base_table.alias_or_name
+        base_columns = {
+            column["name"] for column in base_definition.get("columns", [])
+        }
+        referenced_tables = set(alias_map.values())
+
+        for projection in select.expressions:
+            for column in projection.find_all(exp.Column):
+                if column.table or column.name not in base_columns:
+                    continue
+
+                candidates = [
+                    table_name
+                    for table_name in referenced_tables
+                    if column.name
+                    in {
+                        item["name"]
+                        for item in schema_tables.get(table_name, {}).get("columns", [])
+                    }
+                ]
+                if len(candidates) > 1:
+                    column.set("table", exp.to_identifier(base_alias))
+
+        return tree.sql(dialect="tsql")
+
     @staticmethod
     def _resolve_tables(
         tree: exp.Expression,

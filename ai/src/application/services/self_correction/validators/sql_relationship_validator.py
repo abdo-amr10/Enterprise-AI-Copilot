@@ -129,6 +129,10 @@ class SQLRelationshipValidator:
             for relationship in self._semantic_repository.load().get("relationships", [])
             if relationship.get("from_table") in tables
             and relationship.get("to_table") in tables
+            and all(
+                isinstance(relationship.get(field), str) and relationship[field]
+                for field in ("from_table", "from_column", "to_table", "to_column")
+            )
         ]
 
     def _approved_pairs(self) -> set[tuple[str, str, str, str]]:

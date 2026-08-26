@@ -67,7 +67,7 @@ class SQLRlsValidator:
             return ValidationResult.ok()
 
         tree = self._syntax_validator.parse(sql)
-        aliases = self._schema_validator.resolve_table_aliases(sql)
+        aliases = self._schema_validator.resolve_table_aliases(sql, schema=schema)
         tables = set(aliases.values())
         joins = self._join_pairs(tree, aliases)
         branch_filters = self._branch_filters(tree, aliases)
