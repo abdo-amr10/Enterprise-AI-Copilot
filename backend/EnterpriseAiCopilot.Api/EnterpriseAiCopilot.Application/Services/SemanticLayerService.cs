@@ -77,7 +77,7 @@ namespace EnterpriseAiCopilot.Application.Services
             var schemaFile = new SemanticSourceFile
             {
                 FileName = request.SchemaFile.FileName,
-                FileType = Path.GetExtension(request.SchemaFile.FileName).TrimStart('.'),
+                FileType = "schema",
                 FileSize = request.SchemaFile.Length,
                 StoragePath = schemaResult.Data!,
                 UploadedBy = currentUser,
@@ -94,7 +94,7 @@ namespace EnterpriseAiCopilot.Application.Services
                 docFile = new SemanticSourceFile
                 {
                     FileName = request.DocumentationFile.FileName,
-                    FileType = Path.GetExtension(request.DocumentationFile.FileName).TrimStart('.'),
+                    FileType = "documentation",
                     FileSize = request.DocumentationFile.Length,
                     StoragePath = docResult.Data!,
                     UploadedBy = currentUser,
@@ -112,7 +112,7 @@ namespace EnterpriseAiCopilot.Application.Services
                 glossaryFile = new SemanticSourceFile
                 {
                     FileName = request.GlossaryFile.FileName,
-                    FileType = Path.GetExtension(request.GlossaryFile.FileName).TrimStart('.'),
+                    FileType = "glossary",
                     FileSize = request.GlossaryFile.Length,
                     StoragePath = glossaryResult.Data!,
                     UploadedBy = currentUser,
@@ -130,7 +130,7 @@ namespace EnterpriseAiCopilot.Application.Services
                 sampleDataFile = new SemanticSourceFile
                 {
                     FileName = request.SampleDataFile.FileName,
-                    FileType = Path.GetExtension(request.SampleDataFile.FileName).TrimStart('.'),
+                    FileType = "sampledata",
                     FileSize = request.SampleDataFile.Length,
                     StoragePath = sampleResult.Data!,
                     UploadedBy = currentUser,
@@ -504,10 +504,7 @@ namespace EnterpriseAiCopilot.Application.Services
                     RevisionId = latestRevision.Id.ToString(),
                     BuildTimestamp = latestRevision.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ"),
                     LastRegenerationType = string.IsNullOrEmpty(latestRevision.RegenerationType) ? "Unknown" : latestRevision.RegenerationType,
-                    Sources = new SemanticSources
-                    {
-                        SchemaFileId = semanticLayer.SourceFiles.FirstOrDefault()?.Id.ToString()
-                    }
+                    Sources = BuildSemanticSources(semanticLayer.SourceFiles)
                 });
             }
 
@@ -519,13 +516,115 @@ namespace EnterpriseAiCopilot.Application.Services
                 RevisionId = approvedRevision.Id.ToString(),
                 BuildTimestamp = approvedRevision.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ"),
                 LastRegenerationType = string.IsNullOrEmpty(approvedRevision.RegenerationType) ? "Unknown" : approvedRevision.RegenerationType,
-                Sources = new SemanticSources
-                {
-                    SchemaFileId = semanticLayer.SourceFiles.FirstOrDefault()?.Id.ToString()
-                }
+                Sources = BuildSemanticSources(semanticLayer.SourceFiles)
             };
 
             return Result<SemanticLayerStatusResponse>.Success(response);
+        }
+
+        private static SemanticSources BuildSemanticSources(IEnumerable<SemanticSourceFile> sourceFiles)
+        {
+            var files = sourceFiles.OrderBy(f => f.CreatedAt).ToList();
+
+            var schemaFile = files.FirstOrDefault(IsSchemaFile)
+                ?? files.FirstOrDefault(IsSchemaFallbackFile);
+
+            var documentationFile = files.FirstOrDefault(IsDocumentationFile);
+            var glossaryFile = files.FirstOrDefault(IsGlossaryFile);
+            var sampleDataFile = files.FirstOrDefault(IsSampleDataFile);
+
+            return new SemanticSources
+            {
+                SchemaFileId = schemaFile?.Id.ToString(),
+                DocumentationFileId = documentationFile?.Id.ToString(),
+                GlossaryFileId = glossaryFile?.Id.ToString(),
+                SampleDataFileId = sampleDataFile?.Id.ToString()
+            };
+        }
+
+        private static SemanticSourceFile? FindSourceFileBySemanticType(IEnumerable<SemanticSourceFile> sourceFiles, string fileType)
+        {
+            var files = sourceFiles.OrderBy(f => f.CreatedAt).ToList();
+
+            return fileType.ToLowerInvariant() switch
+            {
+                "schema" => files.FirstOrDefault(IsSchemaFile)
+                    ?? files.FirstOrDefault(IsSchemaFallbackFile),
+                "documentation" => files.FirstOrDefault(IsDocumentationFile),
+                "glossary" => files.FirstOrDefault(IsGlossaryFile),
+                "sampledata" => files.FirstOrDefault(IsSampleDataFile),
+                _ => files.FirstOrDefault(f => f.FileType.Equals(fileType, StringComparison.OrdinalIgnoreCase))
+            };
+        }
+
+        private static string InferSemanticFileType(string fileName)
+        {
+            if (fileName.Contains("schema", StringComparison.OrdinalIgnoreCase))
+                return "schema";
+
+            if (fileName.Contains("documentation", StringComparison.OrdinalIgnoreCase)
+                || fileName.Contains("docs", StringComparison.OrdinalIgnoreCase))
+                return "documentation";
+
+            if (fileName.Contains("glossary", StringComparison.OrdinalIgnoreCase))
+                return "glossary";
+
+            if (fileName.Contains("sample", StringComparison.OrdinalIgnoreCase))
+                return "sampledata";
+
+            return Path.GetExtension(fileName).TrimStart('.');
+        }
+
+        private static bool IsSchemaFile(SemanticSourceFile file)
+        {
+            return HasType(file, "schema")
+                || (NameContains(file, "schema") && IsSchemaCompatibleExtension(file));
+        }
+
+        private static bool IsSchemaFallbackFile(SemanticSourceFile file)
+        {
+            return IsSchemaCompatibleExtension(file)
+                && !IsDocumentationFile(file)
+                && !IsGlossaryFile(file)
+                && !IsSampleDataFile(file);
+        }
+
+        private static bool IsDocumentationFile(SemanticSourceFile file)
+        {
+            return HasType(file, "documentation")
+                || NameContains(file, "documentation")
+                || NameContains(file, "docs");
+        }
+
+        private static bool IsGlossaryFile(SemanticSourceFile file)
+        {
+            return HasType(file, "glossary")
+                || NameContains(file, "glossary");
+        }
+
+        private static bool IsSampleDataFile(SemanticSourceFile file)
+        {
+            return HasType(file, "sampledata")
+                || HasType(file, "sample")
+                || NameContains(file, "sample");
+        }
+
+        private static bool IsSchemaCompatibleExtension(SemanticSourceFile file)
+        {
+            return HasType(file, "json")
+                || HasType(file, "sql")
+                || file.FileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+                || file.FileName.EndsWith(".sql", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool HasType(SemanticSourceFile file, string value)
+        {
+            return file.FileType.Equals(value, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool NameContains(SemanticSourceFile file, string value)
+        {
+            return file.FileName.Contains(value, StringComparison.OrdinalIgnoreCase);
         }
 
         public async Task<Result<bool>> DeleteSemanticLayerAsync(Guid layerId, CancellationToken cancellationToken = default)
@@ -607,7 +706,7 @@ namespace EnterpriseAiCopilot.Application.Services
             if (request.File == null || request.File.Length == 0)
                 return Result<RetrieveSourceFileResponse>.Failure("File is required and cannot be empty.");
 
-            var isSchema = fileTypeParam == "schema" || (!string.IsNullOrEmpty(request.File.FileName) && request.File.FileName.Contains("schema"));
+            var isSchema = fileTypeParam == "schema" || (!string.IsNullOrEmpty(request.File.FileName) && request.File.FileName.Contains("schema", StringComparison.OrdinalIgnoreCase));
             if (isSchema && request.File.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
             {
                 return Result<RetrieveSourceFileResponse>.Failure("PDF files cannot be used as a database schema. Please upload a JSON or SQL file.");
@@ -628,19 +727,14 @@ namespace EnterpriseAiCopilot.Application.Services
             }
             else if (!string.IsNullOrEmpty(fileTypeParam))
             {
-                targetFile = fileTypeParam == "schema"
-                    ? semanticLayer.SourceFiles.FirstOrDefault(f =>
-                        f.FileType.Equals("json", StringComparison.OrdinalIgnoreCase) ||
-                        f.FileType.Equals("sql", StringComparison.OrdinalIgnoreCase) ||
-                        f.FileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ||
-                        f.FileName.EndsWith(".sql", StringComparison.OrdinalIgnoreCase))
-                    : semanticLayer.SourceFiles.FirstOrDefault(f =>
-                        f.FileType.Equals(fileTypeParam, StringComparison.OrdinalIgnoreCase));
+                targetFile = FindSourceFileBySemanticType(semanticLayer.SourceFiles, fileTypeParam);
             }
 
             var folderName = $"SemanticSources/Layer_{semanticLayer.Id}";
             var currentUser = _currentUserService.UserId ?? "SYSTEM";
-            var targetFileTypeForDb = !string.IsNullOrEmpty(fileTypeParam) ? fileTypeParam : Path.GetExtension(request.File.FileName).TrimStart('.');
+            var targetFileTypeForDb = !string.IsNullOrEmpty(fileTypeParam)
+                ? fileTypeParam
+                : InferSemanticFileType(request.File.FileName);
             var oldStoragePath = targetFile?.StoragePath;
 
             HashSet<string>? extractedTableNames = null;
