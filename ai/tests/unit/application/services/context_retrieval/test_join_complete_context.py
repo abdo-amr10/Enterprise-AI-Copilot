@@ -75,6 +75,37 @@ class FakeSemanticRepository:
         return self._layer
 
 
+class FakeSchemaProvider:
+    def get_schema(self):
+        return {
+            "tables": {
+                "customers": {
+                    "columns": [
+                        {"name": "customer_id"},
+                        {"name": "city"},
+                        {"name": "credit_score"},
+                    ]
+                },
+                "accounts": {
+                    "columns": [
+                        {"name": "account_id"},
+                        {"name": "customer_id"},
+                        {"name": "branch_id"},
+                    ]
+                },
+            },
+            "relationships": [
+                {
+                    "name": "customers_accounts",
+                    "from_table": "customers",
+                    "from_column": "customer_id",
+                    "to_table": "accounts",
+                    "to_column": "customer_id",
+                }
+            ],
+        }
+
+
 def test_context_includes_columns_and_join_path_between_retrieved_tables() -> None:
     context = ContextRetrievalService(FakeSemanticRepository()).build_llm_context(
         "Show every transaction with customer name and account balance."
@@ -224,3 +255,28 @@ def test_unsupported_question_with_no_retrieval_fabricates_no_tables() -> None:
 
     assert "TABLE:" not in context
     assert "APPROVED RELATIONSHIPS:" not in context
+
+
+def test_incomplete_legacy_relationship_does_not_crash_context_generation() -> None:
+    repository = FakeSemanticRepository()
+    repository._layer["relationships"] = [
+        {"name": "legacy_customers_accounts", "from_table": "customers", "to_table": "accounts"}
+    ]
+
+    context = ContextRetrievalService(repository).build_llm_context(
+        "Show customer accounts"
+    )
+
+    assert "APPROVED RELATIONSHIPS:" not in context
+
+
+def test_context_adds_routed_rls_table_and_missing_physical_filter_columns() -> None:
+    context = ContextRetrievalService(
+        FakeSemanticRepository(), schema_provider=FakeSchemaProvider()
+    ).build_llm_context("Show customers from Cairo with a credit score over 700")
+
+    assert "TABLE: customers" in context
+    assert "city (physical schema column)" in context
+    assert "credit_score (physical schema column)" in context
+    assert "TABLE: accounts" in context
+    assert "customers.customer_id -> accounts.customer_id" in context

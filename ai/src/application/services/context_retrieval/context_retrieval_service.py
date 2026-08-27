@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections import deque
 from typing import Any
 
+from src.application.ports.physical_schema_repository import PhysicalSchemaRepository
 from src.application.ports.semantic_repository import SemanticRepository
 
 
@@ -15,15 +16,22 @@ class ContextRetrievalService:
     and formats a structured semantic context prompt block for LLM code generation.
     """
 
-    def __init__(self, semantic_repository: SemanticRepository, default_top_k: int = 8) -> None:
+    def __init__(
+        self,
+        semantic_repository: SemanticRepository,
+        default_top_k: int = 8,
+        schema_provider: PhysicalSchemaRepository | None = None,
+    ) -> None:
         """Initialize the context retrieval service.
 
         Args:
             semantic_repository: Semantic repository port for loading and querying semantic data.
             default_top_k: Default number of top documents to retrieve from vector search.
+            schema_provider: Source of Backend-authoritative physical columns.
         """
         self._semantic_repository = semantic_repository
         self._default_top_k = default_top_k
+        self._schema_provider = schema_provider
 
     def retrieve(self, question: str, top_k: int | None = None) -> list[dict[str, Any]]:
         """Retrieve top semantic document matches for a user question.
@@ -57,8 +65,14 @@ class ContextRetrievalService:
         # unrelated tables.  The vector search above is deliberately wider;
         # this is the compact, approved-schema projection passed to the LLM.
         seed_tables = requested_tables | self._seed_tables(results)
+        physical_schema = self._physical_schema()
+        valid_relationships = self._merge_relationships(
+            self._valid_relationships(layer.get("relationships", [])),
+            self._valid_relationships(physical_schema.get("relationships", [])),
+        )
+        rls_tables = self._rls_required_tables(seed_tables)
         relationships = self._connecting_relationships(
-            seed_tables, self._valid_relationships(layer.get("relationships", []))
+            seed_tables | rls_tables, valid_relationships
         )
         tables = seed_tables | {
             table
@@ -72,7 +86,7 @@ class ContextRetrievalService:
             "",
         ]
         self._append_entities(lines, layer.get("entities", []), tables)
-        self._append_columns(lines, layer, tables)
+        self._append_columns(lines, layer, tables, physical_schema)
         self._append_relationships(lines, relationships)
         self._append_query_scope(lines, seed_tables, relationships)
         self._append_retrieved_rules(lines, results)
@@ -93,6 +107,27 @@ class ContextRetrievalService:
         if table_count < 3:
             return self._default_top_k
         return max(self._default_top_k, table_count * 4)
+
+    @staticmethod
+    def _rls_required_tables(seed_tables: set[str]) -> set[str]:
+        """Return the Backend-required table dependencies for RLS SQL paths."""
+        if "loans" in seed_tables:
+            return {"customers", "accounts", "branches"}
+        if "merchants" in seed_tables:
+            return {"transactions", "accounts"}
+        if seed_tables & {"customers", "transactions", "cards"}:
+            return {"accounts"}
+        return set()
+
+    def _physical_schema(self) -> dict[str, Any]:
+        """Load physical columns when available without making retrieval fail."""
+        if self._schema_provider is None:
+            return {}
+        try:
+            schema = self._schema_provider.get_schema()
+            return schema if isinstance(schema, dict) else {}
+        except Exception:
+            return {}
 
     @staticmethod
     def _tables_explicitly_requested(question: str, layer: dict[str, Any]) -> set[str]:
@@ -217,6 +252,21 @@ class ContextRetrievalService:
         ]
 
     @staticmethod
+    def _merge_relationships(
+        semantic_relationships: list[dict[str, Any]],
+        source_relationships: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Merge only explicit source relationships missing from legacy revisions."""
+        merged: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+        for relationship in [*semantic_relationships, *source_relationships]:
+            key = tuple(
+                relationship[field]
+                for field in ("from_table", "from_column", "to_table", "to_column")
+            )
+            merged.setdefault(key, relationship)
+        return list(merged.values())
+
+    @staticmethod
     def _connecting_relationships(
         seed_tables: set[str], relationships: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
@@ -264,14 +314,38 @@ class ContextRetrievalService:
             lines.append("")
 
     @staticmethod
-    def _append_columns(lines: list[str], layer: dict[str, Any], tables: set[str]) -> None:
+    def _append_columns(
+        lines: list[str],
+        layer: dict[str, Any],
+        tables: set[str],
+        physical_schema: dict[str, Any],
+    ) -> None:
         objects = [*layer.get("dimensions", []), *layer.get("measures", [])]
+        schema_tables = physical_schema.get("tables", {})
+        if not isinstance(schema_tables, dict):
+            schema_tables = {}
         for table in sorted(tables):
             mappings = []
             for item in objects:
                 mapping = item.get("mapping") if isinstance(item, dict) else None
                 if isinstance(mapping, str) and mapping.startswith(f"{table}."):
                     mappings.append(f"{mapping.split('.', 1)[1]} ({item['name']})")
+            semantic_columns = {
+                mapping.split(".", 1)[1]
+                for item in objects
+                if isinstance(item, dict)
+                and isinstance((mapping := item.get("mapping")), str)
+                and mapping.startswith(f"{table}.")
+            }
+            physical_columns = {
+                column.get("name")
+                for column in schema_tables.get(table, {}).get("columns", [])
+                if isinstance(column, dict) and isinstance(column.get("name"), str)
+            }
+            mappings.extend(
+                f"{column} (physical schema column)"
+                for column in sorted(physical_columns - semantic_columns)
+            )
             if mappings:
                 lines.extend((f"TABLE: {table}", "COLUMNS: " + ", ".join(sorted(set(mappings))), ""))
 

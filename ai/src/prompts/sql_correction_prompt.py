@@ -34,6 +34,18 @@ RULES
 11. When more than one table is used, alias every table and qualify every
     column reference with its table alias. Never leave a joined column
     unqualified (for example use ``c.customer_id``, not ``customer_id``).
+12. The Backend binds ``@UserBranchId``. Every corrected query MUST include
+    the documented RLS branch filter. Use exactly one applicable path:
+    - customers: join customers.customer_id = accounts.customer_id and filter
+      accounts.branch_id = @UserBranchId.
+    - accounts: filter accounts.branch_id = @UserBranchId.
+    - transactions/cards: join the table's account_id to accounts.account_id
+      and filter accounts.branch_id = @UserBranchId.
+    - loans: loans -> customers -> accounts -> branches, then filter
+      branches.branch_id = @UserBranchId.
+    - merchants: merchants -> transactions -> accounts, then filter
+      accounts.branch_id = @UserBranchId.
+    - branches: filter branches.branch_id = @UserBranchId.
 
 ==================================================
 ORIGINAL USER QUESTION

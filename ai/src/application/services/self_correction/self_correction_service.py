@@ -212,12 +212,19 @@ class SelfCorrectionService:
 
             try:
                 corrections_used += 1
+                rls_tables = self._rls_context_tables(
+                    current_sql, _get_schema
+                ) if enforce_rls else set()
                 corrected_sql = self._correction_service.correct(
                     question=question,
                     current_sql=current_sql,
                     issues=issues,
-                    relevant_schema=self._relevant_schema(current_sql, _get_schema),
-                    relevant_relationships=self._relevant_relationships(current_sql, _get_schema),
+                    relevant_schema=self._relevant_schema(
+                        current_sql, _get_schema, extra_tables=rls_tables
+                    ),
+                    relevant_relationships=self._relevant_relationships(
+                        current_sql, _get_schema, extra_tables=rls_tables
+                    ),
                 )
             except Exception as exc:
                 logger.warning("SQL correction call failed: %s", type(exc).__name__)
@@ -304,10 +311,21 @@ class SelfCorrectionService:
         self,
         sql: str,
         schema_getter: Callable[[], dict[str, Any]] | None = None,
+        extra_tables: set[str] | None = None,
     ) -> dict:
         schema = schema_getter() if schema_getter is not None else None
         try:
-            return self._schema_validator.schema_slice(sql, schema=schema)
+            result = self._schema_validator.schema_slice(sql, schema=schema)
+            all_tables = (schema or {}).get("tables", {})
+            if isinstance(all_tables, dict):
+                result.update(
+                    {
+                        table: all_tables[table]
+                        for table in extra_tables or set()
+                        if table in all_tables
+                    }
+                )
+            return result
         except TypeError:
             try:
                 return self._schema_validator.schema_slice(sql)
@@ -322,6 +340,7 @@ class SelfCorrectionService:
         self,
         sql: str,
         schema_getter: Callable[[], dict[str, Any]] | None = None,
+        extra_tables: set[str] | None = None,
     ) -> list[dict]:
         schema = schema_getter() if schema_getter is not None else None
         try:
@@ -333,4 +352,25 @@ class SelfCorrectionService:
                 return []
         except Exception:
             return []
-        return self._relationship_validator.relationships_for_tables(tables)
+        return self._relationship_validator.relationships_for_tables(
+            tables | (extra_tables or set())
+        )
+
+    def _rls_context_tables(
+        self,
+        sql: str,
+        schema_getter: Callable[[], dict[str, Any]] | None = None,
+    ) -> set[str]:
+        """Add only the Backend-documented tables needed to repair RLS SQL."""
+        schema = schema_getter() if schema_getter is not None else None
+        try:
+            tables = self._schema_validator.extract_tables(sql, schema=schema)
+        except Exception:
+            return set()
+        if "loans" in tables:
+            return {"customers", "accounts", "branches"}
+        if "merchants" in tables:
+            return {"transactions", "accounts"}
+        if tables & {"customers", "transactions", "cards"}:
+            return {"accounts"}
+        return set()

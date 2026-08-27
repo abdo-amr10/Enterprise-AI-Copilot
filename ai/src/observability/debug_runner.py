@@ -173,6 +173,51 @@ class DebugRunner:
                 config = getattr(getattr(generation_service, "_llm_client", None), "_config", None)
                 if config: result.tags.update(model_metadata(config))
 
+                # The full debug route must observe the actual production
+                # orchestration boundary. Replaying private retrieval/prompt/
+                # correction methods drifted from the runtime contract and
+                # could report a different result than /ask.
+                with self._observer.stage("request") as measure_request:
+                    outcome = pipeline.run(
+                        CopilotAskRequest(question=question, conversation=()),
+                        trace_observer=events.append,
+                    )
+                request_latency_ms = measure_request["duration_ms"]
+                attempts = next(
+                    (
+                        event.get("attemptsUsed")
+                        for event in reversed(events)
+                        if isinstance(event, dict) and isinstance(event.get("attemptsUsed"), int)
+                    ),
+                    None,
+                )
+                succeeded = str(getattr(outcome, "status", "")).casefold() == "success"
+                final_sql = getattr(outcome, "sql", None)
+                result.metrics.update(
+                    request_latency_ms=request_latency_ms,
+                    validation_passed=float(succeeded),
+                )
+                if attempts is not None:
+                    result.metrics["self_correction_attempts_used"] = float(attempts)
+                result.local["flow"]["request"].update(
+                    executed=True,
+                    status="Success" if succeeded else "Failed",
+                    duration_ms=request_latency_ms,
+                )
+                result.local.update(
+                    production_trace_events=events,
+                    final_sql=final_sql,
+                )
+                result.stopping_point = "production validated-SQL boundary"
+                if not succeeded:
+                    result.status = "failed"
+                tables_used = _extract_tables(final_sql)
+                result.tags["tables"] = ", ".join(tables_used) if tables_used else "none"
+                result.tags["tables_count"] = len(tables_used)
+                result.local["tables_used"] = tables_used
+                result.local["tables_count"] = len(tables_used)
+                return result
+
                 # 1. Semantic Retrieval Stage
                 with self._observer.stage("retrieval") as measure_ret:
                     semantic_context = text_to_sql.build_context(question)

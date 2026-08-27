@@ -171,6 +171,9 @@ class CopilotRuntimePipeline:
             )
 
         sql = sql.strip()
+
+        logger.info("INITIAL_GENERATION SQL: %s", sql)
+
         self._notify_trace_observer(
             trace_observer,
             {"event": "initial_generation", "sql": sql},
@@ -181,7 +184,11 @@ class CopilotRuntimePipeline:
                 "question": request.question,
                 "sql": sql,
                 "semantic_context": semantic_context,
-                "enforce_rls": bool(correction_feedback),
+                # The Backend requires its bound parameter for every
+                # executable query. Enforce the same policy on the initial
+                # attempt so correction happens in AI before Swagger reaches
+                # the Backend executor.
+                "enforce_rls": True,
             }
             if trace_observer is not None:
                 correction_kwargs["trace_observer"] = trace_observer

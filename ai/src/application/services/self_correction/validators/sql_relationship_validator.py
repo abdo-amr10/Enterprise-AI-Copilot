@@ -63,7 +63,7 @@ class SQLRelationshipValidator:
         """
         tree = self._syntax_validator.parse(sql)
         alias_map = self._schema_validator.resolve_table_aliases(sql, schema=schema)
-        approved_pairs = self._approved_pairs()
+        approved_pairs = self._approved_pairs(schema)
 
         issues: list[ValidationIssue] = []
         already_reported: set[tuple[str, str, str, str]] = set()
@@ -135,7 +135,18 @@ class SQLRelationshipValidator:
             )
         ]
 
-    def _approved_pairs(self) -> set[tuple[str, str, str, str]]:
+    def _approved_pairs(
+        self, schema: dict[str, Any] | None = None
+    ) -> set[tuple[str, str, str, str]]:
+        """Return validated semantic pairs, with a source-schema safety fallback.
+
+        A Full Rebuild is required to preserve every source relationship, but
+        legacy approved revisions can predate that guarantee or contain only a
+        partial relationship projection.  Merge the active Backend schema's
+        explicit relationship list as a compatibility source. This does not
+        infer a relationship from matching column names; it only retains
+        Backend-authoritative join facts until the revision is regenerated.
+        """
         relationships = self._semantic_repository.load().get("relationships", [])
         pairs: set[tuple[str, str, str, str]] = set()
 
@@ -150,6 +161,21 @@ class SQLRelationshipValidator:
 
             pairs.add((from_table, from_column, to_table, to_column))
 
+        if not isinstance(schema, dict):
+            return pairs
+
+        source_relationships = schema.get("relationships", [])
+        if not isinstance(source_relationships, list):
+            return pairs
+        for relationship in source_relationships:
+            if not isinstance(relationship, dict):
+                continue
+            values = tuple(
+                relationship.get(field)
+                for field in ("from_table", "from_column", "to_table", "to_column")
+            )
+            if all(isinstance(value, str) and value for value in values):
+                pairs.add(values)  # type: ignore[arg-type]
         return pairs
 
     @staticmethod

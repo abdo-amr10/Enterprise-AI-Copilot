@@ -117,6 +117,7 @@ def get_context_service() -> ContextRetrievalService:
         _context_retrieval_service = ContextRetrievalService(
             semantic_repository=get_semantic_repository(),
             default_top_k=_SETTINGS.default_top_k,
+            schema_provider=get_schema_provider(),
         )
     return _context_retrieval_service
 
