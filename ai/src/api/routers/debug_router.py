@@ -25,10 +25,17 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family: 'Inter', sans-serif; }
-    .mono { font-family: 'JetBrains Mono', monospace; }
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    .mono, pre, code, .font-mono {
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-feature-settings: "liga" on, "calt" on, "zero" on;
+    }
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: #0B0D13; }
     ::-webkit-scrollbar-thumb { background: #1F2430; border-radius: 4px; }
@@ -39,18 +46,18 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
 
   <!-- Header -->
   <header class="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-[#1F2430]">
-    <div class="flex items-center gap-3">
-      <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white text-sm shadow-sm">AI</div>
+    <div class="flex items-center gap-3.5">
+      <div class="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center font-bold text-white text-sm shadow-sm tracking-tight">AI</div>
       <div>
-        <h1 class="text-base font-semibold text-zinc-100 tracking-tight">Enterprise AI Copilot Studio</h1>
-        <p class="text-xs text-zinc-400">Text-to-SQL Pipeline Developer Debugger & MLflow 3 Tracing</p>
+        <h1 class="text-lg font-bold text-zinc-100 tracking-tight">Enterprise AI Copilot Studio</h1>
+        <p class="text-xs text-zinc-400 font-medium mt-0.5">Text-to-SQL Pipeline Developer Debugger & MLflow 3 Tracing</p>
       </div>
     </div>
     <div class="flex flex-wrap items-center gap-2">
-      <a href="http://127.0.0.1:5000/#/experiments/1/traces" target="_blank" class="px-3 py-1.5 rounded-lg border border-[#1F2430] bg-[#12151D] hover:bg-[#1A1F2C] text-xs font-medium text-zinc-300 transition flex items-center gap-1.5">
+      <a href="http://127.0.0.1:5000/#/experiments/1/traces" target="_blank" class="px-3 py-1.5 rounded-lg border border-[#1F2430] bg-[#12151D] hover:bg-[#1A1F2C] text-xs font-semibold text-zinc-300 transition flex items-center gap-1.5">
         <span>📊</span> MLflow Traces
       </a>
-      <a href="http://127.0.0.1:5000/#/prompts" target="_blank" class="px-3 py-1.5 rounded-lg border border-[#1F2430] bg-[#12151D] hover:bg-[#1A1F2C] text-xs font-medium text-zinc-300 transition flex items-center gap-1.5">
+      <a href="http://127.0.0.1:5000/#/prompts" target="_blank" class="px-3 py-1.5 rounded-lg border border-[#1F2430] bg-[#12151D] hover:bg-[#1A1F2C] text-xs font-semibold text-zinc-300 transition flex items-center gap-1.5">
         <span>📑</span> Prompts Registry
       </a>
     </div>
@@ -61,22 +68,22 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
 
     <!-- Left Column (Controls & Query) -->
     <section class="col-span-12 lg:col-span-5 flex flex-col gap-4">
-      <div class="bg-[#12151D] border border-[#1F2430] rounded-xl p-4 flex flex-col gap-3 shadow-sm">
-        <label class="text-xs font-semibold text-zinc-300 tracking-wide">Natural Language Query</label>
+      <div class="bg-[#12151D] border border-[#1F2430] rounded-xl p-5 flex flex-col gap-3.5 shadow-sm">
+        <label class="text-xs font-bold uppercase tracking-wider text-zinc-400">Natural Language Query</label>
         
         <!-- Presets -->
         <div class="flex flex-wrap gap-1.5">
-          <button onclick="setPreset('Show all active customers with their account balance')" class="px-2.5 py-1 text-[11px] bg-[#181C26] hover:bg-[#202634] text-zinc-300 rounded-md border border-[#242B3B] transition cursor-pointer">Active Customers</button>
-          <button onclick="setPreset('Show transactions for customer 101 in the last 30 days')" class="px-2.5 py-1 text-[11px] bg-[#181C26] hover:bg-[#202634] text-zinc-300 rounded-md border border-[#242B3B] transition cursor-pointer">Customer 101 Txns</button>
-          <button onclick="setPreset('Find merchants with total spending greater than 50000')" class="px-2.5 py-1 text-[11px] bg-[#181C26] hover:bg-[#202634] text-zinc-300 rounded-md border border-[#242B3B] transition cursor-pointer">Spending > $50k</button>
-          <button onclick="setPreset('List active loans grouped by branch name with total amount')" class="px-2.5 py-1 text-[11px] bg-[#181C26] hover:bg-[#202634] text-zinc-300 rounded-md border border-[#242B3B] transition cursor-pointer">Branch Loans</button>
+          <button onclick="setPreset('Show all active customers with their account balance')" class="px-2.5 py-1 text-xs font-medium bg-[#181C26] hover:bg-[#202634] text-zinc-300 rounded-md border border-[#242B3B] transition cursor-pointer">Active Customers</button>
+          <button onclick="setPreset('Show transactions for customer 101 in the last 30 days')" class="px-2.5 py-1 text-xs font-medium bg-[#181C26] hover:bg-[#202634] text-zinc-300 rounded-md border border-[#242B3B] transition cursor-pointer">Customer 101 Txns</button>
+          <button onclick="setPreset('Find merchants with total spending greater than 50000')" class="px-2.5 py-1 text-xs font-medium bg-[#181C26] hover:bg-[#202634] text-zinc-300 rounded-md border border-[#242B3B] transition cursor-pointer">Spending > $50k</button>
+          <button onclick="setPreset('List active loans grouped by branch name with total amount')" class="px-2.5 py-1 text-xs font-medium bg-[#181C26] hover:bg-[#202634] text-zinc-300 rounded-md border border-[#242B3B] transition cursor-pointer">Branch Loans</button>
         </div>
 
-        <textarea id="questionInput" rows="4" class="w-full bg-[#090B10] border border-[#1F2430] focus:border-blue-500 focus:outline-none rounded-lg p-3 text-xs text-zinc-200 placeholder-zinc-500 resize-none mono leading-relaxed transition" placeholder="Enter your business question here...">Show all active customers with their account balance</textarea>
+        <textarea id="questionInput" rows="4" class="w-full bg-[#090B10] border border-[#1F2430] focus:border-blue-500 focus:outline-none rounded-lg p-3 text-sm text-zinc-200 placeholder-zinc-500 resize-none leading-relaxed transition" placeholder="Enter your business question here...">Show all active customers with their account balance</textarea>
 
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs text-zinc-400">Execution Scope</label>
-          <select id="layerSelect" class="w-full bg-[#090B10] border border-[#1F2430] focus:border-blue-500 focus:outline-none rounded-lg p-2 text-xs text-zinc-300 cursor-pointer">
+          <label class="text-xs font-medium text-zinc-400">Execution Scope</label>
+          <select id="layerSelect" class="w-full bg-[#090B10] border border-[#1F2430] focus:border-blue-500 focus:outline-none rounded-lg p-2.5 text-xs font-medium text-zinc-300 cursor-pointer">
             <option value="full">Full Flow (Retrieval → Prompt → LLM → Validation → SQL)</option>
             <option value="generation">Generation Only (Skip Validation Engine)</option>
             <option value="retrieval">Retrieval Only (Semantic Search)</option>
@@ -84,29 +91,29 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
           </select>
         </div>
 
-        <button id="runBtn" onclick="runDebugFlow()" class="w-full bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white font-medium text-xs py-2.5 rounded-lg transition duration-150 flex items-center justify-center gap-2 shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+        <button id="runBtn" onclick="runDebugFlow()" class="w-full bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white font-semibold text-sm py-2.5 rounded-lg transition duration-150 flex items-center justify-center gap-2 shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
           <span id="btnIcon">⚡</span>
           <span id="btnText">Execute Debug Run & Log Trace</span>
         </button>
       </div>
 
       <!-- Stage Breakdown Table -->
-      <div class="bg-[#12151D] border border-[#1F2430] rounded-xl p-4 flex flex-col gap-3 shadow-sm">
+      <div class="bg-[#12151D] border border-[#1F2430] rounded-xl p-5 flex flex-col gap-3 shadow-sm">
         <div class="flex items-center justify-between">
-          <h2 class="text-xs font-semibold text-zinc-300 tracking-wide">Pipeline Stage Breakdown</h2>
-          <span id="stoppingBadge" class="text-[11px] text-zinc-500 mono">--</span>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-zinc-400">Pipeline Stage Breakdown</h2>
+          <span id="stoppingBadge" class="text-xs font-mono font-medium text-zinc-500">--</span>
         </div>
         <div class="overflow-hidden rounded-lg border border-[#1F2430]">
           <table class="w-full text-left text-xs border-collapse">
             <thead>
               <tr class="bg-[#141720] text-zinc-400 border-b border-[#1F2430]">
-                <th class="py-2 px-3 font-medium">Stage</th>
-                <th class="py-2 px-3 font-medium">Status</th>
-                <th class="py-2 px-3 font-medium text-right">Duration</th>
+                <th class="py-2.5 px-3 font-semibold">Stage</th>
+                <th class="py-2.5 px-3 font-semibold">Status</th>
+                <th class="py-2.5 px-3 font-semibold text-right">Duration</th>
               </tr>
             </thead>
             <tbody id="stageTableBody" class="divide-y divide-[#1F2430] text-zinc-300">
-              <tr><td colspan="3" class="py-3 px-3 text-center text-zinc-500 italic">No stages executed yet</td></tr>
+              <tr><td colspan="3" class="py-3.5 px-3 text-center text-zinc-500 italic">No stages executed yet</td></tr>
             </tbody>
           </table>
         </div>
@@ -118,21 +125,21 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
 
       <!-- Metric Cards -->
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div class="bg-[#12151D] border border-[#1F2430] p-3.5 rounded-xl">
-          <span class="text-[11px] text-zinc-400 block">Total Latency</span>
-          <span id="metricLatency" class="text-base font-semibold mono text-zinc-100">--</span>
+        <div class="bg-[#12151D] border border-[#1F2430] p-4 rounded-xl">
+          <span class="text-xs font-medium uppercase tracking-wider text-zinc-400 block mb-1">Total Latency</span>
+          <span id="metricLatency" class="text-2xl font-bold mono text-zinc-100">--</span>
         </div>
-        <div class="bg-[#12151D] border border-[#1F2430] p-3.5 rounded-xl">
-          <span class="text-[11px] text-zinc-400 block">Validation</span>
-          <span id="metricValidation" class="text-xs font-medium text-zinc-400 bg-zinc-800/40 px-2 py-0.5 rounded border border-zinc-700/40 inline-block mt-0.5">--</span>
+        <div class="bg-[#12151D] border border-[#1F2430] p-4 rounded-xl">
+          <span class="text-xs font-medium uppercase tracking-wider text-zinc-400 block mb-1">Validation</span>
+          <span id="metricValidation" class="text-xs font-semibold text-zinc-400 bg-zinc-800/40 px-2.5 py-1 rounded border border-zinc-700/40 inline-block mt-0.5">--</span>
         </div>
-        <div class="bg-[#12151D] border border-[#1F2430] p-3.5 rounded-xl">
-          <span class="text-[11px] text-zinc-400 block">Retries</span>
-          <span id="metricRetries" class="text-base font-semibold mono text-zinc-100">0</span>
+        <div class="bg-[#12151D] border border-[#1F2430] p-4 rounded-xl">
+          <span class="text-xs font-medium uppercase tracking-wider text-zinc-400 block mb-1">Retries</span>
+          <span id="metricRetries" class="text-2xl font-bold mono text-zinc-100">0</span>
         </div>
-        <div class="bg-[#12151D] border border-[#1F2430] p-3.5 rounded-xl">
-          <span class="text-[11px] text-zinc-400 block">Tables Used</span>
-          <span id="metricTables" class="text-base font-semibold mono text-zinc-100">--</span>
+        <div class="bg-[#12151D] border border-[#1F2430] p-4 rounded-xl">
+          <span class="text-xs font-medium uppercase tracking-wider text-zinc-400 block mb-1">Tables Used</span>
+          <span id="metricTables" class="text-2xl font-bold mono text-zinc-100">--</span>
         </div>
       </div>
 
@@ -141,36 +148,36 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
 
         <!-- Tabs Header -->
         <div class="flex items-center justify-between px-4 border-b border-[#1F2430] bg-[#141720]">
-          <div class="flex gap-4">
-            <button id="tab-sql" onclick="switchTab('sql')" class="py-2.5 text-xs font-medium text-blue-400 border-b-2 border-blue-500 transition cursor-pointer">Generated SQL</button>
-            <button id="tab-trace" onclick="switchTab('trace')" class="py-2.5 text-xs font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent transition cursor-pointer">Validation & Self-Correction</button>
-            <button id="tab-json" onclick="switchTab('json')" class="py-2.5 text-xs font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent transition cursor-pointer">Raw JSON</button>
+          <div class="flex gap-5">
+            <button id="tab-sql" onclick="switchTab('sql')" class="py-3 text-sm font-semibold text-blue-400 border-b-2 border-blue-500 transition cursor-pointer">Generated SQL</button>
+            <button id="tab-trace" onclick="switchTab('trace')" class="py-3 text-sm font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent transition cursor-pointer">Validation & Self-Correction</button>
+            <button id="tab-json" onclick="switchTab('json')" class="py-3 text-sm font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent transition cursor-pointer">Raw JSON</button>
           </div>
-          <button onclick="copyActiveContent()" class="text-[11px] text-zinc-400 hover:text-zinc-200 border border-[#242B3B] px-2 py-1 rounded bg-[#0B0D13] hover:bg-[#161A23] transition cursor-pointer flex items-center gap-1">
+          <button onclick="copyActiveContent()" class="text-xs font-medium text-zinc-400 hover:text-zinc-200 border border-[#242B3B] px-2.5 py-1 rounded-md bg-[#0B0D13] hover:bg-[#161A23] transition cursor-pointer flex items-center gap-1.5">
             <span id="copyIcon">📋</span> <span id="copyText">Copy</span>
           </button>
         </div>
 
         <!-- Terminal Output Viewers -->
-        <div class="p-4 bg-[#090B10] mono text-xs text-zinc-300 min-h-[380px] max-h-[580px] overflow-auto leading-relaxed">
+        <div class="p-4 bg-[#090B10] mono text-sm text-zinc-300 min-h-[380px] max-h-[580px] overflow-auto leading-relaxed">
 
           <!-- View 1: Generated SQL -->
           <div id="view-sql">
-            <p class="text-zinc-500 mb-2">-- Output will appear here after execution</p>
-            <pre id="outputSqlCode" class="text-emerald-400 whitespace-pre-wrap select-all font-mono"></pre>
+            <p class="text-zinc-500 mb-2 font-sans text-xs">-- Output will appear here after execution</p>
+            <pre id="outputSqlCode" class="text-emerald-400 whitespace-pre-wrap select-all font-mono text-sm leading-relaxed"></pre>
           </div>
 
           <!-- View 2: Validation Trace -->
-          <div id="view-trace" class="hidden flex flex-col gap-3">
-            <p class="text-zinc-500">-- Validation & Self-Correction Step Trace</p>
+          <div id="view-trace" class="hidden flex flex-col gap-3 font-sans">
+            <p class="text-zinc-500 text-xs">-- Validation & Self-Correction Step Trace</p>
             <div id="traceCardsContainer" class="flex flex-col gap-2.5">
-              <p class="text-zinc-500 italic">No validation steps recorded yet.</p>
+              <p class="text-zinc-500 italic text-xs">No validation steps recorded yet.</p>
             </div>
           </div>
 
           <!-- View 3: Raw JSON -->
           <div id="view-json" class="hidden">
-            <pre id="outputRawJson" class="text-zinc-400 whitespace-pre-wrap font-mono"></pre>
+            <pre id="outputRawJson" class="text-zinc-400 whitespace-pre-wrap font-mono text-xs leading-relaxed"></pre>
           </div>
 
         </div>
@@ -194,10 +201,10 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
         const btn = document.getElementById('tab-' + t);
         const view = document.getElementById('view-' + t);
         if (t === tab) {
-          btn.className = 'py-2.5 text-xs font-medium text-blue-400 border-b-2 border-blue-500 transition cursor-pointer';
+          btn.className = 'py-3 text-sm font-semibold text-blue-400 border-b-2 border-blue-500 transition cursor-pointer';
           view.classList.remove('hidden');
         } else {
-          btn.className = 'py-2.5 text-xs font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent transition cursor-pointer';
+          btn.className = 'py-3 text-sm font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent transition cursor-pointer';
           view.classList.add('hidden');
         }
       });
@@ -263,10 +270,10 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
       const valBadge = document.getElementById('metricValidation');
       if (isPassed) {
         valBadge.innerText = 'Passed';
-        valBadge.className = 'text-xs font-medium text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-800/40 inline-block mt-0.5';
+        valBadge.className = 'text-xs font-semibold text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded border border-emerald-800/40 inline-block mt-0.5';
       } else {
         valBadge.innerText = data.status || 'Failed';
-        valBadge.className = 'text-xs font-medium text-rose-400 bg-rose-950/40 px-2 py-0.5 rounded border border-rose-800/40 inline-block mt-0.5';
+        valBadge.className = 'text-xs font-semibold text-rose-400 bg-rose-950/40 px-2.5 py-1 rounded border border-rose-800/40 inline-block mt-0.5';
       }
 
       const attempts = (data.metrics && data.metrics.self_correction_attempts_used != null) 
@@ -320,7 +327,7 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
             stColor = 'text-rose-400';
             statusText = 'Failed';
           } else if (statusText.startsWith('skipped')) {
-            stColor = 'text-zinc-400 italic text-[11px]';
+            stColor = 'text-zinc-400 italic text-xs';
           } else if (statusText === 'executed' || statusText.startsWith('corrected')) {
             stColor = 'text-blue-400';
           }
@@ -336,14 +343,14 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
           else if (stg === 'final') stageLabel = 'Final Output';
 
           tr.innerHTML = `
-            <td class="py-2 px-3 font-medium text-zinc-200">${stageLabel}</td>
-            <td class="py-2 px-3 ${stColor}">${statusText}</td>
-            <td class="py-2 px-3 text-right mono text-zinc-400">${dur}</td>
+            <td class="py-2.5 px-3 font-medium text-zinc-200">${stageLabel}</td>
+            <td class="py-2.5 px-3 font-medium ${stColor}">${statusText}</td>
+            <td class="py-2.5 px-3 text-right mono font-medium text-zinc-400">${dur}</td>
           `;
           stageBody.appendChild(tr);
         });
       } else {
-        stageBody.innerHTML = '<tr><td colspan="3" class="py-3 px-3 text-center text-zinc-500 italic">No stage timing available</td></tr>';
+        stageBody.innerHTML = '<tr><td colspan="3" class="py-3.5 px-3 text-center text-zinc-500 italic">No stage timing available</td></tr>';
       }
 
       // 3. Generated SQL Tab
@@ -357,7 +364,7 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
       if (events.length > 0) {
         events.forEach((step, idx) => {
           const card = document.createElement('div');
-          card.className = 'border border-[#1F2430] bg-[#12151D] rounded-lg p-3 text-xs flex flex-col gap-2 shadow-sm';
+          card.className = 'border border-[#1F2430] bg-[#12151D] rounded-xl p-4 text-xs sm:text-sm flex flex-col gap-3 shadow-sm';
           
           let title = '';
           let badge = '';
@@ -368,50 +375,50 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
 
           if (step.event === 'initial_generation') {
             title = 'Step 1: Initial LLM Candidate Generation';
-            badge = '<span class="text-blue-400 bg-blue-950/40 px-2 py-0.5 rounded border border-blue-800/40 font-medium">Initial Candidate</span>';
+            badge = '<span class="text-blue-400 bg-blue-950/40 px-2.5 py-0.5 rounded border border-blue-800/40 font-semibold text-xs">Initial Candidate</span>';
           } else if (step.event === 'final_result') {
             title = 'Final Step: Production Execution SQL';
             badge = step.status === 'passed' 
-              ? '<span class="text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-800/40 font-medium">Validated & Ready</span>'
-              : '<span class="text-rose-400 bg-rose-950/40 px-2 py-0.5 rounded border border-rose-800/40 font-medium">Failed</span>';
+              ? '<span class="text-emerald-400 bg-emerald-950/40 px-2.5 py-0.5 rounded border border-emerald-800/40 font-semibold text-xs">Validated & Ready</span>'
+              : '<span class="text-rose-400 bg-rose-950/40 px-2.5 py-0.5 rounded border border-rose-800/40 font-semibold text-xs">Failed</span>';
           } else if (step.attempt != null) {
             title = `Step ${idx + 1}: Deterministic & Schema Validation (Attempt ${step.attempt})`;
             if (step.action === 'passed' || step.status === 'passed') {
-              badge = '<span class="text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-800/40 font-medium">Validation Passed (0 issues)</span>';
+              badge = '<span class="text-emerald-400 bg-emerald-950/40 px-2.5 py-0.5 rounded border border-emerald-800/40 font-semibold text-xs">Validation Passed (0 issues)</span>';
             } else {
-              badge = `<span class="text-amber-400 bg-amber-950/40 px-2 py-0.5 rounded border border-amber-800/40 font-medium">Correction Required (${allIssues.length} issues)</span>`;
+              badge = `<span class="text-amber-400 bg-amber-950/40 px-2.5 py-0.5 rounded border border-amber-800/40 font-semibold text-xs">Correction Required (${allIssues.length} issues)</span>`;
             }
           } else if (step.event === 'after_correction') {
             title = `Step ${idx + 1}: Self-Correction Applied (Attempt ${step.attempt + 1})`;
-            badge = '<span class="text-purple-400 bg-purple-950/40 px-2 py-0.5 rounded border border-purple-800/40 font-medium">Corrected SQL</span>';
+            badge = '<span class="text-purple-400 bg-purple-950/40 px-2.5 py-0.5 rounded border border-purple-800/40 font-semibold text-xs">Corrected SQL</span>';
           } else {
             title = `Step ${idx + 1}: ${step.event || 'Validation Event'}`;
-            badge = '<span class="text-zinc-400 bg-zinc-800/40 px-2 py-0.5 rounded border border-zinc-700/40 font-medium">Info</span>';
+            badge = '<span class="text-zinc-400 bg-zinc-800/40 px-2.5 py-0.5 rounded border border-zinc-700/40 font-semibold text-xs">Info</span>';
           }
 
           let bodyHtml = `
             <div class="flex items-center justify-between">
-              <span class="font-semibold text-zinc-200">${title}</span>
+              <span class="font-bold text-zinc-200 text-sm">${title}</span>
               ${badge}
             </div>
           `;
 
           if (sql) {
-            bodyHtml += `<pre class="bg-[#090B10] p-2.5 rounded text-emerald-400 whitespace-pre-wrap border border-[#1F2430] font-mono leading-relaxed select-all">${sql}</pre>`;
+            bodyHtml += `<pre class="bg-[#090B10] p-3 rounded-lg text-emerald-400 whitespace-pre-wrap border border-[#1F2430] font-mono text-xs sm:text-sm leading-relaxed select-all">${sql}</pre>`;
           }
 
           if (allIssues.length > 0) {
             bodyHtml += `
-              <div class="bg-rose-950/20 border border-rose-900/40 rounded p-2.5 text-rose-300">
-                <div class="font-semibold mb-1">Issues Identified:</div>
-                <ul class="list-disc list-inside space-y-0.5">
+              <div class="bg-rose-950/20 border border-rose-900/40 rounded-lg p-3 text-rose-300 text-xs sm:text-sm">
+                <div class="font-bold mb-1.5">Issues Identified:</div>
+                <ul class="list-disc list-inside space-y-1">
                   ${allIssues.map(i => `<li>${i}</li>`).join('')}
                 </ul>
               </div>
             `;
           } else if (step.attempt != null && (step.action === 'passed' || step.status === 'passed')) {
             bodyHtml += `
-              <div class="text-emerald-400/90 flex items-center gap-1.5 text-[11px] bg-emerald-950/20 border border-emerald-900/30 rounded p-2">
+              <div class="text-emerald-400/90 flex items-center gap-2 text-xs bg-emerald-950/20 border border-emerald-900/30 rounded-lg p-2.5">
                 <span>✓</span> Syntax valid, physical schema confirmed, relationships & RLS verified. No corrections needed.
               </div>
             `;
@@ -421,7 +428,7 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
           traceContainer.appendChild(card);
         });
       } else {
-        traceContainer.innerHTML = '<p class="text-zinc-500 italic">No validation steps recorded.</p>';
+        traceContainer.innerHTML = '<p class="text-zinc-500 italic text-xs">No validation steps recorded.</p>';
       }
 
       // 5. Raw JSON Tab
