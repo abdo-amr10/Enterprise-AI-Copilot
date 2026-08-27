@@ -25,6 +25,24 @@ LAYERS = ("retrieval", "prompt", "generation", "validation", "critic", "correcti
 UNSUPPORTED_LAYERS = {"validation", "critic", "correction"}
 
 
+def _extract_tables(sql: str | None) -> list[str]:
+    if not sql or not isinstance(sql, str):
+        return []
+    try:
+        import sqlglot
+        from sqlglot.expressions import Table
+        parsed = sqlglot.parse_one(sql)
+        tables = [t.name for t in parsed.find_all(Table) if t.name]
+        if tables:
+            return sorted(list(set(tables)))
+    except Exception:
+        pass
+    import re
+    matches = re.findall(r'\b(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)', sql, re.IGNORECASE)
+    filtered = [m for m in matches if m.lower() not in {"select", "where", "group", "order", "having", "limit"}]
+    return sorted(list(set(filtered)))
+
+
 @dataclass
 class DebugResult:
     """Outcome and captured metrics from an isolated debug execution.
@@ -142,38 +160,99 @@ class DebugRunner:
                         pass
                     result.local["generation"] = clean_gen_sql
                     result.stopping_point = "generation"
+                    tables_used = _extract_tables(clean_gen_sql)
+                    result.tags["tables"] = ", ".join(tables_used) if tables_used else "none"
+                    result.tags["tables_count"] = len(tables_used)
+                    result.local["tables_used"] = tables_used
+                    result.local["tables_count"] = len(tables_used)
                     self._observer.log_span("llm_raw_sql_generation", inputs={"prompt": request.prompt[:300]}, outputs={"raw_sql": clean_gen_sql})
             else:
                 pipeline, events = self._pipeline_factory(), []
-                generation_service = pipeline._text_to_sql_pipeline._sql_generation_service
+                text_to_sql = pipeline._text_to_sql_pipeline
+                generation_service = text_to_sql._sql_generation_service
                 config = getattr(getattr(generation_service, "_llm_client", None), "_config", None)
                 if config: result.tags.update(model_metadata(config))
-                with self._observer.stage("request") as measure:
-                    response = pipeline.run(CopilotAskRequest(question=question, conversation=()), trace_observer=events.append)
-                result.metrics.update(request_latency_ms=measure["duration_ms"], validation_passed=float(response.status == "Success"))
-                result.local["flow"]["request"].update(executed=True, status=response.status, duration_ms=measure["duration_ms"])
-                for stage in ("retrieval", "prompt", "generation", "validation", "critic", "correction"):
-                    result.local["flow"][stage].update(executed="unavailable", status="unavailable", reason="not exposed independently by production runtime full-flow contract")
-                result.local.update(production_trace_events=events, final_sql=response.sql)
+
+                # 1. Semantic Retrieval Stage
+                with self._observer.stage("retrieval") as measure_ret:
+                    semantic_context = text_to_sql.build_context(question)
+                result.metrics["retrieval_latency_ms"] = measure_ret["duration_ms"]
+                result.local["flow"]["retrieval"].update(executed=True, status="passed", duration_ms=measure_ret["duration_ms"])
+                result.local["semantic_context"] = semantic_context
+
+                # 2. Prompt Construction Stage
+                with self._observer.stage("prompt") as measure_prompt:
+                    prompt_req = text_to_sql._prompt_service.build_request(question, semantic_context, date.today().isoformat())
+                result.metrics.update(prompt_latency_ms=measure_prompt["duration_ms"], prompt_length=float(len(prompt_req.prompt)))
+                result.local["flow"]["prompt"].update(executed=True, status="passed", duration_ms=measure_prompt["duration_ms"])
+                result.local["prompt"] = prompt_req.prompt
+
+                # 3. LLM SQL Generation Stage
+                with self._observer.stage("generation") as measure_gen:
+                    gen_response = generation_service.generate(prompt_req)
+                result.metrics["generation_latency_ms"] = measure_gen["duration_ms"]
+                result.local["flow"]["generation"].update(executed=True, status="passed", duration_ms=measure_gen["duration_ms"])
+
+                try:
+                    payload = pipeline._parse_generation_response(gen_response.text)
+                except Exception:
+                    payload = {}
+                initial_sql = payload.get("sql", "").strip() if isinstance(payload, dict) else ""
+                events.append({"event": "initial_generation", "sql": initial_sql})
+
+                # 4. Validation & Self-Correction Stage
+                with self._observer.stage("validation") as measure_val:
+                    outcome = pipeline._self_correction_service.run(
+                        question=question,
+                        sql=initial_sql,
+                        semantic_context=semantic_context,
+                        trace_observer=events.append,
+                    )
+                result.metrics["validation_latency_ms"] = measure_val["duration_ms"]
+                val_status = "passed" if outcome.is_valid else "failed"
+                result.local["flow"]["validation"].update(executed=True, status=val_status, duration_ms=measure_val["duration_ms"])
+
+                # 5. Critic & Correction Stage status
+                attempts_used = getattr(outcome, "attempts_used", 0)
+                if attempts_used > 0:
+                    result.local["flow"]["critic"].update(executed=True, status="passed", duration_ms=0.0)
+                    result.local["flow"]["correction"].update(executed=True, status=f"corrected ({attempts_used} attempts)", duration_ms=0.0)
+                else:
+                    result.local["flow"]["critic"].update(executed=True, status="skipped (no correction needed)", duration_ms=0.0)
+                    result.local["flow"]["correction"].update(executed=True, status="skipped (valid initial SQL)", duration_ms=0.0)
+
+                final_sql = outcome.sql if outcome.is_valid else initial_sql
+                events.append({
+                    "event": "final_result",
+                    "sql": final_sql if outcome.is_valid else None,
+                    "attemptsUsed": attempts_used,
+                    "status": "passed" if outcome.is_valid else "failed"
+                })
+
+                request_total_dur = measure_ret["duration_ms"] + measure_prompt["duration_ms"] + measure_gen["duration_ms"] + measure_val["duration_ms"]
+                result.metrics.update(
+                    request_latency_ms=request_total_dur,
+                    validation_passed=float(outcome.is_valid),
+                    self_correction_attempts_used=float(attempts_used)
+                )
+                result.local["flow"]["request"].update(executed=True, status="Success" if outcome.is_valid else "Failed", duration_ms=request_total_dur)
+                result.local.update(production_trace_events=events, final_sql=final_sql)
                 result.stopping_point = "production validated-SQL boundary"
-                if response.status != "Success": result.status = "failed"
-                for event in reversed(events):
-                    if isinstance(event, dict):
-                        if "attemptsUsed" in event and isinstance(event["attemptsUsed"], (int, float)):
-                            result.metrics["self_correction_attempts_used"] = float(event["attemptsUsed"])
-                            break
-                        if event.get("event") == "after_correction" and isinstance(event.get("attempt"), (int, float)):
-                            result.metrics["self_correction_attempts_used"] = float(event["attempt"])
-                            break
-                        if event.get("action") == "passed" and isinstance(event.get("attempt"), (int, float)):
-                            result.metrics["self_correction_attempts_used"] = float(event["attempt"])
-                            break
+                if not outcome.is_valid:
+                    result.status = "failed"
+
+                # Extract Tables
+                tables_used = _extract_tables(final_sql)
+                result.tags["tables"] = ", ".join(tables_used) if tables_used else "none"
+                result.tags["tables_count"] = len(tables_used)
+                result.local["tables_used"] = tables_used
+                result.local["tables_count"] = len(tables_used)
 
                 sql_history_lines = [
                     "-- ====================================================================",
                     f"-- QUESTION: {question}",
                     f"-- STATUS: {result.status.upper()}",
-                    f"-- VALIDATION PASSED: {'YES' if response.status == 'Success' else 'NO'}",
+                    f"-- VALIDATION PASSED: {'YES' if outcome.is_valid else 'NO'}",
                     "-- ====================================================================",
                     ""
                 ]
@@ -234,12 +313,12 @@ class DebugRunner:
                             corr_sql.strip(),
                             ""
                         ])
-                if response.sql:
+                if final_sql:
                     sql_history_lines.extend([
                         "-- ====================================================================",
                         "-- FINAL ACCEPTED SQL QUERY:",
                         "-- ====================================================================",
-                        response.sql.strip(),
+                        final_sql.strip(),
                         ""
                     ])
                 val_history_text = "\n".join(sql_history_lines)

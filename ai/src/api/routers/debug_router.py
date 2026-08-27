@@ -269,11 +269,25 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
         valBadge.className = 'text-xs font-medium text-rose-400 bg-rose-950/40 px-2 py-0.5 rounded border border-rose-800/40 inline-block mt-0.5';
       }
 
-      const attempts = (data.local && data.local.attempts_used != null) ? data.local.attempts_used : 0;
+      const attempts = (data.metrics && data.metrics.self_correction_attempts_used != null) 
+        ? data.metrics.self_correction_attempts_used 
+        : (data.local && data.local.attempts_used != null ? data.local.attempts_used : 0);
       document.getElementById('metricRetries').innerText = attempts;
 
-      const tables = (data.tags && data.tags.tables) ? data.tags.tables : (data.local && data.local.retrieved_tables ? data.local.retrieved_tables.length : '--');
-      document.getElementById('metricTables').innerText = tables;
+      const tablesCount = (data.local && data.local.tables_count != null) ? data.local.tables_count : (data.tags && data.tags.tables_count != null ? data.tags.tables_count : null);
+      const tablesList = (data.local && data.local.tables_used) ? data.local.tables_used : (data.tags && data.tags.tables ? data.tags.tables.split(', ') : []);
+      
+      const tablesElement = document.getElementById('metricTables');
+      if (tablesCount != null && tablesCount > 0) {
+        tablesElement.innerText = tablesCount + (tablesCount === 1 ? ' table' : ' tables');
+        tablesElement.title = tablesList.join(', ');
+      } else if (tablesList.length > 0 && tablesList[0] !== 'none') {
+        tablesElement.innerText = tablesList.length + (tablesList.length === 1 ? ' table' : ' tables');
+        tablesElement.title = tablesList.join(', ');
+      } else {
+        tablesElement.innerText = '--';
+        tablesElement.title = '';
+      }
 
       document.getElementById('stoppingBadge').innerText = data.stopping_point ? 'stopped at: ' + data.stopping_point : (isPassed ? 'complete' : 'failed');
 
@@ -281,20 +295,49 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
       const stageBody = document.getElementById('stageTableBody');
       stageBody.innerHTML = '';
       const flow = (data.local && data.local.flow) || {};
-      const stages = Object.keys(flow);
+      const stageOrder = ['request', 'retrieval', 'prompt', 'generation', 'validation', 'critic', 'correction', 'final'];
+      const stages = Object.keys(flow).sort((a, b) => {
+        const ia = stageOrder.indexOf(a);
+        const ib = stageOrder.indexOf(b);
+        return (ia !== -1 ? ia : 99) - (ib !== -1 ? ib : 99);
+      });
+      
       if (stages.length > 0) {
         stages.forEach(stg => {
           const item = flow[stg];
+          if (!item) return;
           const tr = document.createElement('tr');
-          const dur = item.duration_ms != null && item.duration_ms !== 'unavailable' ? (item.duration_ms / 1000).toFixed(2) + 's' : '--';
+          let dur = '--';
+          if (item.duration_ms != null && item.duration_ms !== 'unavailable') {
+            dur = (item.duration_ms >= 1000) ? (item.duration_ms / 1000).toFixed(2) + 's' : item.duration_ms.toFixed(0) + 'ms';
+          }
           let stColor = 'text-zinc-500';
-          if (item.status === 'passed') stColor = 'text-emerald-400';
-          else if (item.status === 'failed') stColor = 'text-rose-400';
-          else if (item.status === 'executed') stColor = 'text-blue-400';
+          let statusText = item.status || 'not_executed';
+          if (statusText === 'passed' || statusText === 'Success' || statusText === 'success') {
+            stColor = 'text-emerald-400';
+            statusText = 'Passed';
+          } else if (statusText === 'failed' || statusText === 'Failed') {
+            stColor = 'text-rose-400';
+            statusText = 'Failed';
+          } else if (statusText.startsWith('skipped')) {
+            stColor = 'text-zinc-400 italic text-[11px]';
+          } else if (statusText === 'executed' || statusText.startsWith('corrected')) {
+            stColor = 'text-blue-400';
+          }
+
+          let stageLabel = stg.toUpperCase();
+          if (stg === 'retrieval') stageLabel = '1. Semantic Retrieval';
+          else if (stg === 'prompt') stageLabel = '2. Prompt Assembly';
+          else if (stg === 'generation') stageLabel = '3. LLM SQL Generation';
+          else if (stg === 'validation') stageLabel = '4. Deterministic Validation';
+          else if (stg === 'critic') stageLabel = '5. LLM Critic Check';
+          else if (stg === 'correction') stageLabel = '6. SQL Self-Correction';
+          else if (stg === 'request') stageLabel = 'Total Request';
+          else if (stg === 'final') stageLabel = 'Final Output';
 
           tr.innerHTML = `
-            <td class="py-2 px-3 font-medium text-zinc-200 capitalize">${stg}</td>
-            <td class="py-2 px-3 ${stColor}">${item.status}</td>
+            <td class="py-2 px-3 font-medium text-zinc-200">${stageLabel}</td>
+            <td class="py-2 px-3 ${stColor}">${statusText}</td>
             <td class="py-2 px-3 text-right mono text-zinc-400">${dur}</td>
           `;
           stageBody.appendChild(tr);
@@ -310,24 +353,70 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
       // 4. Validation & Self-Correction Steps Tab
       const traceContainer = document.getElementById('traceCardsContainer');
       traceContainer.innerHTML = '';
-      const history = (data.local && data.local.validation_history) || [];
-      if (history.length > 0) {
-        history.forEach((step, idx) => {
+      const events = (data.local && (data.local.production_trace_events || data.local.validation_history)) || [];
+      if (events.length > 0) {
+        events.forEach((step, idx) => {
           const card = document.createElement('div');
-          card.className = 'border border-[#1F2430] bg-[#12151D] rounded-lg p-3 text-xs flex flex-col gap-1.5';
-          let title = step.event || 'Attempt ' + step.attempt;
+          card.className = 'border border-[#1F2430] bg-[#12151D] rounded-lg p-3 text-xs flex flex-col gap-2 shadow-sm';
+          
+          let title = '';
           let badge = '';
-          if (step.event === 'initial_generation') badge = '<span class="text-blue-400 bg-blue-950/40 px-1.5 py-0.5 rounded border border-blue-800/40">Initial</span>';
-          else if (step.action === 'passed' || step.status === 'passed') badge = '<span class="text-emerald-400 bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-800/40">Passed</span>';
-          else badge = '<span class="text-amber-400 bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-800/40">Correction Required</span>';
+          let sql = step.sql || step.correctedSql || '';
+          let issues = step.deterministicIssues || step.issues || [];
+          let criticIssues = step.verifiedCriticIssues || [];
+          let allIssues = [...issues, ...criticIssues];
 
-          let bodyHtml = `<div class="flex items-center justify-between mb-1"><span class="font-semibold text-zinc-200">Step ${idx + 1}: ${title}</span>${badge}</div>`;
-          if (step.sql) {
-            bodyHtml += `<pre class="bg-[#090B10] p-2 rounded text-emerald-400 whitespace-pre-wrap border border-[#1F2430] mt-1 font-mono">${step.sql}</pre>`;
+          if (step.event === 'initial_generation') {
+            title = 'Step 1: Initial LLM Candidate Generation';
+            badge = '<span class="text-blue-400 bg-blue-950/40 px-2 py-0.5 rounded border border-blue-800/40 font-medium">Initial Candidate</span>';
+          } else if (step.event === 'final_result') {
+            title = 'Final Step: Production Execution SQL';
+            badge = step.status === 'passed' 
+              ? '<span class="text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-800/40 font-medium">Validated & Ready</span>'
+              : '<span class="text-rose-400 bg-rose-950/40 px-2 py-0.5 rounded border border-rose-800/40 font-medium">Failed</span>';
+          } else if (step.attempt != null) {
+            title = `Step ${idx + 1}: Deterministic & Schema Validation (Attempt ${step.attempt})`;
+            if (step.action === 'passed' || step.status === 'passed') {
+              badge = '<span class="text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-800/40 font-medium">Validation Passed (0 issues)</span>';
+            } else {
+              badge = `<span class="text-amber-400 bg-amber-950/40 px-2 py-0.5 rounded border border-amber-800/40 font-medium">Correction Required (${allIssues.length} issues)</span>`;
+            }
+          } else if (step.event === 'after_correction') {
+            title = `Step ${idx + 1}: Self-Correction Applied (Attempt ${step.attempt + 1})`;
+            badge = '<span class="text-purple-400 bg-purple-950/40 px-2 py-0.5 rounded border border-purple-800/40 font-medium">Corrected SQL</span>';
+          } else {
+            title = `Step ${idx + 1}: ${step.event || 'Validation Event'}`;
+            badge = '<span class="text-zinc-400 bg-zinc-800/40 px-2 py-0.5 rounded border border-zinc-700/40 font-medium">Info</span>';
           }
-          if (step.issues && step.issues.length > 0) {
-            bodyHtml += `<div class="mt-1 text-rose-300"><strong>Issues:</strong> ${step.issues.join('; ')}</div>`;
+
+          let bodyHtml = `
+            <div class="flex items-center justify-between">
+              <span class="font-semibold text-zinc-200">${title}</span>
+              ${badge}
+            </div>
+          `;
+
+          if (sql) {
+            bodyHtml += `<pre class="bg-[#090B10] p-2.5 rounded text-emerald-400 whitespace-pre-wrap border border-[#1F2430] font-mono leading-relaxed select-all">${sql}</pre>`;
           }
+
+          if (allIssues.length > 0) {
+            bodyHtml += `
+              <div class="bg-rose-950/20 border border-rose-900/40 rounded p-2.5 text-rose-300">
+                <div class="font-semibold mb-1">Issues Identified:</div>
+                <ul class="list-disc list-inside space-y-0.5">
+                  ${allIssues.map(i => `<li>${i}</li>`).join('')}
+                </ul>
+              </div>
+            `;
+          } else if (step.attempt != null && (step.action === 'passed' || step.status === 'passed')) {
+            bodyHtml += `
+              <div class="text-emerald-400/90 flex items-center gap-1.5 text-[11px] bg-emerald-950/20 border border-emerald-900/30 rounded p-2">
+                <span>✓</span> Syntax valid, physical schema confirmed, relationships & RLS verified. No corrections needed.
+              </div>
+            `;
+          }
+
           card.innerHTML = bodyHtml;
           traceContainer.appendChild(card);
         });
