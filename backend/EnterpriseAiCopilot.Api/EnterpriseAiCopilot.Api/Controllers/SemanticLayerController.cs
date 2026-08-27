@@ -196,11 +196,10 @@ namespace EnterpriseAiCopilot.Api.Controllers
 
             return Ok(result.Data);
         }
-
-        [HttpPatch("tables/{tableName}/toggle")]
-        public async Task<IActionResult> ToggleTableStatus(string tableName, [FromBody] bool isAllowed, CancellationToken cancellationToken)
+        [HttpPatch("{layerId}/tables/{tableName}/toggle")]
+        public async Task<IActionResult> ToggleTableStatus(Guid layerId, string tableName, [FromBody] bool isAllowed, CancellationToken cancellationToken)
         {
-            var result = await _semanticLayerService.ToggleTablePermissionAsync(tableName, isAllowed, cancellationToken);
+            var result = await _semanticLayerService.ToggleTablePermissionAsync(layerId, tableName, isAllowed, cancellationToken);
 
             if (!result.IsSuccess)
             {

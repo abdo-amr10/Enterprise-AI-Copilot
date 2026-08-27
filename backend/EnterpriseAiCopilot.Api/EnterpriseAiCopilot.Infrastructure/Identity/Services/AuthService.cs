@@ -6,12 +6,16 @@ using EnterpriseAiCopilot.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using EnterpriseAiCopilot.Domain.Constants;
 using Microsoft.Extensions.Caching.Distributed;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace EnterpriseAiCopilot.Infrastructure.Identity.Services
 {
@@ -20,7 +24,7 @@ namespace EnterpriseAiCopilot.Infrastructure.Identity.Services
         private readonly IApplicationDbContext _context;
         private readonly IConfiguration _config;
         private readonly IDistributedCache _cache;
-        private readonly IAuditService _auditService; 
+        private readonly IAuditService _auditService;
 
         public AuthService(IApplicationDbContext context, IConfiguration config, IDistributedCache cache, IAuditService auditService)
         {
@@ -43,7 +47,7 @@ namespace EnterpriseAiCopilot.Infrastructure.Identity.Services
             {
                 FirstName = request.FirstName,
                 LastName = request.LastName,
-                Email = normalizedEmail, 
+                Email = normalizedEmail,
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
                 Role = request.Role.ToLower(),
                 BranchId = request.BranchId,
@@ -94,7 +98,9 @@ namespace EnterpriseAiCopilot.Infrastructure.Identity.Services
             {
                 new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
                 new Claim(ClaimTypes.Email, user.Email),
-                new Claim(ClaimTypes.Role, user.Role.ToLower())
+                new Claim(ClaimTypes.Role, user.Role.ToLower()),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+                new Claim(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64)
             };
 
             if (!string.IsNullOrEmpty(user.BranchId))
@@ -135,16 +141,14 @@ namespace EnterpriseAiCopilot.Infrastructure.Identity.Services
         public async Task<Result<string>> AdminChangePasswordAsync(AdminChangePasswordRequest request, CancellationToken cancellationToken = default)
         {
             var normalizedEmail = request.Email.Trim().ToLower();
-
             var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == normalizedEmail, cancellationToken);
 
-            if (user == null)
-            {
-                return Result<string>.Failure("User not found.");
-            }
+            if (user == null) return Result<string>.Failure("User not found.");
 
             user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
             await _context.SaveChangesAsync(cancellationToken);
+
+            await RevokeAllUserTokensAsync(user.Id.ToString(), cancellationToken);
 
             return Result<string>.Success("User password has been updated successfully.");
         }
@@ -152,18 +156,34 @@ namespace EnterpriseAiCopilot.Infrastructure.Identity.Services
         public async Task<Result<bool>> DeleteUserAsync(string email, CancellationToken cancellationToken = default)
         {
             var normalizedEmail = email.Trim().ToLower();
-
             var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == normalizedEmail, cancellationToken);
 
-            if (user == null)
-            {
-                return Result<bool>.Failure("User not found.");
-            }
+            if (user == null) return Result<bool>.Failure("User not found.");
 
+            var userId = user.Id.ToString();
             _context.Users.Remove(user);
             await _context.SaveChangesAsync(cancellationToken);
 
+            await RevokeAllUserTokensAsync(userId, cancellationToken);
+
             return Result<bool>.Success(true);
+        }
+
+        public async Task<Result<string>> UpdateUserRoleAsync(string email, string newRole, CancellationToken cancellationToken = default)
+        {
+            var normalizedEmail = email.Trim().ToLower();
+            newRole = newRole.Trim().ToLower();
+
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == normalizedEmail, cancellationToken);
+
+            if (user == null) return Result<string>.Failure("User not found.");
+
+            user.Role = newRole;
+            await _context.SaveChangesAsync(cancellationToken);
+
+            await RevokeAllUserTokensAsync(user.Id.ToString(), cancellationToken);
+
+            return Result<string>.Success("User role has been updated successfully.");
         }
 
         public async Task<Result<LogoutResponse>> LogoutAsync(string token, CancellationToken cancellationToken = default)
@@ -173,42 +193,25 @@ namespace EnterpriseAiCopilot.Infrastructure.Identity.Services
             if (handler.CanReadToken(token))
             {
                 var jwtToken = handler.ReadJwtToken(token);
+                var jti = jwtToken.Claims.FirstOrDefault(c => c.Type == JwtRegisteredClaimNames.Jti)?.Value;
                 var expiry = jwtToken.ValidTo;
                 var timeRemaining = expiry - DateTime.UtcNow;
 
-                if (timeRemaining > TimeSpan.Zero)
+                if (timeRemaining > TimeSpan.Zero && !string.IsNullOrEmpty(jti))
                 {
-                    var options = new DistributedCacheEntryOptions
-                    {
-                        AbsoluteExpirationRelativeToNow = timeRemaining
-                    };
-
-                    await _cache.SetStringAsync($"blacklist_{token}", "revoked", options, cancellationToken);
+                    var options = new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = timeRemaining };
+                    await _cache.SetStringAsync($"blacklist_jti_{jti}", "revoked", options, cancellationToken);
                 }
             }
 
-            var response = new LogoutResponse("Success", "Logged out successfully.");
-            return Result<LogoutResponse>.Success(response);
+            return Result<LogoutResponse>.Success(new LogoutResponse("Success", "Logged out successfully."));
         }
 
-        public async Task<Result<string>> UpdateUserRoleAsync(string email, string newRole, CancellationToken cancellationToken = default)
+        private async Task RevokeAllUserTokensAsync(string userId, CancellationToken cancellationToken)
         {
-            var normalizedEmail = email.Trim().ToLower();
-            newRole = newRole.Trim().ToLower();
-
-            var user = await _context.Users
-                .FirstOrDefaultAsync(u => u.Email == normalizedEmail, cancellationToken);
-
-            if (user == null)
-            {
-                return Result<string>.Failure("User not found.");
-            }
-
-            user.Role = newRole;
-
-            await _context.SaveChangesAsync(cancellationToken);
-
-            return Result<string>.Success("User role has been updated successfully.");
+            var options = new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(60) };
+            var revokeTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+            await _cache.SetStringAsync($"revoke_user_{userId}", revokeTime, options, cancellationToken);
         }
     }
 }

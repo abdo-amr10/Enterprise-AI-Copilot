@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Distributed;
+using System.IdentityModel.Tokens.Jwt;
 
 namespace EnterpriseAiCopilot.API.Middlewares;
 
@@ -18,9 +19,10 @@ public class TokenBlacklistMiddleware
 
         if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
         {
-            var token = authHeader.Substring("Bearer ".Length).Trim();
-
-            var isRevoked = await cache.GetStringAsync($"blacklist_{token}");
+            var jti = context.User.FindFirst(JwtRegisteredClaimNames.Jti)?.Value;
+            var isRevoked = string.IsNullOrWhiteSpace(jti)
+                ? null
+                : await cache.GetStringAsync($"blacklist_jti_{jti}");
 
             if (!string.IsNullOrEmpty(isRevoked))
             {
