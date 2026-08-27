@@ -56,7 +56,7 @@ namespace EnterpriseAiCopilot.Application.Services
             if (request.SchemaFile.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
                 return Result<UploadDataSourcesResponse>.Failure("PDF files cannot be used as a database schema. Please upload a JSON or SQL file.");
 
-            var currentUser = _currentUserService.Email ?? "System_Admin";
+            var currentUser = _currentUserService.UserId ?? "SYSTEM";
 
             var semanticLayer = new SemanticLayer
             {
@@ -268,7 +268,7 @@ namespace EnterpriseAiCopilot.Application.Services
             if (!aiReviewResult.IsSuccess)
                 return Result<ReviewRevisionResponse>.Failure($"AI_RUNTIME_ERROR: Failed to submit review to AI. {aiReviewResult.ErrorMessage}");
 
-            var currentUser = _currentUserService.Email ?? "System_Admin";
+            var currentUser = _currentUserService.UserId ?? "SYSTEM";
             var timeNow = DateTime.UtcNow;
 
             revision.Status = request.Decision.Equals("Approve", StringComparison.OrdinalIgnoreCase) ? "Approved" : "Rejected";
@@ -639,7 +639,7 @@ namespace EnterpriseAiCopilot.Application.Services
             }
 
             var folderName = $"SemanticSources/Layer_{semanticLayer.Id}";
-            var currentUser = _currentUserService.Email ?? "System_Admin";
+            var currentUser = _currentUserService.UserId ?? "SYSTEM";
             var targetFileTypeForDb = !string.IsNullOrEmpty(fileTypeParam) ? fileTypeParam : Path.GetExtension(request.File.FileName).TrimStart('.');
             var oldStoragePath = targetFile?.StoragePath;
 
@@ -894,7 +894,7 @@ namespace EnterpriseAiCopilot.Application.Services
 
             _cache.Remove(AllowedTablesCacheKey(layerId));
 
-            var currentUser = _currentUserService.Email ?? "System_Admin";
+            var currentUser = _currentUserService.UserId ?? "SYSTEM";
 
             await _auditService.LogEventAsync(
                 action: AuditActions.SemanticLayerActivation,
