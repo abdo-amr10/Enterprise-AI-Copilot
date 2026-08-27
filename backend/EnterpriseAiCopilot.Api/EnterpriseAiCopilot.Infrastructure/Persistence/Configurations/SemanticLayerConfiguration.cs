@@ -37,6 +37,11 @@ namespace EnterpriseAiCopilot.Infrastructure.Persistence.Configurations
             builder.HasIndex(sl => sl.IsActive)
                 .IsUnique()
                 .HasFilter("[IsActive] = 1");
+
+            builder.HasMany(x => x.AllowedTables)
+               .WithOne(x => x.SemanticLayer)
+               .HasForeignKey(x => x.SemanticLayerId)
+               .OnDelete(DeleteBehavior.Cascade);
         }
     }
 }

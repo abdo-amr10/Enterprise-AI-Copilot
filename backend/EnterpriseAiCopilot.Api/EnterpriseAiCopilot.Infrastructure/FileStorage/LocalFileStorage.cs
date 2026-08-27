@@ -4,7 +4,10 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace EnterpriseAiCopilot.Infrastructure.FileStorage
 {
@@ -14,10 +17,21 @@ namespace EnterpriseAiCopilot.Infrastructure.FileStorage
 
         public LocalFileStorage(IConfiguration configuration)
         {
-            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            var folderNameFromConfig = configuration["FileStorage:BasePath"] ?? "Storage";
+            var configuredRoot = configuration["FileStorage:BasePath"];
+            var storageRoot = string.IsNullOrWhiteSpace(configuredRoot)
+                ? Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "EnterpriseAiCopilot",
+                    "Storage")
+                : configuredRoot;
 
-            _baseStoragePath = Path.Combine(baseDir, folderNameFromConfig);
+            if (!Path.IsPathFullyQualified(storageRoot))
+                throw new InvalidOperationException("FileStorage:BasePath must resolve to an absolute persistent path.");
+
+            _baseStoragePath = Path.GetFullPath(storageRoot)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            Directory.CreateDirectory(_baseStoragePath);
         }
 
         public async Task<Result<string>> SaveFileAsync(IFormFile file, string directoryName, CancellationToken cancellationToken = default)
@@ -27,13 +41,14 @@ namespace EnterpriseAiCopilot.Infrastructure.FileStorage
 
             try
             {
-                var targetDirectory = Path.Combine(_baseStoragePath, directoryName);
+                var targetDirectory = ResolveContainedPath(directoryName);
                 if (!Directory.Exists(targetDirectory))
                 {
                     Directory.CreateDirectory(targetDirectory);
                 }
 
-                var uniqueFileName = $"{Guid.NewGuid()}_{file.FileName}";
+                var safeFileName = Path.GetFileName(file.FileName);
+                var uniqueFileName = $"{Guid.NewGuid()}_{safeFileName}";
                 var filePath = Path.Combine(targetDirectory, uniqueFileName);
 
                 using (var stream = new FileStream(filePath, FileMode.Create))
@@ -52,7 +67,7 @@ namespace EnterpriseAiCopilot.Infrastructure.FileStorage
 
         public async Task<Result<byte[]>> GetFileAsync(string relativeFilePath, CancellationToken cancellationToken = default)
         {
-            var fullPath = Path.Combine(_baseStoragePath, relativeFilePath);
+            var fullPath = ResolveContainedPath(relativeFilePath);
             if (!File.Exists(fullPath))
                 return Result<byte[]>.Failure("File not found on disk.");
 
@@ -71,7 +86,7 @@ namespace EnterpriseAiCopilot.Infrastructure.FileStorage
         {
             try
             {
-                var fullPath = Path.Combine(_baseStoragePath, relativeFilePath);
+                var fullPath = ResolveContainedPath(relativeFilePath);
 
                 if (File.Exists(fullPath))
                 {
@@ -85,6 +100,23 @@ namespace EnterpriseAiCopilot.Infrastructure.FileStorage
             {
                 return Task.FromResult(Result<bool>.Failure($"Error deleting file: {ex.Message}"));
             }
+        }
+
+        private string ResolveContainedPath(string relativePath)
+        {
+            if (string.IsNullOrWhiteSpace(relativePath))
+                throw new ArgumentException("Storage path cannot be empty.", nameof(relativePath));
+
+            var fullPath = Path.GetFullPath(Path.Combine(_baseStoragePath, relativePath));
+            var rootWithSeparator = _baseStoragePath + Path.DirectorySeparatorChar;
+
+            if (!fullPath.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(fullPath, _baseStoragePath, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Storage path escapes the configured storage root.");
+            }
+
+            return fullPath;
         }
     }
 }

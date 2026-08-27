@@ -9,6 +9,7 @@ namespace EnterpriseAiCopilot.Domain.Entities
     {
         public string TableName { get; set; } = string.Empty;
         public bool IsAllowed { get; set; } = true; 
-        public Guid SemanticLayerId { get; set; } 
+        public Guid SemanticLayerId { get; set; }
+        public SemanticLayer SemanticLayer { get; set; } = null!;
     }
 }

@@ -114,8 +114,8 @@ namespace EnterpriseAiCopilot.Application.Services
                     attempt + 1,
                     aiResponse.GeneratedSql);
 
-                executionResult = await _sqlExecutor.ExecuteQueryAsync(aiResponse.GeneratedSql, branchId, cancellationToken);
-                
+                executionResult = await _sqlExecutor.ExecuteQueryAsync(aiResponse.GeneratedSql, branchId, layerId, cancellationToken);
+
                 stopwatch.Stop();
                 totalExecutionTimeMs += stopwatch.ElapsedMilliseconds;
 

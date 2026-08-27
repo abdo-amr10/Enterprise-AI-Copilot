@@ -23,11 +23,11 @@ namespace EnterpriseAiCopilot.Application.Services
         private readonly IApplicationDbContext _context;
         private readonly IFileStorage _fileStorage;
         private readonly ICurrentUserService _currentUserService;
-
         private readonly IAiSemanticClient _aiSemanticClient;
         private readonly IMemoryCache _cache;
         private readonly ILogger<SemanticLayerService> _logger;
-        private readonly IAuditService _auditService; 
+        private readonly IAuditService _auditService;
+
         public SemanticLayerService(
             IApplicationDbContext context,
             IFileStorage fileStorage,
@@ -46,10 +46,15 @@ namespace EnterpriseAiCopilot.Application.Services
             _auditService = auditService;
         }
 
+        private static string AllowedTablesCacheKey(Guid layerId) => $"AllowedTables_{layerId}";
+
         public async Task<Result<UploadDataSourcesResponse>> UploadDataSourcesAsync(UploadDataSourcesRequest request, CancellationToken cancellationToken = default)
         {
             if (request.SchemaFile == null || request.SchemaFile.Length == 0)
                 return Result<UploadDataSourcesResponse>.Failure("Schema file is strictly required and cannot be empty.");
+
+            if (request.SchemaFile.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+                return Result<UploadDataSourcesResponse>.Failure("PDF files cannot be used as a database schema. Please upload a JSON or SQL file.");
 
             var currentUser = _currentUserService.Email ?? "System_Admin";
 
@@ -140,11 +145,17 @@ namespace EnterpriseAiCopilot.Application.Services
                 if (fileContentResult.IsSuccess && fileContentResult.Data != null)
                 {
                     string contentStr = System.Text.Encoding.UTF8.GetString(fileContentResult.Data);
-                    await ExtractAndSaveTablesFromSchemaAsync(contentStr, semanticLayer.Id, cancellationToken);
+                    var extractionResult = await ExtractAndSaveTablesFromSchemaAsync(contentStr, semanticLayer.Id, cancellationToken);
+                    if (!extractionResult.IsSuccess)
+                    {
+                        return Result<UploadDataSourcesResponse>.Failure(extractionResult.ErrorMessage ?? "Failed to extract tables.");
+                    }
                 }
             }
 
             await _context.SaveChangesAsync(cancellationToken);
+
+            _cache.Remove(AllowedTablesCacheKey(semanticLayer.Id));
 
             var response = new UploadDataSourcesResponse
             {
@@ -220,7 +231,7 @@ namespace EnterpriseAiCopilot.Application.Services
             {
                 Status = "DraftGenerated",
                 SemanticLayerId = request.SemanticLayerId,
-                RevisionId = newRevisionId.ToString(), 
+                RevisionId = newRevisionId.ToString(),
                 RegeneratedObjectsCount = objectsCount,
                 BuildTimestamp = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
                 LastRegenerationType = request.TriggerType
@@ -302,6 +313,21 @@ namespace EnterpriseAiCopilot.Application.Services
                 response.RejectedAt = timeNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
             }
 
+            try
+            {
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogWarning(ex, "Revision {RevisionId} could not be reviewed because the active layer changed concurrently.", revision.Id);
+                return Result<ReviewRevisionResponse>.Failure("The active semantic layer changed concurrently. Please retry.");
+            }
+
+            if (revision.Status == "Approved")
+            {
+                _cache.Remove(AllowedTablesCacheKey(layerId));
+            }
+
             var actionToLog = revision.Status == "Approved" ? AuditActions.SemanticLayerApproval : AuditActions.SemanticLayerRejection;
 
             await _auditService.LogEventAsync(
@@ -311,8 +337,6 @@ namespace EnterpriseAiCopilot.Application.Services
                 resourceId: revision.Id.ToString(),
                 cancellationToken: cancellationToken
             );
-
-            await _context.SaveChangesAsync(cancellationToken);
 
             return Result<ReviewRevisionResponse>.Success(response);
         }
@@ -453,8 +477,7 @@ namespace EnterpriseAiCopilot.Application.Services
             var semanticLayer = await _context.SemanticLayers
                 .Include(s => s.Revisions)
                 .Include(s => s.SourceFiles)
-                .Where(s => s.IsActive) 
-                .FirstOrDefaultAsync(cancellationToken);
+                .SingleOrDefaultAsync(s => s.IsActive, cancellationToken);
 
             if (semanticLayer == null)
                 return Result<SemanticLayerStatusResponse>.Failure("No active Semantic Layer found.");
@@ -514,16 +537,29 @@ namespace EnterpriseAiCopilot.Application.Services
             if (semanticLayer == null)
                 return Result<bool>.Failure("Semantic Layer not found.");
 
-            if (semanticLayer.SourceFiles != null && semanticLayer.SourceFiles.Any())
+            var filesToDelete = semanticLayer.SourceFiles?.Select(f => f.StoragePath).ToList() ?? new List<string>();
+
+            try
             {
-                foreach (var file in semanticLayer.SourceFiles)
+                _context.SemanticLayers.Remove(semanticLayer);
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogWarning(ex, "Semantic layer {LayerId} could not be deleted from the database.", layerId);
+                return Result<bool>.Failure("Semantic Layer cannot be deleted because it is still referenced by existing records.");
+            }
+
+            foreach (var path in filesToDelete)
+            {
+                var deleteResult = await _fileStorage.DeleteFileAsync(path, cancellationToken);
+                if (!deleteResult.IsSuccess)
                 {
-                    await _fileStorage.DeleteFileAsync(file.StoragePath, cancellationToken);
+                    _logger.LogWarning("Physical source file cleanup failed for {StoragePath} after layer {LayerId} deletion.", path, layerId);
                 }
             }
 
-            _context.SemanticLayers.Remove(semanticLayer);
-            await _context.SaveChangesAsync(cancellationToken);
+            _cache.Remove(AllowedTablesCacheKey(layerId));
 
             return Result<bool>.Success(true);
         }
@@ -536,13 +572,24 @@ namespace EnterpriseAiCopilot.Application.Services
             if (sourceFile == null)
                 return Result<bool>.Failure("File not found.");
 
-            var deleteResult = await _fileStorage.DeleteFileAsync(sourceFile.StoragePath, cancellationToken);
+            var storagePath = sourceFile.StoragePath;
 
+            try
+            {
+                _context.SemanticSourceFiles.Remove(sourceFile);
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogWarning(ex, "Source file {FileId} could not be deleted from the database.", fileId);
+                return Result<bool>.Failure("The source file could not be deleted from the database.");
+            }
+
+            var deleteResult = await _fileStorage.DeleteFileAsync(storagePath, cancellationToken);
             if (!deleteResult.IsSuccess)
-                return Result<bool>.Failure($"Failed to delete physical file: {deleteResult.ErrorMessage}");
-
-            _context.SemanticSourceFiles.Remove(sourceFile);
-            await _context.SaveChangesAsync(cancellationToken);
+            {
+                _logger.LogWarning("Physical source file cleanup failed for {StoragePath} after database deletion.", storagePath);
+            }
 
             return Result<bool>.Success(true);
         }
@@ -550,13 +597,21 @@ namespace EnterpriseAiCopilot.Application.Services
         public async Task<Result<RetrieveSourceFileResponse>> UpsertSourceFileAsync(Guid layerId, Guid? fileId, UpsertSourceFileRequest request, CancellationToken cancellationToken = default)
         {
             var allowedTypes = new[] { "schema", "documentation", "glossary", "sampledata" };
-            if (!string.IsNullOrEmpty(request.FileType) && !allowedTypes.Contains(request.FileType, StringComparer.OrdinalIgnoreCase))
+            var fileTypeParam = request.FileType?.ToLower();
+
+            if (!string.IsNullOrEmpty(fileTypeParam) && !allowedTypes.Contains(fileTypeParam, StringComparer.OrdinalIgnoreCase))
             {
                 return Result<RetrieveSourceFileResponse>.Failure($"Invalid fileType. Allowed values are: schema, documentation, glossary, sampledata.");
             }
 
             if (request.File == null || request.File.Length == 0)
                 return Result<RetrieveSourceFileResponse>.Failure("File is required and cannot be empty.");
+
+            var isSchema = fileTypeParam == "schema" || (!string.IsNullOrEmpty(request.File.FileName) && request.File.FileName.Contains("schema"));
+            if (isSchema && request.File.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+            {
+                return Result<RetrieveSourceFileResponse>.Failure("PDF files cannot be used as a database schema. Please upload a JSON or SQL file.");
+            }
 
             var semanticLayer = await _context.SemanticLayers
                 .Include(s => s.SourceFiles)
@@ -571,38 +626,56 @@ namespace EnterpriseAiCopilot.Application.Services
             {
                 targetFile = semanticLayer.SourceFiles.FirstOrDefault(f => f.Id == fileId.Value);
             }
-            else if (!string.IsNullOrEmpty(request.FileType))
+            else if (!string.IsNullOrEmpty(fileTypeParam))
             {
-                targetFile = semanticLayer.SourceFiles.FirstOrDefault(f => f.FileType.Equals(request.FileType, StringComparison.OrdinalIgnoreCase));
+                targetFile = fileTypeParam == "schema"
+                    ? semanticLayer.SourceFiles.FirstOrDefault(f =>
+                        f.FileType.Equals("json", StringComparison.OrdinalIgnoreCase) ||
+                        f.FileType.Equals("sql", StringComparison.OrdinalIgnoreCase) ||
+                        f.FileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ||
+                        f.FileName.EndsWith(".sql", StringComparison.OrdinalIgnoreCase))
+                    : semanticLayer.SourceFiles.FirstOrDefault(f =>
+                        f.FileType.Equals(fileTypeParam, StringComparison.OrdinalIgnoreCase));
             }
 
             var folderName = $"SemanticSources/Layer_{semanticLayer.Id}";
             var currentUser = _currentUserService.Email ?? "System_Admin";
+            var targetFileTypeForDb = !string.IsNullOrEmpty(fileTypeParam) ? fileTypeParam : Path.GetExtension(request.File.FileName).TrimStart('.');
+            var oldStoragePath = targetFile?.StoragePath;
+
+            HashSet<string>? extractedTableNames = null;
+            if (isSchema)
+            {
+                await using var schemaStream = request.File.OpenReadStream();
+                using var reader = new StreamReader(schemaStream, leaveOpen: false);
+                var schemaContent = await reader.ReadToEndAsync(cancellationToken);
+                var extractionResult = ExtractTableNamesFromSchema(schemaContent);
+
+                if (!extractionResult.IsSuccess || extractionResult.Data == null)
+                    return Result<RetrieveSourceFileResponse>.Failure(
+                        extractionResult.ErrorMessage ?? "Failed to extract tables from the updated schema.");
+
+                extractedTableNames = extractionResult.Data;
+            }
+
+            var uploadResult = await _fileStorage.SaveFileAsync(request.File, folderName, cancellationToken);
+            if (!uploadResult.IsSuccess)
+                return Result<RetrieveSourceFileResponse>.Failure($"Failed to upload file: {uploadResult.ErrorMessage}");
 
             if (targetFile != null)
             {
-                await _fileStorage.DeleteFileAsync(targetFile.StoragePath, cancellationToken);
-
-                var uploadResult = await _fileStorage.SaveFileAsync(request.File, folderName, cancellationToken);
-                if (!uploadResult.IsSuccess)
-                    return Result<RetrieveSourceFileResponse>.Failure($"Failed to upload new file: {uploadResult.ErrorMessage}");
-
                 targetFile.FileName = request.File.FileName;
-                targetFile.FileType = !string.IsNullOrEmpty(request.FileType) ? request.FileType.ToLower() : Path.GetExtension(request.File.FileName).TrimStart('.');
+                targetFile.FileType = targetFileTypeForDb;
                 targetFile.FileSize = request.File.Length;
                 targetFile.StoragePath = uploadResult.Data!;
                 targetFile.UploadedBy = currentUser;
             }
             else
             {
-                var uploadResult = await _fileStorage.SaveFileAsync(request.File, folderName, cancellationToken);
-                if (!uploadResult.IsSuccess)
-                    return Result<RetrieveSourceFileResponse>.Failure($"Failed to upload file: {uploadResult.ErrorMessage}");
-
                 targetFile = new SemanticSourceFile
                 {
                     FileName = request.File.FileName,
-                    FileType = !string.IsNullOrEmpty(request.FileType) ? request.FileType.ToLower() : Path.GetExtension(request.File.FileName).TrimStart('.'),
+                    FileType = targetFileTypeForDb,
                     FileSize = request.File.Length,
                     StoragePath = uploadResult.Data!,
                     UploadedBy = currentUser,
@@ -612,7 +685,45 @@ namespace EnterpriseAiCopilot.Application.Services
                 _context.SemanticSourceFiles.Add(targetFile);
             }
 
-            await _context.SaveChangesAsync(cancellationToken);
+            if (extractedTableNames != null)
+            {
+                var existingTables = await _context.AllowedTables
+                    .Where(t => t.SemanticLayerId == semanticLayer.Id)
+                    .ToListAsync(cancellationToken);
+
+                _context.AllowedTables.RemoveRange(existingTables);
+                foreach (var tableName in extractedTableNames)
+                {
+                    _context.AllowedTables.Add(new AllowedTable
+                    {
+                        TableName = tableName,
+                        IsAllowed = true,
+                        SemanticLayerId = semanticLayer.Id
+                    });
+                }
+            }
+
+            try
+            {
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+            catch
+            {
+                await _fileStorage.DeleteFileAsync(targetFile.StoragePath, cancellationToken);
+                throw;
+            }
+
+            if (!string.IsNullOrWhiteSpace(oldStoragePath))
+            {
+                var deleteOldResult = await _fileStorage.DeleteFileAsync(oldStoragePath, cancellationToken);
+                if (!deleteOldResult.IsSuccess)
+                {
+                    _logger.LogWarning("The old source file {StoragePath} could not be deleted after replacement.", oldStoragePath);
+                }
+            }
+
+            if (extractedTableNames != null)
+                _cache.Remove(AllowedTablesCacheKey(semanticLayer.Id));
 
             var response = new RetrieveSourceFileResponse
             {
@@ -626,57 +737,100 @@ namespace EnterpriseAiCopilot.Application.Services
             return Result<RetrieveSourceFileResponse>.Success(response);
         }
 
-        private async Task ExtractAndSaveTablesFromSchemaAsync(string schemaContent, Guid semanticLayerId, CancellationToken cancellationToken)
+        private async Task<Result<bool>> ExtractAndSaveTablesFromSchemaAsync(string schemaContent, Guid layerId, CancellationToken cancellationToken)
         {
+            var extractionResult = ExtractTableNamesFromSchema(schemaContent);
+            if (!extractionResult.IsSuccess || extractionResult.Data == null)
+                return Result<bool>.Failure(extractionResult.ErrorMessage ?? "No tables could be extracted from the supplied schema.");
+
+            var tableNames = extractionResult.Data;
+
+            var existingTables = await _context.AllowedTables.Where(t => t.SemanticLayerId == layerId).ToListAsync(cancellationToken);
+            if (existingTables.Any())
+            {
+                _context.AllowedTables.RemoveRange(existingTables);
+            }
+
+            foreach (var tableName in tableNames)
+            {
+                _context.AllowedTables.Add(new AllowedTable { TableName = tableName, IsAllowed = true, SemanticLayerId = layerId });
+            }
+
+            await _context.SaveChangesAsync(cancellationToken);
+            return Result<bool>.Success(true);
+        }
+
+        private static Result<HashSet<string>> ExtractTableNamesFromSchema(string schemaContent)
+        {
+            if (string.IsNullOrWhiteSpace(schemaContent))
+                return Result<HashSet<string>>.Failure("Schema content cannot be empty.");
+
             var tableNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             try
             {
-                using var jsonDoc = JsonDocument.Parse(schemaContent);
-                if (jsonDoc.RootElement.TryGetProperty("tables", out var tablesElement) && tablesElement.ValueKind == JsonValueKind.Array)
+                using var document = JsonDocument.Parse(schemaContent);
+                var root = document.RootElement;
+
+                if (root.ValueKind == JsonValueKind.Object &&
+                    root.TryGetProperty("tables", out var tables))
                 {
-                    foreach (var table in tablesElement.EnumerateArray())
+                    if (tables.ValueKind == JsonValueKind.Object)
                     {
-                        if (table.TryGetProperty("name", out var nameElement))
+                        foreach (var table in tables.EnumerateObject())
                         {
-                            var tableName = nameElement.GetString();
-                            if (!string.IsNullOrWhiteSpace(tableName)) tableNames.Add(tableName);
+                            if (!string.IsNullOrWhiteSpace(table.Name))
+                                tableNames.Add(table.Name.Trim());
+                        }
+                    }
+                    else if (tables.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var table in tables.EnumerateArray())
+                        {
+                            if (table.ValueKind == JsonValueKind.String)
+                            {
+                                var name = table.GetString();
+                                if (!string.IsNullOrWhiteSpace(name))
+                                    tableNames.Add(name.Trim());
+                            }
+                            else if (table.ValueKind == JsonValueKind.Object &&
+                                     table.TryGetProperty("name", out var nameProperty) &&
+                                     nameProperty.ValueKind == JsonValueKind.String)
+                            {
+                                var name = nameProperty.GetString();
+                                if (!string.IsNullOrWhiteSpace(name))
+                                    tableNames.Add(name.Trim());
+                            }
                         }
                     }
                 }
             }
             catch (JsonException)
             {
-                var regex = new Regex(@"CREATE\s+TABLE\s+(?:\[[^\]]+\]\.)?\[?([a-zA-Z0-9_]+)\]?", RegexOptions.IgnoreCase);
-                var matches = regex.Matches(schemaContent);
-                foreach (Match match in matches)
+                var regex = new Regex(
+                    @"CREATE\s+TABLE\s+(?:\[[^\]]+\]|[A-Za-z0-9_]+\.)?\[?([A-Za-z0-9_]+)\]?",
+                    RegexOptions.IgnoreCase);
+
+                foreach (Match match in regex.Matches(schemaContent))
                 {
-                    if (match.Success && match.Groups.Count > 1) tableNames.Add(match.Groups[1].Value);
-                }
-            }
-
-            if (!tableNames.Any()) return;
-
-            foreach (var tableName in tableNames)
-            {
-                var existingTable = await _context.AllowedTables
-                    .FirstOrDefaultAsync(t => t.TableName.ToLower() == tableName.ToLower() && t.SemanticLayerId == semanticLayerId, cancellationToken);
-
-                if (existingTable == null)
-                {
-                    _context.AllowedTables.Add(new AllowedTable
+                    if (match.Success && match.Groups.Count > 1 &&
+                        !string.IsNullOrWhiteSpace(match.Groups[1].Value))
                     {
-                        TableName = tableName,
-                        IsAllowed = true,
-                        SemanticLayerId = semanticLayerId
-                    });
+                        tableNames.Add(match.Groups[1].Value.Trim());
+                    }
                 }
             }
+            catch (InvalidOperationException)
+            {
+                return Result<HashSet<string>>.Failure("The supplied schema has an invalid structure.");
+            }
 
-            await _context.SaveChangesAsync(cancellationToken);
+            return tableNames.Count == 0
+                ? Result<HashSet<string>>.Failure("No tables could be extracted from the supplied schema.")
+                : Result<HashSet<string>>.Success(tableNames);
         }
 
-        public async Task<Result<bool>> ToggleTablePermissionAsync(string tableName, bool isAllowed, CancellationToken cancellationToken = default)
+        public async Task<Result<bool>> ToggleTablePermissionAsync(Guid layerId, string tableName, bool isAllowed, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(tableName))
                 return Result<bool>.Failure("Table name cannot be empty.");
@@ -684,22 +838,22 @@ namespace EnterpriseAiCopilot.Application.Services
             try
             {
                 var table = await _context.AllowedTables
-                    .FirstOrDefaultAsync(t => t.TableName.ToLower() == tableName.ToLower(), cancellationToken);
+                    .FirstOrDefaultAsync(t => t.SemanticLayerId == layerId && t.TableName.ToLower() == tableName.ToLower(), cancellationToken);
 
                 if (table == null)
-                    return Result<bool>.Failure($"NOT_FOUND: Table '{tableName}' was not found.");
+                    return Result<bool>.Failure($"NOT_FOUND: Table '{tableName}' was not found in the specified layer.");
 
                 table.IsAllowed = isAllowed;
                 await _context.SaveChangesAsync(cancellationToken);
 
-                _cache.Remove("AllowedTablesCacheKey");
+                _cache.Remove(AllowedTablesCacheKey(layerId));
 
                 return Result<bool>.Success(true);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error toggling permission for table {TableName}", tableName);
+                _logger.LogError(ex, "Error toggling permission for table {TableName} in layer {LayerId}", tableName, layerId);
                 return Result<bool>.Failure("DATABASE_ERROR: Failed to update permission.");
             }
         }
@@ -729,12 +883,21 @@ namespace EnterpriseAiCopilot.Application.Services
 
             targetLayer.IsActive = true;
 
-            await _context.SaveChangesAsync(cancellationToken);
+            try
+            {
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException)
+            {
+                return Result<bool>.Failure("The active semantic layer changed concurrently. Please retry.");
+            }
+
+            _cache.Remove(AllowedTablesCacheKey(layerId));
 
             var currentUser = _currentUserService.Email ?? "System_Admin";
 
             await _auditService.LogEventAsync(
-                action: AuditActions.SemanticLayerActivation, 
+                action: AuditActions.SemanticLayerActivation,
                 userId: currentUser,
                 status: "Success",
                 resourceId: targetLayer.Id.ToString(),

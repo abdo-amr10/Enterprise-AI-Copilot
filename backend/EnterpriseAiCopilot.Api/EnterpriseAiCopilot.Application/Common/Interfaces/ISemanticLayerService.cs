@@ -19,7 +19,7 @@ namespace EnterpriseAiCopilot.Application.Common.Interfaces
         Task<Result<bool>> DeleteSemanticLayerAsync(Guid layerId, CancellationToken cancellationToken = default);
         Task<Result<bool>> DeleteSourceFileAsync(Guid fileId, CancellationToken cancellationToken = default);
         Task<Result<RetrieveSourceFileResponse>> UpsertSourceFileAsync(Guid layerId, Guid? fileId, UpsertSourceFileRequest request, CancellationToken cancellationToken = default);
-        Task<Result<bool>> ToggleTablePermissionAsync(string tableName, bool isAllowed, CancellationToken cancellationToken = default);
+        Task<Result<bool>> ToggleTablePermissionAsync(Guid layerId, string tableName, bool isAllowed, CancellationToken cancellationToken = default);
         Task<Result<bool>> ActivateSemanticLayerAsync(Guid layerId, CancellationToken cancellationToken = default);
     }
 }
