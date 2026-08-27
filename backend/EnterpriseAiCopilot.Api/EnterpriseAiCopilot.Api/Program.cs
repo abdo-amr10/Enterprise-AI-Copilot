@@ -48,15 +48,13 @@ var app = builder.Build();
 app.UseExceptionHandler();
 
 
-    app.UseSwagger();
-    app.UseSwaggerUI();
+app.UseSwagger();
+app.UseSwaggerUI();
 
 
 app.UseHttpsRedirection();
 
 app.UseAuthentication();
-
-app.UseMiddleware<TokenBlacklistMiddleware>();
 
 app.UseAuthorization();
 

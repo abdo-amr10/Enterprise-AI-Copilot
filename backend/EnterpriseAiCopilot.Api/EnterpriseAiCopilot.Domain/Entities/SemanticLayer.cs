@@ -15,5 +15,6 @@ namespace EnterpriseAiCopilot.Domain.Entities
         // Navigation Properties
         public ICollection<SemanticSourceFile> SourceFiles { get; set; } = new List<SemanticSourceFile>();
         public ICollection<SemanticRevision> Revisions { get; set; } = new List<SemanticRevision>();
+        public ICollection<AllowedTable> AllowedTables { get; set; } = new List<AllowedTable>();
     }
 }
