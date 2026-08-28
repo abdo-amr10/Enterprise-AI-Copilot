@@ -25,6 +25,7 @@ every attempt in the loop, per the "retrieve once" principle.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -163,14 +164,19 @@ class SelfCorrectionService:
 
         for attempt in range(self._max_attempts + 1):
             logger.info("Self-correction attempt %s", attempt)
+            t_det_start = time.perf_counter()
             issues = self._deterministic_issues(current_sql, _get_schema, enforce_rls=enforce_rls)
+            det_dur_ms = (time.perf_counter() - t_det_start) * 1000
+
             trace.append({
                 "attempt": attempt,
                 "sql": current_sql,
                 "deterministicIssues": [issue.message for issue in issues],
+                "deterministicDurationMs": det_dur_ms,
             })
 
             if not issues:
+                t_critic_start = time.perf_counter()
                 critic_result = self._critic_service.evaluate(
                     question=question,
                     sql=current_sql,
@@ -180,7 +186,10 @@ class SelfCorrectionService:
                     issues = self._finding_verifier.verify(critic_result, schema=_get_schema())
                 except TypeError:
                     issues = self._finding_verifier.verify(critic_result)
+                critic_dur_ms = (time.perf_counter() - t_critic_start) * 1000
+                trace[-1]["criticExecuted"] = True
                 trace[-1]["criticStatus"] = critic_result.status
+                trace[-1]["criticDurationMs"] = critic_dur_ms
                 trace[-1]["verifiedCriticIssues"] = [issue.message for issue in issues]
 
             if not issues:
@@ -212,6 +221,7 @@ class SelfCorrectionService:
 
             try:
                 corrections_used += 1
+                t_corr_start = time.perf_counter()
                 rls_tables = self._rls_context_tables(
                     current_sql, _get_schema
                 ) if enforce_rls else set()
@@ -226,6 +236,8 @@ class SelfCorrectionService:
                         current_sql, _get_schema, extra_tables=rls_tables
                     ),
                 )
+                corr_dur_ms = (time.perf_counter() - t_corr_start) * 1000
+                trace[-1]["correctionDurationMs"] = corr_dur_ms
             except Exception as exc:
                 logger.warning("SQL correction call failed: %s", type(exc).__name__)
                 trace[-1]["correctionError"] = type(exc).__name__

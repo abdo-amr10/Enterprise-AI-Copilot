@@ -173,118 +173,178 @@ class DebugRunner:
                 config = getattr(getattr(generation_service, "_llm_client", None), "_config", None)
                 if config: result.tags.update(model_metadata(config))
 
-                # The full debug route must observe the actual production
-                # orchestration boundary. Replaying private retrieval/prompt/
-                # correction methods drifted from the runtime contract and
-                # could report a different result than /ask.
-                with self._observer.stage("request") as measure_request:
-                    outcome = pipeline.run(
-                        CopilotAskRequest(question=question, conversation=()),
-                        trace_observer=events.append,
+                # Execute granular production stages to measure real latency and populate stage breakdown
+                can_run_granular = (
+                    hasattr(text_to_sql, "build_context")
+                    and hasattr(text_to_sql, "_prompt_service")
+                    and hasattr(pipeline, "_self_correction_service")
+                    and hasattr(pipeline._self_correction_service, "run")
+                )
+
+                if can_run_granular:
+                    # 1. Semantic Retrieval Stage
+                    with self._observer.stage("retrieval") as measure_ret:
+                        semantic_context = text_to_sql.build_context(question)
+                    result.metrics["retrieval_latency_ms"] = measure_ret["duration_ms"]
+                    result.local["flow"]["retrieval"].update(executed=True, status="passed", duration_ms=measure_ret["duration_ms"])
+                    result.local["semantic_context"] = semantic_context
+
+                    # 2. Prompt Construction Stage
+                    with self._observer.stage("prompt") as measure_prompt:
+                        prompt_req = text_to_sql._prompt_service.build_request(question, semantic_context, date.today().isoformat())
+                    result.metrics.update(prompt_latency_ms=measure_prompt["duration_ms"], prompt_length=float(len(prompt_req.prompt)))
+                    result.local["flow"]["prompt"].update(executed=True, status="passed", duration_ms=measure_prompt["duration_ms"])
+                    result.local["prompt"] = prompt_req.prompt
+
+                    # 3. LLM SQL Generation Stage
+                    with self._observer.stage("generation") as measure_gen:
+                        gen_response = generation_service.generate(prompt_req)
+                    result.metrics["generation_latency_ms"] = measure_gen["duration_ms"]
+                    result.local["flow"]["generation"].update(executed=True, status="passed", duration_ms=measure_gen["duration_ms"])
+
+                    try:
+                        payload = pipeline._parse_generation_response(gen_response.text)
+                    except Exception:
+                        payload = {}
+                    initial_sql = payload.get("sql", "").strip() if isinstance(payload, dict) else ""
+                    events.append({"event": "initial_generation", "sql": initial_sql})
+
+                    # 4. Validation & Self-Correction Stage
+                    with self._observer.stage("validation") as measure_val:
+                        outcome = pipeline._self_correction_service.run(
+                            question=question,
+                            sql=initial_sql,
+                            semantic_context=semantic_context,
+                            trace_observer=events.append,
+                            enforce_rls=True,
+                        )
+                    result.metrics["validation_latency_ms"] = measure_val["duration_ms"]
+                    val_status = "passed" if outcome.is_valid else "failed"
+
+                    trace_events = getattr(outcome, "trace", ())
+                    det_dur = sum(
+                        float(step.get("deterministicDurationMs", 0.0))
+                        for step in trace_events
+                        if isinstance(step, dict) and "deterministicDurationMs" in step
                     )
-                request_latency_ms = measure_request["duration_ms"]
-                attempts = next(
-                    (
-                        event.get("attemptsUsed")
-                        for event in reversed(events)
-                        if isinstance(event, dict) and isinstance(event.get("attemptsUsed"), int)
-                    ),
-                    None,
-                )
-                succeeded = str(getattr(outcome, "status", "")).casefold() == "success"
-                final_sql = getattr(outcome, "sql", None)
-                result.metrics.update(
-                    request_latency_ms=request_latency_ms,
-                    validation_passed=float(succeeded),
-                )
-                if attempts is not None:
-                    result.metrics["self_correction_attempts_used"] = float(attempts)
-                result.local["flow"]["request"].update(
-                    executed=True,
-                    status="Success" if succeeded else "Failed",
-                    duration_ms=request_latency_ms,
-                )
-                result.local.update(
-                    production_trace_events=events,
-                    final_sql=final_sql,
-                )
-                result.stopping_point = "production validated-SQL boundary"
-                if not succeeded:
-                    result.status = "failed"
-                tables_used = _extract_tables(final_sql)
-                result.tags["tables"] = ", ".join(tables_used) if tables_used else "none"
-                result.tags["tables_count"] = len(tables_used)
-                result.local["tables_used"] = tables_used
-                result.local["tables_count"] = len(tables_used)
-                return result
-
-                # 1. Semantic Retrieval Stage
-                with self._observer.stage("retrieval") as measure_ret:
-                    semantic_context = text_to_sql.build_context(question)
-                result.metrics["retrieval_latency_ms"] = measure_ret["duration_ms"]
-                result.local["flow"]["retrieval"].update(executed=True, status="passed", duration_ms=measure_ret["duration_ms"])
-                result.local["semantic_context"] = semantic_context
-
-                # 2. Prompt Construction Stage
-                with self._observer.stage("prompt") as measure_prompt:
-                    prompt_req = text_to_sql._prompt_service.build_request(question, semantic_context, date.today().isoformat())
-                result.metrics.update(prompt_latency_ms=measure_prompt["duration_ms"], prompt_length=float(len(prompt_req.prompt)))
-                result.local["flow"]["prompt"].update(executed=True, status="passed", duration_ms=measure_prompt["duration_ms"])
-                result.local["prompt"] = prompt_req.prompt
-
-                # 3. LLM SQL Generation Stage
-                with self._observer.stage("generation") as measure_gen:
-                    gen_response = generation_service.generate(prompt_req)
-                result.metrics["generation_latency_ms"] = measure_gen["duration_ms"]
-                result.local["flow"]["generation"].update(executed=True, status="passed", duration_ms=measure_gen["duration_ms"])
-
-                try:
-                    payload = pipeline._parse_generation_response(gen_response.text)
-                except Exception:
-                    payload = {}
-                initial_sql = payload.get("sql", "").strip() if isinstance(payload, dict) else ""
-                events.append({"event": "initial_generation", "sql": initial_sql})
-
-                # 4. Validation & Self-Correction Stage
-                with self._observer.stage("validation") as measure_val:
-                    outcome = pipeline._self_correction_service.run(
-                        question=question,
-                        sql=initial_sql,
-                        semantic_context=semantic_context,
-                        trace_observer=events.append,
+                    critic_dur = sum(
+                        float(step.get("criticDurationMs", 0.0))
+                        for step in trace_events
+                        if isinstance(step, dict) and "criticDurationMs" in step
                     )
-                result.metrics["validation_latency_ms"] = measure_val["duration_ms"]
-                val_status = "passed" if outcome.is_valid else "failed"
-                result.local["flow"]["validation"].update(executed=True, status=val_status, duration_ms=measure_val["duration_ms"])
+                    corr_dur = sum(
+                        float(step.get("correctionDurationMs", 0.0))
+                        for step in trace_events
+                        if isinstance(step, dict) and "correctionDurationMs" in step
+                    )
+                    critic_ran = any(
+                        step.get("criticExecuted") or "criticStatus" in step
+                        for step in trace_events
+                        if isinstance(step, dict)
+                    )
 
-                # 5. Critic & Correction Stage status
-                attempts_used = getattr(outcome, "attempts_used", 0)
-                if attempts_used > 0:
-                    result.local["flow"]["critic"].update(executed=True, status="passed", duration_ms=0.0)
-                    result.local["flow"]["correction"].update(executed=True, status=f"corrected ({attempts_used} attempts)", duration_ms=0.0)
+                    result.metrics["deterministic_validation_latency_ms"] = det_dur
+                    if critic_ran:
+                        result.metrics["critic_latency_ms"] = critic_dur
+                    if corr_dur > 0:
+                        result.metrics["correction_latency_ms"] = corr_dur
+
+                    # 4. Deterministic Validation Stage
+                    result.local["flow"]["validation"].update(
+                        executed=True,
+                        status="passed" if val_status == "passed" else "failed",
+                        duration_ms=det_dur if det_dur > 0 else (measure_val["duration_ms"] if not critic_ran else 0.0),
+                    )
+
+                    # 5. LLM Critic Check Stage
+                    attempts_used = getattr(outcome, "attempts_used", 0)
+                    if critic_ran:
+                        result.local["flow"]["critic"].update(
+                            executed=True,
+                            status="passed",
+                            duration_ms=critic_dur,
+                        )
+                    else:
+                        result.local["flow"]["critic"].update(
+                            executed=False,
+                            status="skipped (deterministic issues)",
+                            duration_ms=0.0,
+                        )
+
+                    # 6. SQL Self-Correction Stage
+                    if attempts_used > 0:
+                        result.local["flow"]["correction"].update(
+                            executed=True,
+                            status=f"corrected ({attempts_used} attempts)",
+                            duration_ms=corr_dur,
+                        )
+                    else:
+                        result.local["flow"]["correction"].update(
+                            executed=False,
+                            status="skipped (valid initial SQL)",
+                            duration_ms=0.0,
+                        )
+
+                    final_sql = outcome.sql if outcome.is_valid else initial_sql
+                    events.append({
+                        "event": "final_result",
+                        "sql": final_sql if outcome.is_valid else None,
+                        "attemptsUsed": attempts_used,
+                        "status": "passed" if outcome.is_valid else "failed"
+                    })
+
+                    result.local["flow"]["final"].update(
+                        executed=True,
+                        status="passed" if outcome.is_valid else "failed",
+                        duration_ms=0.0,
+                    )
+
+                    request_total_dur = measure_ret["duration_ms"] + measure_prompt["duration_ms"] + measure_gen["duration_ms"] + measure_val["duration_ms"]
+                    result.metrics.update(
+                        request_latency_ms=request_total_dur,
+                        validation_passed=float(outcome.is_valid),
+                        self_correction_attempts_used=float(attempts_used)
+                    )
+                    result.local["flow"]["request"].update(executed=True, status="Success" if outcome.is_valid else "Failed", duration_ms=request_total_dur)
+                    result.local.update(production_trace_events=events, final_sql=final_sql)
+                    result.stopping_point = "production validated-SQL boundary"
+                    if not outcome.is_valid:
+                        result.status = "failed"
                 else:
-                    result.local["flow"]["critic"].update(executed=True, status="skipped (no correction needed)", duration_ms=0.0)
-                    result.local["flow"]["correction"].update(executed=True, status="skipped (valid initial SQL)", duration_ms=0.0)
-
-                final_sql = outcome.sql if outcome.is_valid else initial_sql
-                events.append({
-                    "event": "final_result",
-                    "sql": final_sql if outcome.is_valid else None,
-                    "attemptsUsed": attempts_used,
-                    "status": "passed" if outcome.is_valid else "failed"
-                })
-
-                request_total_dur = measure_ret["duration_ms"] + measure_prompt["duration_ms"] + measure_gen["duration_ms"] + measure_val["duration_ms"]
-                result.metrics.update(
-                    request_latency_ms=request_total_dur,
-                    validation_passed=float(outcome.is_valid),
-                    self_correction_attempts_used=float(attempts_used)
-                )
-                result.local["flow"]["request"].update(executed=True, status="Success" if outcome.is_valid else "Failed", duration_ms=request_total_dur)
-                result.local.update(production_trace_events=events, final_sql=final_sql)
-                result.stopping_point = "production validated-SQL boundary"
-                if not outcome.is_valid:
-                    result.status = "failed"
+                    with self._observer.stage("request") as measure_request:
+                        outcome = pipeline.run(
+                            CopilotAskRequest(question=question, conversation=()),
+                            trace_observer=events.append,
+                        )
+                    request_latency_ms = measure_request["duration_ms"]
+                    attempts = next(
+                        (
+                            event.get("attemptsUsed")
+                            for event in reversed(events)
+                            if isinstance(event, dict) and isinstance(event.get("attemptsUsed"), int)
+                        ),
+                        None,
+                    )
+                    succeeded = str(getattr(outcome, "status", "")).casefold() == "success"
+                    final_sql = getattr(outcome, "sql", None)
+                    result.metrics.update(
+                        request_latency_ms=request_latency_ms,
+                        validation_passed=float(succeeded),
+                    )
+                    if attempts is not None:
+                        result.metrics["self_correction_attempts_used"] = float(attempts)
+                    result.local["flow"]["request"].update(
+                        executed=True,
+                        status="Success" if succeeded else "Failed",
+                        duration_ms=request_latency_ms,
+                    )
+                    result.local.update(
+                        production_trace_events=events,
+                        final_sql=final_sql,
+                    )
+                    result.stopping_point = "production validated-SQL boundary"
+                    if not succeeded:
+                        result.status = "failed"
 
                 # Extract Tables
                 tables_used = _extract_tables(final_sql)
@@ -293,11 +353,12 @@ class DebugRunner:
                 result.local["tables_used"] = tables_used
                 result.local["tables_count"] = len(tables_used)
 
+                val_passed = getattr(outcome, "is_valid", False) if hasattr(outcome, "is_valid") else str(getattr(outcome, "status", "")).casefold() == "success"
                 sql_history_lines = [
                     "-- ====================================================================",
                     f"-- QUESTION: {question}",
                     f"-- STATUS: {result.status.upper()}",
-                    f"-- VALIDATION PASSED: {'YES' if outcome.is_valid else 'NO'}",
+                    f"-- VALIDATION PASSED: {'YES' if val_passed else 'NO'}",
                     "-- ====================================================================",
                     ""
                 ]

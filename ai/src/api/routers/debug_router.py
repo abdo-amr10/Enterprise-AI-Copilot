@@ -424,6 +424,30 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
             `;
           }
 
+          if (step.criticStatus || step.criticExecuted) {
+            const criticDur = step.criticDurationMs != null ? (step.criticDurationMs >= 1000 ? (step.criticDurationMs / 1000).toFixed(2) + 's' : step.criticDurationMs.toFixed(0) + 'ms') : '--';
+            const criticStatus = step.criticStatus || 'PASS';
+            const verifiedCount = (step.verifiedCriticIssues || []).length;
+            const criticBadge = criticStatus === 'PASS' 
+              ? '<span class="text-emerald-400 font-mono text-xs font-semibold">✓ Pass</span>' 
+              : (verifiedCount === 0 
+                  ? '<span class="text-blue-400 font-mono text-xs font-medium">Advisory (0 verified defects)</span>' 
+                  : `<span class="text-amber-400 font-mono text-xs font-medium">⚠️ ${verifiedCount} defects confirmed</span>`);
+            
+            bodyHtml += `
+              <div class="flex items-center justify-between text-xs bg-[#0E1118] border border-[#1F2430] rounded-lg px-3 py-2 text-zinc-300">
+                <span class="flex items-center gap-2">
+                  <span>🧠</span>
+                  <span><strong>LLM Critic Check</strong> (model response: <code class="text-zinc-200">${criticStatus}</code>)</span>
+                </span>
+                <div class="flex items-center gap-3">
+                  ${criticBadge}
+                  <span class="mono text-zinc-400">${criticDur}</span>
+                </div>
+              </div>
+            `;
+          }
+
           card.innerHTML = bodyHtml;
           traceContainer.appendChild(card);
         });
