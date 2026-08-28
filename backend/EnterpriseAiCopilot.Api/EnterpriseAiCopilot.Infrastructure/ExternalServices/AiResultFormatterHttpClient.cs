@@ -44,6 +44,10 @@ public class AiResultFormatterHttpClient : IAiResultFormatterClient
         {
             TextSummary = aiResponse?.Text ?? "Here is the information you requested.",
             PresentationType = aiResponse?.PresentationType ?? "Text",
+            HeroMetric = aiResponse?.HeroMetric,
+            KpiCards = aiResponse?.KpiCards,
+            TableData = aiResponse?.TableData,
+            ExcelExport = aiResponse?.ExcelExport,
             Data = executionResult
         };
     }
@@ -54,5 +58,10 @@ public class AiResultFormatterHttpClient : IAiResultFormatterClient
         public string? PresentationType { get; set; }
         public string? Text { get; set; }
         public int RowCount { get; set; }
+
+        public HeroMetricDto? HeroMetric { get; set; }
+        public List<KpiCardDto>? KpiCards { get; set; }
+        public TableDataDto? TableData { get; set; }
+        public ExcelExportDto? ExcelExport { get; set; }
     }
 }
