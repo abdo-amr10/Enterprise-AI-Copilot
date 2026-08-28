@@ -38,6 +38,11 @@ def test_format_execution_result_with_empty_list(client: TestClient) -> None:
     assert data["columns"] == []
     assert data["rows"] == []
     assert "couldn’t find" in data["text"]
+    assert data["excelExport"] is None
+    assert data["heroMetric"] is None
+    assert data["kpiCards"] is None
+
+
 
 
 def test_format_execution_result_with_single_row_and_single_column(client: TestClient) -> None:
