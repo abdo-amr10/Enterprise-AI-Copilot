@@ -133,7 +133,7 @@ namespace EnterpriseAiCopilot.Application.Services
                         finalErrorMessage.StartsWith("DATABASE_EXECUTION_ERROR")))
                 {
                     _logger.LogWarning($"Attempt {attempt + 1} failed. Triggering Self-Correction. Error: {finalErrorMessage}");
-                    
+
                     currentRequest.Conversation.Add(new ConversationMessage
                     {
                         Role = "system",
@@ -142,7 +142,7 @@ namespace EnterpriseAiCopilot.Application.Services
                                   "that fixes this exact policy failure while preserving the original question."
                     });
                     request.Conversation = currentRequest.Conversation;
-                    
+
                     attempt++;
                 }
                 else
@@ -214,16 +214,11 @@ namespace EnterpriseAiCopilot.Application.Services
             {
                 QueryId = historyId.ToString(),
                 Status = "Completed",
-                Report = new CopilotReport
-                {
-                    TextSummary = formattedReport.TextSummary,
-                    PresentationType = formattedReport.PresentationType,
-                    Data = executionResult!.Data
-                }
+                Report = formattedReport
             };
 
             return Result<AskCopilotResponse>.Success(response);
-        } 
+        }
 
         public async Task<Result<QueryHistoryResponse>> GetUserHistoryAsync(
             string userId,
