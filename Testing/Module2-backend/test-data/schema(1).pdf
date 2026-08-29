@@ -1,0 +1,21 @@
+{
+  "database": "TestDatabase",
+  "tables": [
+    {
+      "name": "Customers",
+      "columns": [
+        {"name": "CustomerId", "type": "int"},
+        {"name": "Name", "type": "string"},
+        {"name": "Email", "type": "string"}
+      ]
+    },
+    {
+      "name": "Orders",
+      "columns": [
+        {"name": "OrderId", "type": "int"},
+        {"name": "CustomerId", "type": "int"},
+        {"name": "TotalAmount", "type": "decimal"}
+      ]
+    }
+  ]
+}

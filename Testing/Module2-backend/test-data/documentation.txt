@@ -1,0 +1,11 @@
+Test Semantic Layer Documentation
+
+Customers:
+- CustomerId: unique customer identifier
+- Name: customer full name
+- Email: customer email address
+
+Orders:
+- OrderId: unique order identifier
+- CustomerId: customer who placed the order
+- TotalAmount: total order amount
