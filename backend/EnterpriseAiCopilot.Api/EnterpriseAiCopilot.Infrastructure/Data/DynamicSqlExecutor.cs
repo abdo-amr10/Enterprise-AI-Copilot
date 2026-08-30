@@ -46,11 +46,14 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
 
         private static string AllowedTablesCacheKey(Guid layerId) => $"AllowedTables_{layerId}";
 
-        private async Task<HashSet<string>> GetAllowedTablesAsync(Guid layerId)
+        private async Task<HashSet<string>> GetAllowedTablesAsync(
+            Guid layerId,
+            Guid userId,
+            CancellationToken cancellationToken)
         {
             var cacheKey = AllowedTablesCacheKey(layerId);
 
-            return await _cache.GetOrCreateAsync(cacheKey, async entry =>
+            var cachedAllowedTables = await _cache.GetOrCreateAsync(cacheKey, async entry =>
             {
                 entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(24);
 
@@ -60,16 +63,33 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
                 var tables = await dbContext.AllowedTables
                     .Where(t => t.IsAllowed && t.SemanticLayerId == layerId)
                     .Select(t => t.TableName)
-                    .ToListAsync();
+                    .ToListAsync(cancellationToken);
 
                 return tables.ToHashSet(StringComparer.OrdinalIgnoreCase);
             }) ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var allowedTables = new HashSet<string>(cachedAllowedTables, StringComparer.OrdinalIgnoreCase);
+
+            using var scope = _scopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
+            var userPermissions = await dbContext.UserTablePermissions
+                .Where(permission => permission.UserId == userId && permission.SemanticLayerId == layerId)
+                .Select(permission => new { permission.TableName, permission.IsAllowed })
+                .ToListAsync(cancellationToken);
+
+            foreach (var permission in userPermissions)
+            {
+                if (!permission.IsAllowed)
+                    allowedTables.Remove(permission.TableName);
+            }
+
+            return allowedTables;
         }
 
         public async Task<Result<object>> ExecuteQueryAsync(
             string sqlQuery,
             string branchId,
             Guid semanticLayerId,
+            Guid userId,
             CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(sqlQuery))
@@ -77,7 +97,7 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
                 return Result<object>.Failure("SQL query cannot be empty.");
             }
 
-            var allowedTables = await GetAllowedTablesAsync(semanticLayerId);
+            var allowedTables = await GetAllowedTablesAsync(semanticLayerId, userId, cancellationToken);
 
             var sqlWithoutLiteralsAndComments = RemoveCommentsAndStringLiterals(sqlQuery);
 

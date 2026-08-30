@@ -214,6 +214,44 @@ namespace EnterpriseAiCopilot.Api.Controllers
             return Ok(new { Message = $"Table '{tableName}' access set to {isAllowed}" });
         }
 
+        [HttpPatch("{layerId}/users/table-permission")]
+        public async Task<IActionResult> ToggleUserTableStatus(
+            Guid layerId,
+            [FromQuery] string email,
+            [FromQuery] string tableName,
+            [FromBody] bool? isAllowed,
+            CancellationToken cancellationToken)
+        {
+            if (!isAllowed.HasValue)
+            {
+                return BadRequest(new
+                {
+                    status = "Failed",
+                    errorCode = "VALIDATION_ERROR",
+                    message = "The request body must contain a boolean value: true or false."
+                });
+            }
+
+            var result = await _semanticLayerService.ToggleUserTablePermissionAsync(
+                layerId, email, tableName, isAllowed.Value, cancellationToken);
+
+            if (!result.IsSuccess)
+            {
+                var notFound = result.ErrorMessage?.StartsWith("NOT_FOUND:", StringComparison.OrdinalIgnoreCase) == true;
+                return StatusCode(notFound ? StatusCodes.Status404NotFound : StatusCodes.Status400BadRequest, new
+                {
+                    status = "Failed",
+                    errorCode = notFound ? "NOT_FOUND" : "BUSINESS_ERROR",
+                    message = result.ErrorMessage
+                });
+            }
+
+            return Ok(new
+            {
+                Message = $"Table '{tableName}' access for user '{email}' set to {isAllowed}"
+            });
+        }
+
 
         [HttpPost("{layerId}/activate")]
         public async Task<IActionResult> ActivateSemanticLayer(Guid layerId, CancellationToken cancellationToken)
