@@ -952,6 +952,67 @@ namespace EnterpriseAiCopilot.Application.Services
             }
         }
 
+        public async Task<Result<bool>> ToggleUserTablePermissionAsync(
+            Guid layerId,
+            string email,
+            string tableName,
+            bool isAllowed,
+            CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(email))
+                return Result<bool>.Failure("User email cannot be empty.");
+
+            if (string.IsNullOrWhiteSpace(tableName))
+                return Result<bool>.Failure("Table name cannot be empty.");
+
+            try
+            {
+                var normalizedEmail = email.Trim();
+                var user = await _context.Users
+                    .FirstOrDefaultAsync(item => item.Email.ToLower() == normalizedEmail.ToLower(), cancellationToken);
+
+                if (user == null)
+                    return Result<bool>.Failure("NOT_FOUND: User was not found.");
+
+                var normalizedTableName = tableName.Trim();
+                var tableExists = await _context.AllowedTables
+                    .AnyAsync(table => table.SemanticLayerId == layerId &&
+                        table.TableName.ToLower() == normalizedTableName.ToLower(), cancellationToken);
+
+                if (!tableExists)
+                    return Result<bool>.Failure($"NOT_FOUND: Table '{normalizedTableName}' was not found in the specified layer.");
+
+                var permission = await _context.UserTablePermissions
+                    .FirstOrDefaultAsync(item => item.UserId == user.Id &&
+                        item.SemanticLayerId == layerId &&
+                        item.TableName.ToLower() == normalizedTableName.ToLower(), cancellationToken);
+
+                if (permission == null)
+                {
+                    _context.UserTablePermissions.Add(new UserTablePermission
+                    {
+                        UserId = user.Id,
+                        SemanticLayerId = layerId,
+                        TableName = normalizedTableName,
+                        IsAllowed = isAllowed
+                    });
+                }
+                else
+                {
+                    permission.IsAllowed = isAllowed;
+                }
+
+                await _context.SaveChangesAsync(cancellationToken);
+                return Result<bool>.Success(true);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error toggling table permission for user {Email}, table {TableName}, layer {LayerId}", email, tableName, layerId);
+                return Result<bool>.Failure("DATABASE_ERROR: Failed to update user table permission.");
+            }
+        }
+
         public async Task<Result<bool>> ActivateSemanticLayerAsync(Guid layerId, CancellationToken cancellationToken = default)
         {
             var targetLayer = await _context.SemanticLayers

@@ -25,6 +25,7 @@ namespace EnterpriseAiCopilot.Infrastructure.Persistence
         public DbSet<SemanticRevision> SemanticRevisions => Set<SemanticRevision>();
         public DbSet<CopilotQueryHistory> CopilotQueryHistories => Set<CopilotQueryHistory>();
         public DbSet<AllowedTable> AllowedTables => Set<AllowedTable>();
+        public DbSet<UserTablePermission> UserTablePermissions => Set<UserTablePermission>();
         public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
