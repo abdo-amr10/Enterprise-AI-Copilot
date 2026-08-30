@@ -114,7 +114,17 @@ namespace EnterpriseAiCopilot.Application.Services
                     attempt + 1,
                     aiResponse.GeneratedSql);
 
-                executionResult = await _sqlExecutor.ExecuteQueryAsync(aiResponse.GeneratedSql, branchId, layerId, cancellationToken);
+                if (!Guid.TryParse(userId, out var parsedUserId))
+                {
+                    return Result<AskCopilotResponse>.Failure("AUTHENTICATION_ERROR: Invalid user ID.");
+                }
+
+                executionResult = await _sqlExecutor.ExecuteQueryAsync(
+                    aiResponse.GeneratedSql,
+                    branchId,
+                    layerId,
+                    parsedUserId,
+                    cancellationToken);
 
                 stopwatch.Stop();
                 totalExecutionTimeMs += stopwatch.ElapsedMilliseconds;
