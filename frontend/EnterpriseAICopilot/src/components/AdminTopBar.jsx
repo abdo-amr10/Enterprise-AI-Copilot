@@ -1,0 +1,1 @@
+export default function AdminTopBar({title,description}){return <header className="admin-header"><div><p>ADMIN CONSOLE</p><h1>{title}</h1>{description&&<span className="admin-description">{description}</span>}</div><span className="admin-live"><i/> All systems operational</span></header>}
