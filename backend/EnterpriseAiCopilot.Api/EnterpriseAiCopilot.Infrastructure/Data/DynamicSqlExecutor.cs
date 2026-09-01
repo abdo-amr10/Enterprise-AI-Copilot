@@ -29,7 +29,7 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
         {
             "INSERT", "UPDATE", "DELETE", "DROP", "ALTER",
             "TRUNCATE", "EXEC", "EXECUTE", "CREATE", "GRANT",
-            "REVOKE", "XP_", "SP_", "UNION", "MERGE", "CALL"
+            "REVOKE", "XP_", "SP_", "MERGE", "CALL"
         };
 
         public DynamicSqlExecutor(
@@ -261,11 +261,6 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
                 }
             }
 
-            if (Regex.IsMatch(upperSafeSql, @"\bOR\b"))
-            {
-                return (originalSql, "SQL_VALIDATION_FAILED: OR conditions are not allowed in AI-generated SQL.");
-            }
-
             var visitor = new TableExtractionVisitor();
             fragment.Accept(visitor);
 
@@ -284,16 +279,6 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
                 {
                     return (originalSql, $"SQL_VALIDATION_FAILED: Access to table '{tableName}' is not allowed or it is disabled by Admin.");
                 }
-            }
-
-            var hasRlsPredicate = Regex.IsMatch(
-                safeSql,
-                @"\b[A-Za-z_][A-Za-z0-9_]*\.(?:BranchId|branch_id)\s*=\s*@UserBranchId\b",
-                RegexOptions.IgnoreCase);
-
-            if (!hasRlsPredicate)
-            {
-                return (originalSql, "RLS_ERROR: Query must include a fully qualified branch filter predicate (e.g., accounts.branch_id = @UserBranchId). Unqualified columns are not allowed.");
             }
 
             var rlsError = ValidateRlsMapping(upperSafeSql, actualTables, fragment);
@@ -365,22 +350,82 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
             return null;
         }
 
-        private static bool HasQualifiedBranchPredicate(string sql, TableExtractionVisitor tableVisitor)
+        private static class BranchPredicateExpressionValidator
         {
-            var match = Regex.Match(
-                sql,
-                @"(?:\[(?<alias>[A-Za-z_][A-Za-z0-9_]*)\]|(?<alias>[A-Za-z_][A-Za-z0-9_]*))\s*\.\s*\[?(?:BranchId|branch_id)\]?\s*=\s*@UserBranchId\b",
-                RegexOptions.IgnoreCase);
-
-            if (!match.Success)
+            public static bool GuaranteesBranchIsolation(
+                BooleanExpression expression,
+                TableExtractionVisitor tableVisitor)
             {
-                return false;
+                return expression switch
+                {
+                    BooleanParenthesisExpression parenthesis =>
+                        GuaranteesBranchIsolation(parenthesis.Expression, tableVisitor),
+
+                    BooleanComparisonExpression comparison =>
+                        IsBranchPredicate(comparison, tableVisitor),
+
+                    BooleanBinaryExpression binary when binary.BinaryExpressionType ==
+                        BooleanBinaryExpressionType.And =>
+                        GuaranteesBranchIsolation(binary.FirstExpression, tableVisitor) ||
+                        GuaranteesBranchIsolation(binary.SecondExpression, tableVisitor),
+
+                    BooleanBinaryExpression binary when binary.BinaryExpressionType ==
+                        BooleanBinaryExpressionType.Or =>
+                        GuaranteesBranchIsolation(binary.FirstExpression, tableVisitor) &&
+                        GuaranteesBranchIsolation(binary.SecondExpression, tableVisitor),
+
+                    _ => false
+                };
             }
 
-            var alias = match.Groups["alias"].Value;
-            return tableVisitor.TableAliases.TryGetValue(alias, out var physicalTable) &&
-                   (physicalTable.Equals("ACCOUNTS", StringComparison.OrdinalIgnoreCase) ||
-                    physicalTable.Equals("BRANCHES", StringComparison.OrdinalIgnoreCase));
+            private static bool IsBranchPredicate(
+                BooleanComparisonExpression comparison,
+                TableExtractionVisitor tableVisitor)
+            {
+                if (comparison.ComparisonType != BooleanComparisonType.Equals)
+                {
+                    return false;
+                }
+
+                ColumnReferenceExpression? column = null;
+                VariableReference? variable = null;
+
+                if (comparison.FirstExpression is ColumnReferenceExpression firstColumn &&
+                    comparison.SecondExpression is VariableReference secondVariable)
+                {
+                    column = firstColumn;
+                    variable = secondVariable;
+                }
+                else if (comparison.SecondExpression is ColumnReferenceExpression secondColumn &&
+                         comparison.FirstExpression is VariableReference firstVariable)
+                {
+                    column = secondColumn;
+                    variable = firstVariable;
+                }
+
+                if (column == null || variable == null ||
+                    !string.Equals(variable.Name.TrimStart('@'), "UserBranchId", StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                var identifiers = column.MultiPartIdentifier?.Identifiers;
+                var columnName = identifiers?.LastOrDefault()?.Value;
+                if (!string.Equals(columnName, "BranchId", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(columnName, "branch_id", StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                var alias = identifiers is { Count: > 1 }
+                    ? identifiers[^2].Value
+                    : null;
+
+                return alias != null &&
+                       tableVisitor.TableAliases.TryGetValue(alias, out var physicalTable) &&
+                       (physicalTable.Equals("ACCOUNTS", StringComparison.OrdinalIgnoreCase) ||
+                        physicalTable.Equals("BRANCHES", StringComparison.OrdinalIgnoreCase));
+            }
         }
 
         private sealed class RlsQueryVisitor : TSqlFragmentVisitor
@@ -421,7 +466,12 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
 
                 if (hasProtectedTable)
                 {
-                    QueriesWithProtectedTables.Add((querySql, HasQualifiedBranchPredicate(querySql, tableVisitor)));
+                    var hasBranchPredicate = node.WhereClause?.SearchCondition is { } condition
+                        && BranchPredicateExpressionValidator.GuaranteesBranchIsolation(
+                            condition,
+                            tableVisitor);
+
+                    QueriesWithProtectedTables.Add((querySql, hasBranchPredicate));
                 }
 
                 base.ExplicitVisit(node);
