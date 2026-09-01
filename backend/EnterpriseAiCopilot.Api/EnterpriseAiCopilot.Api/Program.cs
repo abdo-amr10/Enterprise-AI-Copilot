@@ -3,6 +3,7 @@ using EnterpriseAiCopilot.API.Middlewares;
 using EnterpriseAiCopilot.Application;
 using FluentValidation.AspNetCore;
 using Microsoft.OpenApi;
+using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -62,6 +63,10 @@ app.UseExceptionHandler();
 
 app.UseSwagger();
 app.UseSwaggerUI();
+app.MapScalarApiReference("/scalar", options =>
+{
+    options.WithOpenApiRoutePattern("/swagger/{documentName}/swagger.json");
+});
 
 
 app.UseHttpsRedirection();
