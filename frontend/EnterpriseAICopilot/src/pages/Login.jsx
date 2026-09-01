@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import Logo from '../assets/Logo.png'
 import '../styles/login.css'
 import {
@@ -8,7 +9,10 @@ import {
   IconEyeOff,
   IconAlertCircle,
   IconLoader,
+  IconArrowRight,
 } from "../components/icons";
+import { useAuth } from '../context/useAuth'
+import { HOME_BY_ROLE } from '../config/routes'
 
 function Login() {
   const [email, setEmail] = useState('')
@@ -16,6 +20,12 @@ function Login() {
   const [showPassword, setShowPassword] = useState(false)
   const [errors, setErrors] = useState({})
   const [isLoading, setIsLoading] = useState(false)
+  const [serverError, setServerError] = useState('')
+  const { login, isAuthenticated, user } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  if (isAuthenticated) return <Navigate to={HOME_BY_ROLE[user.role]} replace />
 
   const handleSubmit = (event) => {
     event.preventDefault()
@@ -26,8 +36,8 @@ function Login() {
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length) return
 
-    setIsLoading(true)
-    window.setTimeout(() => setIsLoading(false), 700)
+    setIsLoading(true); setServerError('')
+    login({ email, password }).then((nextUser) => navigate(location.state?.from || HOME_BY_ROLE[nextUser.role], { replace: true })).catch((error) => setServerError(error.message)).finally(() => setIsLoading(false))
   }
 
   return (
@@ -101,10 +111,11 @@ function Login() {
               </button>
             </div>
             {errors.password && <p className="login-field-error" role="alert"><IconAlertCircle aria-hidden="true" />{errors.password}</p>}
+            {serverError && <p className="login-field-error" role="alert"><IconAlertCircle aria-hidden="true" />{serverError}</p>}
 
             <button className="login-submit" type="submit" disabled={isLoading}>
               {isLoading ? <><IconLoader className="login-loader" aria-hidden="true" />Signing in...</> : <>Sign in
-              <span aria-hidden="true">→</span>
+              <IconArrowRight aria-hidden="true" />
               </>}
             </button>
           </form>

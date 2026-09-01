@@ -254,10 +254,7 @@
   outline-offset: 3px;
 }
 
-.login-submit span {
-  font-size: 1.25rem;
-  line-height: 0;
-}
+.login-submit svg { width: 18px; height: 18px; }
 
 .login-support {
   margin: 28px 0 0;

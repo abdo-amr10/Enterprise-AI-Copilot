@@ -1,2 +1,66 @@
-import {useState} from 'react';import AdminSidebar from '../components/AdminSidebar';import AdminTopBar from '../components/AdminTopBar';import '../styles/admin.css';
-export default function AdminReview(){const [state,setState]=useState('review');return <main className="admin-shell"><AdminSidebar active="semantic"/><section className="admin-main"><AdminTopBar title="Review draft" description="Inspect a pending semantic revision before making it available to Copilot."/><div className="review-header"><div><small>REVISION rev-103</small><h2>ERP Semantic Layer · Pending review</h2><span>Generated today at 11:24 AM · Full rebuild</span></div><span className="admin-warning">Pending review</span></div>{state==='review'?<div className="admin-content-grid"><article className="admin-card"><small>VALIDATION</small><h3>3 items need attention</h3><ul className="admin-list"><li>Customer relationship missing cardinality</li><li>Revenue measure needs a business label</li><li>One dimension has no description</li></ul></article><article className="admin-card"><small>OBJECTS GENERATED</small><h3>24 entities · 18 measures</h3><p>Review relationships, business rules, and validation issues before approval.</p></article></div>:<article className={`admin-card admin-form ${state==='approved'?'approved':''}`}><h3>{state==='approved'?'Revision approved':'Revision rejected'}</h3><p>{state==='approved'?'Version v1.3 is now the approved semantic layer.':'The revision remains unpublished and can be resubmitted after edits.'}</p></article>}<div className="admin-actions review-actions"><button onClick={()=>setState('rejected')}>Reject draft</button><button className="primary" onClick={()=>setState('approved')}>Approve revision</button></div></section></main>}
+import { useState } from "react";
+import AdminSidebar from "../components/AdminSidebar";
+import AdminTopBar from "../components/AdminTopBar";
+import "../styles/admin.css";
+export default function AdminReview() {
+  const [state, setState] = useState("review");
+  return (
+    <main className="admin-shell">
+      <AdminSidebar active="semantic" />
+      <section className="admin-main">
+        <AdminTopBar
+          title="Review draft"
+          description="Inspect a pending semantic revision before making it available to Copilot."
+        />
+        <div className="review-header">
+          <div>
+            <small>REVISION rev-103</small>
+            <h2>ERP Semantic Layer · Pending review</h2>
+            <span>Generated today at 11:24 AM · Full rebuild</span>
+          </div>
+          <span className="admin-warning">Pending review</span>
+        </div>
+        {state === "review" ? (
+          <div className="admin-content-grid">
+            <article className="admin-card">
+              <small>VALIDATION</small>
+              <h3>3 items need attention</h3>
+              <ul className="admin-list">
+                <li>Customer relationship missing cardinality</li>
+                <li>Revenue measure needs a business label</li>
+                <li>One dimension has no description</li>
+              </ul>
+            </article>
+            <article className="admin-card">
+              <small>OBJECTS GENERATED</small>
+              <h3>24 entities · 18 measures</h3>
+              <p>
+                Review relationships, business rules, and validation issues
+                before approval.
+              </p>
+            </article>
+          </div>
+        ) : (
+          <article
+            className={`admin-card admin-form ${state === "approved" ? "approved" : ""}`}
+          >
+            <h3>
+              {state === "approved" ? "Revision approved" : "Revision rejected"}
+            </h3>
+            <p>
+              {state === "approved"
+                ? "Version v1.3 is now the approved semantic layer."
+                : "The revision remains unpublished and can be resubmitted after edits."}
+            </p>
+          </article>
+        )}
+        <div className="admin-actions review-actions">
+          <button onClick={() => setState("rejected")}>Reject draft</button>
+          <button className="primary" onClick={() => setState("approved")}>
+            Approve revision
+          </button>
+        </div>
+      </section>
+    </main>
+  );
+}

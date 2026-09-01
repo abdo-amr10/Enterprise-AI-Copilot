@@ -1,2 +1,96 @@
-import { useState } from 'react'; import AppSidebar from '../components/AppSidebar'; import AppTopBar from '../components/AppTopBar'; import '../styles/history.css';
-export default function QuestionDetails(){const [state,setState]=useState('success'); const body=state==='success'?<><div className="chat-question">Show me the total revenue</div><div className="chat-answer"><p>Total revenue this month</p><strong>$145,000</strong><span>Active customers generated $145,000 in revenue this month.</span></div></>:state==='failed'?<div className="chat-answer error"><h2>We couldn’t complete this question</h2><p>The system could not generate a safe read-only query. Try rephrasing your request.</p></div>:<div className="chat-answer error"><h2>This question is unavailable</h2><p>You no longer have access to view this question or its result.</p></div>;return <main className="copilot-shell"><AppSidebar active="history"/><section className="copilot-main"><AppTopBar title="Question Details"/><a className="back" href="/history">← Back to history</a><div className="detail-actions">{['success','failed','unavailable'].map(x=><button onClick={()=>setState(x)}>{x}</button>)}</div><div className="chat-thread">{body}</div></section></main>}
+
+import { useEffect, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import AppShell from "../components/AppShell";
+import ChatQuestion from "../components/ChatQuestion";
+import ConversationFeedback from "../components/ConversationFeedback";
+import SummaryCard from "../components/SummaryCard";
+import { IconArrowLeft, IconLoader } from "../components/icons";
+import { fetchHistoryItem } from "../services/historyService";
+import { formatHistoryDate } from "../utils/formatDate";
+import "../styles/history.css";
+
+export default function QuestionDetails() {
+  const { queryId } = useParams();
+  const [state, setState] = useState("loading"); // loading | success | failed | unavailable | error
+  const [item, setItem] = useState(null);
+
+  const load = () => {
+    setState("loading");
+    fetchHistoryItem(queryId)
+      .then((response) => {
+        if (!response) {
+          setState("unavailable");
+          return;
+        }
+        setItem(response);
+        setState(response.status === "Failed" ? "failed" : "success");
+      })
+      .catch((err) => {
+        setState(err.status === 404 ? "unavailable" : "error");
+      });
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryId]);
+
+  const body =
+    state === "loading" ? (
+      <div className="history-state history-loading">
+        <div className="history-state-icon loading-icon">
+          <IconLoader aria-hidden="true" />
+        </div>
+        <span className="history-state-kicker">Please wait</span>
+        <h2>Loading this question</h2>
+        <p>We’re retrieving the question and its result.</p>
+      </div>
+    ) : state === "success" ? (
+      <>
+        <ChatQuestion>{item.question}</ChatQuestion>
+        <SummaryCard
+          question={item.question}
+          textSummary={item.result?.textSummary}
+          data={item.result?.data}
+          status={item.status}
+          queryId={item.queryId}
+          askedAt={formatHistoryDate(item.createdAt)}
+        />
+      </>
+    ) : state === "failed" ? (
+      <>
+        <ChatQuestion>{item?.question}</ChatQuestion>
+        <ConversationFeedback title="We couldn’t complete this question.">
+          {item?.message || "This question could not be completed."}
+        </ConversationFeedback>
+      </>
+    ) : state === "error" ? (
+      <div className="history-state history-error">
+        <div className="history-state-icon error-icon">
+          <span aria-hidden="true">!</span>
+        </div>
+        <span className="history-state-kicker">Something went wrong</span>
+        <h2>We couldn’t load this question</h2>
+        <p>Please try again in a moment.</p>
+        <button className="history-primary-action" type="button" onClick={load}>
+          Try again
+        </button>
+      </div>
+    ) : (
+      <ConversationFeedback title="This question is unavailable.">
+        You no longer have access to view this question or its result.
+      </ConversationFeedback>
+    );
+
+  return (
+    <AppShell active="history" title="Question Details" mainClassName="question-details-main">
+      <Link className="back" to="/history">
+        <IconArrowLeft aria-hidden="true" />
+        Back to history
+      </Link>
+
+      <div className="chat-thread">{body}</div>
+    </AppShell>
+  );
+}
