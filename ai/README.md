@@ -12,8 +12,8 @@ POST /internal/copilot/text-to-sql
   -> Text-to-SQL generation (Ollama through LLMClient)
   -> structured-response and independent read-only checks
   -> syntax -> schema -> relationship -> parameterized RLS-shape validation
-  -> SQL critic -> verified findings -> correction
-  -> at most 3 corrections
+  -> SQL critic -> verified findings -> correction (with prompt-facing rejected candidates history)
+  -> at most 3 corrections (with deterministic AST oscillation detection)
   -> validated SQL returned to Backend
   -> Backend executes SQL
   -> optional Backend RLS/execution rejection retry
@@ -25,8 +25,9 @@ POST /internal/copilot/text-to-sql
 
 The critic is always called after deterministic validation succeeds. Its
 findings are advisory and table/column claims are checked against the physical
-schema before correction. Every corrected statement runs the complete
-deterministic and critic sequence again.
+schema before correction. Each correction step receives a `<REJECTED_CANDIDATES>`
+history of prior failed queries from the active run to prevent oscillation. Every
+corrected statement runs the complete deterministic and critic sequence again.
 
 The Backend remains the sole authority for authentication and the actual branch
 value. The AI validates the required *parameterized SQL shape* from the

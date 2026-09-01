@@ -148,6 +148,20 @@ class DebugRunner:
                     with self._observer.stage("generation") as measure: generation = generation_service.generate(request)
                     result.metrics["generation_latency_ms"] = measure["duration_ms"]
                     result.local["flow"]["generation"].update(executed=True, status="passed", duration_ms=measure["duration_ms"])
+                    
+                    in_tok = getattr(generation, "input_tokens", None)
+                    out_tok = getattr(generation, "output_tokens", None)
+                    tot_tok = getattr(generation, "total_tokens", None)
+                    if in_tok is not None:
+                        result.tags["input_tokens"] = str(in_tok)
+                        result.metrics["input_tokens"] = float(in_tok)
+                    if out_tok is not None:
+                        result.tags["output_tokens"] = str(out_tok)
+                        result.metrics["output_tokens"] = float(out_tok)
+                    if tot_tok is not None:
+                        result.tags["total_tokens"] = str(tot_tok)
+                        result.metrics["total_tokens"] = float(tot_tok)
+
                     clean_gen_sql = generation.text
                     try:
                         cleaned = generation.text.strip()
@@ -165,7 +179,19 @@ class DebugRunner:
                     result.tags["tables_count"] = len(tables_used)
                     result.local["tables_used"] = tables_used
                     result.local["tables_count"] = len(tables_used)
-                    self._observer.log_span("llm_raw_sql_generation", inputs={"prompt": request.prompt[:300]}, outputs={"raw_sql": clean_gen_sql})
+                    
+                    if hasattr(self._observer, "log_llm_span"):
+                        self._observer.log_llm_span(
+                            "llm_raw_sql_generation",
+                            prompt=request.prompt,
+                            response_text=clean_gen_sql,
+                            model_name=getattr(generation, "model_name", None) or "qwen2.5-coder:7b",
+                            provider=getattr(generation, "provider", None) or "ollama",
+                            input_tokens=in_tok,
+                            output_tokens=out_tok,
+                        )
+                    else:
+                        self._observer.log_span("llm_raw_sql_generation", inputs={"prompt": request.prompt[:300]}, outputs={"raw_sql": clean_gen_sql})
             else:
                 pipeline, events = self._pipeline_factory(), []
                 text_to_sql = pipeline._text_to_sql_pipeline
@@ -202,12 +228,34 @@ class DebugRunner:
                     result.metrics["generation_latency_ms"] = measure_gen["duration_ms"]
                     result.local["flow"]["generation"].update(executed=True, status="passed", duration_ms=measure_gen["duration_ms"])
 
+                    in_tok = getattr(gen_response, "input_tokens", None)
+                    out_tok = getattr(gen_response, "output_tokens", None)
+                    tot_tok = getattr(gen_response, "total_tokens", None)
+                    if in_tok is not None:
+                        result.tags["input_tokens"] = str(in_tok)
+                        result.metrics["input_tokens"] = float(in_tok)
+                    if out_tok is not None:
+                        result.tags["output_tokens"] = str(out_tok)
+                        result.metrics["output_tokens"] = float(out_tok)
+                    if tot_tok is not None:
+                        result.tags["total_tokens"] = str(tot_tok)
+                        result.metrics["total_tokens"] = float(tot_tok)
+
                     try:
                         payload = pipeline._parse_generation_response(gen_response.text)
                     except Exception:
                         payload = {}
                     initial_sql = payload.get("sql", "").strip() if isinstance(payload, dict) else ""
-                    events.append({"event": "initial_generation", "sql": initial_sql})
+                    events.append({
+                        "event": "initial_generation",
+                        "sql": initial_sql,
+                        "prompt": prompt_req.prompt,
+                        "raw_response": gen_response.text,
+                        "input_tokens": in_tok,
+                        "output_tokens": out_tok,
+                        "model_name": getattr(gen_response, "model_name", None) or "qwen2.5-coder:7b",
+                        "provider": getattr(gen_response, "provider", None) or "ollama",
+                    })
 
                     # 4. Validation & Self-Correction Stage
                     with self._observer.stage("validation") as measure_val:
@@ -310,6 +358,9 @@ class DebugRunner:
                     result.stopping_point = "production validated-SQL boundary"
                     if not outcome.is_valid:
                         result.status = "failed"
+                        result.local["final_sql"] = None
+                        result.local["failure_reason"] = "; ".join(outcome.issues) if outcome.issues else "Query failed validation and correction attempts."
+                        result.local["issues"] = list(outcome.issues)
                 else:
                     with self._observer.stage("request") as measure_request:
                         outcome = pipeline.run(
@@ -368,7 +419,18 @@ class DebugRunner:
                     ev_type = ev.get("event")
                     if ev_type == "initial_generation":
                         init_sql = ev.get("sql", "")
-                        self._observer.log_span("01_initial_llm_generation", inputs={"question": question}, outputs={"initial_sql": init_sql})
+                        if hasattr(self._observer, "log_llm_span"):
+                            self._observer.log_llm_span(
+                                "01_initial_llm_generation",
+                                prompt=ev.get("prompt", question),
+                                response_text=ev.get("raw_response", init_sql),
+                                model_name=ev.get("model_name", "qwen2.5-coder:7b"),
+                                provider=ev.get("provider", "ollama"),
+                                input_tokens=ev.get("input_tokens"),
+                                output_tokens=ev.get("output_tokens"),
+                            )
+                        else:
+                            self._observer.log_span("01_initial_llm_generation", inputs={"question": question}, outputs={"initial_sql": init_sql})
                         sql_history_lines.extend([
                             "-- --------------------------------------------------------------------",
                             "-- [STEP 1] INITIAL LLM GENERATION (Attempt 0)",

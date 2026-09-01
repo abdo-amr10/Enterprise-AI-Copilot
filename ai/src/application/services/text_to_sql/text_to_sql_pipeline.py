@@ -35,6 +35,7 @@ class TextToSQLPipeline:
         top_k: int | None = None,
         semantic_context: str | None = None,
         correction_feedback: str = "",
+        conversation_context: str = "",
     ) -> GenerationResponse:
         context = semantic_context if semantic_context is not None else self.build_context(question, top_k)
         request = self._prompt_service.build_request(
@@ -42,6 +43,7 @@ class TextToSQLPipeline:
             context,
             date.today().isoformat(),
             correction_feedback,
+            conversation_context=conversation_context,
         )
 
         return self._sql_generation_service.generate(request)

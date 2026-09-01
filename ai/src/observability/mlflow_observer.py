@@ -12,6 +12,41 @@ from src.observability.settings import ObservabilitySettings
 logger = logging.getLogger(__name__)
 
 
+def calculate_llm_cost(
+    model_name: str | None,
+    input_tokens: int | None,
+    output_tokens: int | None,
+    provider: str = "ollama",
+) -> dict[str, float]:
+    """Calculate input, output, and total costs in USD based on model pricing."""
+    in_tok = max(0, int(input_tokens or 0))
+    out_tok = max(0, int(output_tokens or 0))
+    m = (model_name or "").lower()
+
+    # Cost per 1M tokens in USD
+    if "gpt-4o-mini" in m:
+        input_rate, output_rate = 0.15, 0.60
+    elif "gpt-4o" in m:
+        input_rate, output_rate = 2.50, 10.00
+    elif "claude-3-5-sonnet" in m or "claude-3.5-sonnet" in m:
+        input_rate, output_rate = 3.00, 15.00
+    elif "qwen" in m or provider == "ollama":
+        # Standard local/open-weight inference cost benchmark
+        input_rate, output_rate = 0.15, 0.20
+    else:
+        input_rate, output_rate = 0.15, 0.20
+
+    in_cost = (in_tok / 1_000_000.0) * input_rate
+    out_cost = (out_tok / 1_000_000.0) * output_rate
+    tot_cost = in_cost + out_cost
+
+    return {
+        "input_cost": round(in_cost, 8),
+        "output_cost": round(out_cost, 8),
+        "total_cost": round(tot_cost, 8),
+    }
+
+
 class MLflowObserver:
     """Best-effort, explicit and lazy MLflow telemetry and tracing recorder.
 
@@ -39,6 +74,7 @@ class MLflowObserver:
         self._provided_mlflow, self._clock = mlflow_module, clock
         self._mlflow: Any | None = None
         self._active = False
+        self._run_id: str | None = None
 
     def start(self, tags: dict[str, Any]) -> None:
         """Start a new MLflow run if observability is enabled.
@@ -58,7 +94,16 @@ class MLflowObserver:
             if self.settings.tracking_uri:
                 self._mlflow.set_tracking_uri(self.settings.tracking_uri)
             self._mlflow.set_experiment(self.settings.experiment_name)
-            self._mlflow.start_run(tags={k: str(v) for k, v in safe_event(tags).items() if v is not None})
+            try:
+                run = self._mlflow.start_run(
+                    tags={k: str(v) for k, v in safe_event(tags).items() if v is not None},
+                    nested=True,
+                )
+            except TypeError:
+                run = self._mlflow.start_run(
+                    tags={k: str(v) for k, v in safe_event(tags).items() if v is not None}
+                )
+            self._run_id = getattr(getattr(run, "info", None), "run_id", None)
             self._active = True
         except Exception as exc:
             logger.warning("MLflow observability unavailable: %s", type(exc).__name__)
@@ -140,7 +185,7 @@ class MLflowObserver:
             data: Data dictionary to serialize and store.
             artifact_file: Relative filename for the saved artifact (e.g. 'debug_result.json').
         """
-        if not self._active or self._mlflow is None:
+        if not self._active or self._mlflow is None or not self.settings.save_raw_artifacts:
             return
         try:
             log_dict = getattr(self._mlflow, "log_dict", None)
@@ -156,7 +201,7 @@ class MLflowObserver:
             text: Text content to save.
             artifact_file: Relative filename for the saved artifact (e.g. 'generated_sql.sql').
         """
-        if not self._active or self._mlflow is None:
+        if not self._active or self._mlflow is None or not self.settings.save_raw_artifacts:
             return
         try:
             log_text = getattr(self._mlflow, "log_text", None)
@@ -172,6 +217,7 @@ class MLflowObserver:
         inputs: dict[str, Any] | None = None,
         outputs: dict[str, Any] | None = None,
         attributes: dict[str, Any] | None = None,
+        span_type: str | None = None,
     ) -> None:
         """Create a standalone OpenTelemetry / MLflow Span for diagnostic tracing.
 
@@ -180,13 +226,21 @@ class MLflowObserver:
             inputs: Optional input payload dictionary (sanitized before logging).
             outputs: Optional output payload dictionary (sanitized before logging).
             attributes: Optional extra attributes (sanitized before logging).
+            span_type: Optional span type (e.g. 'LLM', 'CHAIN', 'TOOL').
         """
         if not self._active or self._mlflow is None:
             return
         try:
             start_span = getattr(self._mlflow, "start_span", None)
             if callable(start_span):
-                with start_span(name=name) as span:
+                kwargs: dict[str, Any] = {"name": name}
+                if span_type:
+                    try:
+                        from mlflow.entities import SpanType
+                        kwargs["span_type"] = getattr(SpanType, span_type.upper(), span_type)
+                    except Exception:
+                        kwargs["span_type"] = span_type
+                with start_span(**kwargs) as span:
                     if inputs and hasattr(span, "set_inputs"):
                         span.set_inputs(safe_event(inputs))
                     if attributes and hasattr(span, "set_attributes"):
@@ -196,6 +250,71 @@ class MLflowObserver:
         except Exception as exc:
             logger.warning("MLflow span creation failed: %s", type(exc).__name__)
 
+    def log_llm_span(
+        self,
+        name: str,
+        *,
+        prompt: str,
+        response_text: str,
+        model_name: str = "qwen2.5-coder:7b",
+        provider: str = "ollama",
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        attributes: dict[str, Any] | None = None,
+    ) -> None:
+        """Log a dedicated LLM Span with real token counts and cost for MLflow 3 GenAI Tracing.
+
+        Args:
+            name: Span name (e.g. 'llm_sql_generation', 'sql_critic', 'sql_correction').
+            prompt: Text prompt sent to the LLM.
+            response_text: Text response returned by the LLM.
+            model_name: Model identifier (e.g. 'qwen2.5-coder:7b').
+            provider: Provider name (e.g. 'ollama').
+            input_tokens: Real input/prompt token count.
+            output_tokens: Real output/completion token count.
+            attributes: Optional additional attributes to attach.
+        """
+        in_tok = int(input_tokens or (max(1, len(prompt.split()) * 4 // 3)))
+        out_tok = int(output_tokens or (max(1, len(response_text.split()) * 4 // 3)))
+        tot_tok = in_tok + out_tok
+
+        cost_dict = calculate_llm_cost(model_name, in_tok, out_tok, provider)
+
+        span_attrs: dict[str, Any] = {
+            "mlflow.spanType": "LLM",
+            "mlflow.llm.model": model_name,
+            "mlflow.llm.provider": provider,
+            "mlflow.chat.tokenUsage": {
+                "input_tokens": in_tok,
+                "output_tokens": out_tok,
+                "total_tokens": tot_tok,
+            },
+            "mlflow.llm.cost": cost_dict,
+        }
+        if attributes:
+            span_attrs.update(attributes)
+
+        self.log_span(
+            name=name,
+            inputs={"prompt": prompt[:1000] if len(prompt) > 1000 else prompt},
+            outputs={"response": response_text[:1000] if len(response_text) > 1000 else response_text},
+            attributes=span_attrs,
+            span_type="LLM",
+        )
+
+        self.log(
+            metrics={
+                "input_tokens": float(in_tok),
+                "output_tokens": float(out_tok),
+                "total_tokens": float(tot_tok),
+                "total_cost": float(cost_dict["total_cost"]),
+            },
+            tags={
+                "model_name": model_name,
+                "model_provider": provider,
+            }
+        )
+
     def finish(self) -> None:
         """Finalize and close the active MLflow run."""
         if self._active and self._mlflow is not None:
@@ -204,4 +323,5 @@ class MLflowObserver:
             except Exception as exc:
                 logger.warning("MLflow finalization failed: %s", type(exc).__name__)
         self._active = False
+        self._run_id = None
 

@@ -354,7 +354,11 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
       }
 
       // 3. Generated SQL Tab
-      const finalSql = (data.local && (data.local.final_sql || data.local.generation)) || '-- No SQL generated';
+      let finalSql = (data.local && data.local.final_sql) || '';
+      if (!finalSql || data.status === 'failed') {
+        const reason = (data.local && (data.local.failure_reason || (data.local.issues && data.local.issues.join('; ')))) || 'Validation failed: No valid SQL produced.';
+        finalSql = `-- ❌ FAILED: No executable SQL produced\n-- Reason: ${reason}`;
+      }
       document.getElementById('outputSqlCode').innerText = finalSql;
 
       // 4. Validation & Self-Correction Steps Tab

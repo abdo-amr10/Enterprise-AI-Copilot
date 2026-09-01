@@ -7,12 +7,12 @@
   "embedding_dimension": 1024,
   "similarity_metric": "cosine",
   "index_type": "faiss.IndexFlatIP",
-  "document_count": 54,
+  "document_count": 65,
   "timings": {
-    "document_preparation_seconds": 0.00023020000026008347,
-    "embedding_seconds": 39.96249209999996,
-    "index_build_seconds": 0.061266799999884825,
-    "total_seconds": 40.02399830000013
+    "document_preparation_seconds": 0.001531900001282338,
+    "embedding_seconds": 248.08514549999927,
+    "index_build_seconds": 0.2402300000012474,
+    "total_seconds": 248.32691570000134
   },
   "index_path": "outputs\\semantic_layer\\semantic_index.faiss"
 }

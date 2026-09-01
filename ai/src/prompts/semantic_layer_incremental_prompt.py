@@ -83,6 +83,7 @@ Valid sections are:
 - measures
 - dimensions
 - business_rules
+- security_domains
 
 Valid actions are:
 
@@ -332,6 +333,7 @@ Use this structure:
     "measures": [],
     "dimensions": [],
     "business_rules": [],
+    "security_domains": [],
     "validation_issues": []
 }
 
@@ -370,22 +372,6 @@ For DELETE operations:
   operation and do not invent a replacement object.
 
 The incremental output represents only affected changes.
-
-For update operations, preserve the existing object_id exactly.
-
-For additions, object_id may be omitted because it is assigned by the
-system after merge.
-
-For deletions, the semantic object does not need to appear in the
-incremental output.
-
-==================================================
-13. VALIDATION-FRIENDLY OUTPUT
-==================================================
-
-The output has NOT been validated.
-
-The output has NOT been approved.
 
 The output will be passed through:
 

@@ -7,7 +7,9 @@ from typing import Any
 @dataclass(frozen=True)
 class CopilotAskRequest:
     question: str
-    conversation: tuple[dict[str, Any], ...]
+    conversation: tuple[dict[str, Any], ...] = ()
+    correlation_id: str | None = None
+    traceparent: str | None = None
 
     def __post_init__(self) -> None:
         if not self.question.strip():

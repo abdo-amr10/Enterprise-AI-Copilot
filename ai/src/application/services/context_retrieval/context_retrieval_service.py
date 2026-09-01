@@ -70,7 +70,7 @@ class ContextRetrievalService:
             self._valid_relationships(layer.get("relationships", [])),
             self._valid_relationships(physical_schema.get("relationships", [])),
         )
-        rls_tables = self._rls_required_tables(seed_tables)
+        rls_tables = self._rls_required_tables(seed_tables, layer)
         relationships = self._connecting_relationships(
             seed_tables | rls_tables, valid_relationships
         )
@@ -88,6 +88,8 @@ class ContextRetrievalService:
         self._append_entities(lines, layer.get("entities", []), tables)
         self._append_columns(lines, layer, tables, physical_schema)
         self._append_relationships(lines, relationships)
+        self._append_measures(lines, layer.get("measures", []), tables)
+        self._append_security_domain(lines, layer, tables)
         self._append_query_scope(lines, seed_tables, relationships)
         self._append_retrieved_rules(lines, results)
         return "\n".join(lines)
@@ -109,15 +111,39 @@ class ContextRetrievalService:
         return max(self._default_top_k, table_count * 4)
 
     @staticmethod
-    def _rls_required_tables(seed_tables: set[str]) -> set[str]:
-        """Return the Backend-required table dependencies for RLS SQL paths."""
-        if "loans" in seed_tables:
-            return {"customers", "accounts", "branches"}
-        if "merchants" in seed_tables:
-            return {"transactions", "accounts"}
-        if seed_tables & {"customers", "transactions", "cards"}:
-            return {"accounts"}
-        return set()
+    def _rls_required_tables(seed_tables: set[str], layer: dict[str, Any] | None = None) -> set[str]:
+        """Return table dependencies required by active security domain propagation paths."""
+        if not layer or not isinstance(layer, dict):
+            return set()
+        security_domains = layer.get("security_domains", [])
+        if not isinstance(security_domains, list):
+            return set()
+
+        required_tables: set[str] = set()
+        for domain in security_domains:
+            if not isinstance(domain, dict):
+                continue
+            canonical_root = domain.get("canonical_root", "")
+            root_table = canonical_root.split(".", 1)[0] if "." in canonical_root else canonical_root
+
+            propagation_paths = domain.get("propagation_paths", [])
+            if not isinstance(propagation_paths, list):
+                continue
+
+            for path_entry in propagation_paths:
+                if not isinstance(path_entry, dict):
+                    continue
+                target = path_entry.get("target_table")
+                if target in seed_tables:
+                    if root_table:
+                        required_tables.add(root_table)
+                    path_str = path_entry.get("path", "")
+                    for token in path_str.replace("->", " ").replace("=", " ").split():
+                        if "." in token:
+                            tbl = token.split(".", 1)[0].strip()
+                            if tbl:
+                                required_tables.add(tbl)
+        return required_tables - seed_tables
 
     def _physical_schema(self) -> dict[str, Any]:
         """Load physical columns when available without making retrieval fail."""
@@ -308,8 +334,17 @@ class ContextRetrievalService:
     @staticmethod
     def _append_entities(lines: list[str], entities: list[dict[str, Any]], tables: set[str]) -> None:
         for entity in entities:
-            if entity.get("mapping") in tables:
-                lines.append(f"ENTITY: {entity['name']} -> {entity['mapping']}")
+            mapping = entity.get("mapping")
+            if mapping in tables:
+                meta_parts = []
+                grain = entity.get("natural_grain") or entity.get("grain")
+                if grain:
+                    meta_parts.append(f"natural_grain: {grain}")
+                sec_domain = entity.get("security_domain")
+                if sec_domain:
+                    meta_parts.append(f"security_domain: {sec_domain}")
+                meta_str = f" [{', '.join(meta_parts)}]" if meta_parts else ""
+                lines.append(f"ENTITY: {entity['name']} -> {entity['mapping']}{meta_str}")
         if tables:
             lines.append("")
 
@@ -355,17 +390,121 @@ class ContextRetrievalService:
             return
         lines.append("APPROVED RELATIONSHIPS:")
         for relationship in relationships:
+            meta_parts = []
+            cardinality = relationship.get("cardinality") or "unknown"
+            meta_parts.append(f"cardinality: {cardinality}")
+            rel_type = relationship.get("relationship_type")
+            if rel_type:
+                meta_parts.append(f"type: {rel_type}")
+            sec_prop = relationship.get("security_propagation")
+            if sec_prop is not None:
+                meta_parts.append(f"security_propagation: {sec_prop}")
+            pred_eq = relationship.get("predicate_equivalence")
+            if pred_eq is not None:
+                if isinstance(pred_eq, dict):
+                    eq_str = ", ".join(f"{k}={v}" for k, v in pred_eq.items())
+                    meta_parts.append(f"predicate_equivalence: [{eq_str}]")
+                else:
+                    meta_parts.append(f"predicate_equivalence: {pred_eq}")
+            fanout = relationship.get("fanout_risk")
+            if fanout is not None:
+                meta_parts.append(f"fanout_risk: {fanout}")
+            meta_str = f" [{', '.join(meta_parts)}]" if meta_parts else ""
             lines.append(
                 f"- {relationship['from_table']}.{relationship['from_column']} "
-                f"-> {relationship['to_table']}.{relationship['to_column']}"
+                f"-> {relationship['to_table']}.{relationship['to_column']}{meta_str}"
             )
+        lines.append("")
+
+    @staticmethod
+    def _append_measures(
+        lines: list[str], measures: list[dict[str, Any]], tables: set[str]
+    ) -> None:
+        """Append explicit measure definitions and distinct semantics for tables in scope."""
+        relevant_measures = [
+            m for m in measures
+            if isinstance(m, dict) and isinstance(m.get("mapping"), str)
+            and m["mapping"].split(".", 1)[0] in tables
+        ]
+        if not relevant_measures:
+            return
+        lines.append("MEASURES & AGGREGATION SEMANTICS:")
+        for m in relevant_measures:
+            parts = [f"mapping: {m['mapping']}"]
+            if m.get("natural_entity"):
+                parts.append(f"natural_entity: {m['natural_entity']}")
+            if m.get("natural_grain"):
+                parts.append(f"natural_grain: {m['natural_grain']}")
+            if m.get("aggregation") or m.get("aggregation_function"):
+                agg = m.get("aggregation_function") or m.get("aggregation")
+                parts.append(f"aggregation: {agg}")
+            if "distinct_required" in m:
+                parts.append(f"distinct_required: {m['distinct_required']}")
+            if m.get("distinct_key"):
+                parts.append(f"distinct_key: {m['distinct_key']}")
+            if "fanout_sensitive" in m:
+                parts.append(f"fanout_sensitive: {m['fanout_sensitive']}")
+            lines.append(f"- {m['name']}: " + ", ".join(parts))
+        lines.append("")
+
+    @staticmethod
+    def _append_security_domain(
+        lines: list[str], layer: dict[str, Any], tables: set[str]
+    ) -> None:
+        """Append explicit security domain and canonical predicate metadata when relevant."""
+        security_domains = layer.get("security_domains", [])
+        if not isinstance(security_domains, list) or not security_domains:
+            return
+
+        relevant_domains = []
+        for domain in security_domains:
+            if not isinstance(domain, dict):
+                continue
+            canonical_root = domain.get("canonical_root", "")
+            root_table = canonical_root.split(".", 1)[0] if "." in canonical_root else canonical_root
+            propagation_paths = domain.get("propagation_paths", [])
+            is_relevant = (root_table in tables) or any(
+                isinstance(p, dict) and p.get("target_table") in tables
+                for p in propagation_paths
+            )
+            if is_relevant:
+                relevant_domains.append(domain)
+
+        if not relevant_domains:
+            return
+
+        lines.append("SECURITY DOMAIN & CANONICAL SECURITY SCOPE:")
+        for domain in relevant_domains:
+            name = domain.get("name", "unknown")
+            canon_pred = domain.get("canonical_predicate") or domain.get("canonical_root", "unknown")
+            desc = domain.get("description")
+            lines.append(f"- Security domain: {name}")
+            lines.append(f"- Canonical security root: {canon_pred}")
+            if desc:
+                lines.append(f"- Description: {desc}")
+            propagation_paths = domain.get("propagation_paths", [])
+            if propagation_paths:
+                lines.append("- Security propagation & predicate equivalence:")
+                for p in propagation_paths:
+                    if not isinstance(p, dict):
+                        continue
+                    target = p.get("target_table")
+                    if target and target in tables:
+                        pred_eq = p.get("predicate_equivalence")
+                        if isinstance(pred_eq, dict):
+                            eq_desc = f"predicate_equivalence: [{', '.join(f'{k}={v}' for k, v in pred_eq.items())}]"
+                        elif pred_eq is not None:
+                            eq_desc = f"predicate_equivalence: {pred_eq}"
+                        else:
+                            eq_desc = "predicate_equivalence: false"
+                        lines.append(f"  * {target}: {p.get('path')} (propagation: {p.get('propagation', 'allowed')}, {eq_desc})")
         lines.append("")
 
     @staticmethod
     def _append_query_scope(
         lines: list[str], seed_tables: set[str], relationships: list[dict[str, Any]]
     ) -> None:
-        """Add compact, deterministic guidance for complex aggregation shape."""
+        """Add compact, deterministic guidance for query scope, independent 1:N paths, and fanout risk."""
 
         if not seed_tables:
             return
@@ -373,16 +512,43 @@ class ContextRetrievalService:
             "QUERY SCOPE:",
             "- Required tables: " + ", ".join(sorted(seed_tables)),
         ))
+
+        # Detect independent one-to-many child paths from common parents in scope
+        parent_children: dict[str, set[str]] = {}
+        for relationship in relationships:
+            cardinality = relationship.get("cardinality")
+            from_t = relationship.get("from_table")
+            to_t = relationship.get("to_table")
+            if cardinality == "1:N" and from_t and to_t:
+                parent_children.setdefault(from_t, set()).add(to_t)
+
+        independent_paths = {
+            parent: children for parent, children in parent_children.items() if len(children) >= 2
+        }
+
         degree: dict[str, int] = {}
         for relationship in relationships:
             for table in (relationship["from_table"], relationship["to_table"]):
                 degree[table] = degree.get(table, 0) + 1
-        if any(count >= 3 for count in degree.values()):
+
+        has_fanout = bool(independent_paths) or any(count >= 3 for count in degree.values())
+
+        if has_fanout:
+            if independent_paths:
+                for parent, children in sorted(independent_paths.items()):
+                    lines.append(
+                        f"- Independent 1:N child paths detected from '{parent}': {', '.join(sorted(children))}"
+                    )
+            lines.append("- Fanout risk: true")
+            lines.append("- Requires pre-aggregation: true")
             lines.append(
                 "- SAFE AGGREGATION: For independent one-to-many paths, aggregate each "
                 "path to the requested grain in a separate CTE or subquery before joining "
                 "the aggregates. Do not join raw child rows together before SUM, COUNT, or AVG."
             )
+        else:
+            lines.append("- Fanout risk: false")
+            lines.append("- Requires pre-aggregation: false")
         lines.append("")
 
     @staticmethod

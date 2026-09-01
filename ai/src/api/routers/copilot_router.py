@@ -77,7 +77,12 @@ def text_to_sql(
     pipeline: CopilotRuntimePipeline = Depends(get_copilot_pipeline),
 )-> CopilotResponse:
     try:
-        ask_request = CopilotAskRequest(question=request.question, conversation=tuple(request.conversation))
+        ask_request = CopilotAskRequest(
+            question=request.question,
+            conversation=tuple(request.conversation),
+            correlation_id=request.correlation_id,
+            traceparent=request.traceparent,
+        )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 

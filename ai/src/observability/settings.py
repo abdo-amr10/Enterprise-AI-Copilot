@@ -67,6 +67,7 @@ class ObservabilitySettings:
     retrieval_latency_threshold_ms: float = _number("OBSERVABILITY_RETRIEVAL_LATENCY_THRESHOLD_MS", 1500)
     generation_latency_threshold_ms: float = _number("OBSERVABILITY_LLM_LATENCY_THRESHOLD_MS", 3000)
     low_retrieval_score: float = _number("OBSERVABILITY_LOW_RETRIEVAL_SCORE", -1.0)
+    save_raw_artifacts: bool = _flag("DEBUG_SAVE_RAW_ARTIFACTS", default=False)
 
     def __post_init__(self) -> None:
         if not 0 <= self.trace_sample_rate <= 1:

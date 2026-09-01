@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass
 
 
@@ -31,36 +32,39 @@ class ModelConfig:
             raise ValueError("max_output_tokens cannot exceed context_length.")
 
 
+_DEFAULT_MODEL = os.getenv("LLM_MODEL_NAME", "qwen2.5-coder:7b")
+_DEFAULT_CTX = int(os.getenv("LLM_CONTEXT_LENGTH", "4096"))
+_SEMANTIC_CTX = int(os.getenv("LLM_SEMANTIC_CONTEXT_LENGTH", "8192"))
+
 QWEN_CONFIG = ModelConfig(
-    model_name="qwen2.5-coder:7b",
+    model_name=_DEFAULT_MODEL,
     runtime="ollama",
     temperature=0.0,
-    # Keep below the 32k setting that exhausts local resources, while leaving
-    # enough room for multi-CTE analytical SQL and its JSON wrapper.
-    context_length=12288,
-    max_output_tokens=2048
+    context_length=_DEFAULT_CTX,
+    max_output_tokens=min(2048, _DEFAULT_CTX),
 )
 
 SEMANTIC_LAYER_CONFIG = ModelConfig(
-    model_name="qwen2.5-coder:7b",
+    model_name=_DEFAULT_MODEL,
     runtime="ollama",
     temperature=0.3,
-    context_length=12288,
-    max_output_tokens=12288,
+    context_length=_SEMANTIC_CTX,
+    max_output_tokens=min(4096, _SEMANTIC_CTX),
 )
 
 SQL_CRITIC_CONFIG = ModelConfig(
-    model_name="qwen2.5-coder:7b",
+    model_name=_DEFAULT_MODEL,
     runtime="ollama",
     temperature=0.0,
-    context_length=12288,
-    max_output_tokens=1024,
+    context_length=_DEFAULT_CTX,
+    max_output_tokens=min(1024, _DEFAULT_CTX),
 )
 
 SQL_CORRECTION_CONFIG = ModelConfig(
-    model_name="qwen2.5-coder:7b",
+    model_name=_DEFAULT_MODEL,
     runtime="ollama",
     temperature=0.0,
-    context_length=12288,
-    max_output_tokens=2048,
+    context_length=_DEFAULT_CTX,
+    max_output_tokens=min(2048, _DEFAULT_CTX),
 )
+

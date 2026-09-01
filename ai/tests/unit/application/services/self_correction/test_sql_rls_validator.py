@@ -5,9 +5,67 @@ from src.application.services.self_correction.validators.sql_syntax_validator im
 
 class _Schema:
     def get_schema(self):
-        return {"tables": {name: {"columns": []} for name in (
-            "branches", "accounts", "transactions", "cards", "customers", "loans", "merchants"
-        )}}
+        return {
+            "tables": {
+                name: {"columns": []}
+                for name in (
+                    "branches",
+                    "accounts",
+                    "transactions",
+                    "cards",
+                    "customers",
+                    "loans",
+                    "merchants",
+                )
+            },
+            "security_domains": [
+                {
+                    "name": "branch",
+                    "canonical_root": "accounts.branch_id",
+                    "canonical_predicate": "accounts.branch_id = @UserBranchId",
+                    "propagation_paths": [
+                        {
+                            "target_table": "accounts",
+                            "path": "accounts.branch_id = @UserBranchId",
+                            "propagation": "allowed",
+                            "is_canonical_root": True,
+                        },
+                        {
+                            "target_table": "branches",
+                            "path": "branches.branch_id = @UserBranchId",
+                            "propagation": "allowed",
+                            "predicate_equivalence": {"INNER JOIN": True},
+                        },
+                        {
+                            "target_table": "transactions",
+                            "path": "transactions.account_id = accounts.account_id -> accounts.branch_id = @UserBranchId",
+                            "propagation": "allowed",
+                        },
+                        {
+                            "target_table": "cards",
+                            "path": "cards.account_id = accounts.account_id -> accounts.branch_id = @UserBranchId",
+                            "propagation": "allowed",
+                        },
+                        {
+                            "target_table": "customers",
+                            "path": "customers.customer_id = accounts.customer_id -> accounts.branch_id = @UserBranchId",
+                            "propagation": "allowed",
+                        },
+                        {
+                            "target_table": "loans",
+                            "path": "loans.customer_id = customers.customer_id -> customers.customer_id = accounts.customer_id -> branches.branch_id = @UserBranchId",
+                            "propagation": "allowed",
+                            "predicate_equivalence": {"INNER JOIN": True},
+                        },
+                        {
+                            "target_table": "merchants",
+                            "path": "merchants.merchant_id = transactions.merchant_id -> transactions.account_id = accounts.account_id -> accounts.branch_id = @UserBranchId",
+                            "propagation": "allowed",
+                        },
+                    ],
+                }
+            ],
+        }
 
 
 def _validator():
@@ -22,6 +80,7 @@ def test_accepts_every_backend_rls_mapping():
         "SELECT t.transaction_id FROM transactions t INNER JOIN accounts a ON t.account_id = a.account_id WHERE a.branch_id = @UserBranchId",
         "SELECT ca.card_id FROM cards ca INNER JOIN accounts a ON ca.account_id = a.account_id WHERE a.branch_id = @UserBranchId",
         "SELECT c.customer_id FROM customers c INNER JOIN accounts a ON c.customer_id = a.customer_id WHERE a.branch_id = @UserBranchId",
+        "SELECT c.first_name, c.last_name, c.email, c.city FROM customers AS c WHERE c.customer_id IN (SELECT customer_id FROM accounts WHERE branch_id = @UserBranchId)",
         "SELECT l.loan_id FROM loans l INNER JOIN customers c ON l.customer_id = c.customer_id INNER JOIN accounts a ON c.customer_id = a.customer_id INNER JOIN branches b ON a.branch_id = b.branch_id WHERE b.branch_id = @UserBranchId",
         "SELECT m.merchant_id FROM merchants m INNER JOIN transactions t ON m.merchant_id = t.merchant_id INNER JOIN accounts a ON t.account_id = a.account_id WHERE a.branch_id = @UserBranchId",
     ]

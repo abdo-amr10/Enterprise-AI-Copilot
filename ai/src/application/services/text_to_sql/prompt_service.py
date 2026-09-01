@@ -18,6 +18,7 @@ class PromptService:
         semantic_context: str,
         current_date: str,
         correction_feedback: str = "",
+        conversation_context: str = "",
     ) -> GenerationRequest:
         """Build a generation request from question and semantic context.
 
@@ -27,6 +28,8 @@ class PromptService:
                 for the current question.
             current_date=current_date:Reference date used to interpret relative date
             expressions such as "today", "this month", or "last 30 days".
+            correction_feedback: Optional feedback from previous failed attempts.
+            conversation_context: Optional context from prior conversation turns.
 
         Returns:
             A GenerationRequest containing the final Text-to-SQL prompt.
@@ -42,6 +45,7 @@ class PromptService:
             semantic_context=semantic_context,
             current_date=current_date,
             correction_feedback=correction_feedback,
+            conversation_context=conversation_context,
         )
 
         return GenerationRequest(prompt=prompt)

@@ -30,6 +30,7 @@ class SQLCorrectionService:
         issues: list[ValidationIssue],
         relevant_schema: dict[str, Any],
         relevant_relationships: list[dict[str, Any]],
+        rejected_candidates: list[tuple[str, list[ValidationIssue]]] | None = None,
     ) -> str | None:
         prompt = SQL_CORRECTION_PROMPT.format(
             question=question,
@@ -37,11 +38,29 @@ class SQLCorrectionService:
             issues=self._render_issues(issues),
             relevant_schema=self._render_schema(relevant_schema),
             relevant_relationships=self._render_relationships(relevant_relationships),
+            rejected_candidates=self._render_rejected_candidates(rejected_candidates),
         )
 
         response = self._llm_client.generate(GenerationRequest(prompt=prompt))
 
         return self._extract_sql(response.text)
+
+    @staticmethod
+    def _render_rejected_candidates(
+        rejected_candidates: list[tuple[str, list[ValidationIssue]]] | None,
+    ) -> str:
+        if not rejected_candidates:
+            return "(no previous candidates rejected in this run)"
+
+        blocks = []
+        for idx, (cand_sql, cand_issues) in enumerate(rejected_candidates, 1):
+            issue_lines = "\n".join(f"  - [{issue.type}] {issue.message}" for issue in cand_issues)
+            blocks.append(
+                f"Candidate #{idx}:\n"
+                f"{cand_sql.strip()}\n"
+                f"Issues that caused rejection:\n{issue_lines if issue_lines else '  - (unspecified issue)'}"
+            )
+        return "\n\n".join(blocks)
 
     @staticmethod
     def _render_issues(issues: list[ValidationIssue]) -> str:

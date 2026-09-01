@@ -55,64 +55,69 @@ class SQLRelationshipValidator:
         """Validate that all JOIN clauses in the SQL correspond to approved relationships.
 
         Args:
-            sql: SQL statement string to validate.
+            sql: SQL statement string to validate (single or multi-statement).
             schema: Optional physical schema dictionary for alias resolution.
 
         Returns:
             ValidationResult indicating pass/fail status and any unapproved join issues.
         """
-        tree = self._syntax_validator.parse(sql)
+        try:
+            statements = self._syntax_validator.parse_all(sql)
+        except Exception:
+            return ValidationResult.ok()
+
         alias_map = self._schema_validator.resolve_table_aliases(sql, schema=schema)
         approved_pairs = self._approved_pairs(schema)
 
         issues: list[ValidationIssue] = []
         already_reported: set[tuple[str, str, str, str]] = set()
 
-        for join in tree.find_all(exp.Join):
-            on_condition = join.args.get("on")
-            if on_condition is None:
-                issues.append(
-                    ValidationIssue(
-                        type="MISSING_JOIN_CONDITION",
-                        message="Every table join must have a column-to-column ON condition matching an approved relationship.",
-                        source=_SOURCE,
-                    )
-                )
-                continue
-
-            for eq in on_condition.find_all(exp.EQ):
-                left, right = eq.this, eq.expression
-
-                if not (isinstance(left, exp.Column) and isinstance(right, exp.Column)):
-                    # Not a simple column-to-column equality (e.g. a filter
-                    # such as `a.status = 'active'`) -- out of scope here.
-                    continue
-
-                left_table = alias_map.get(left.table)
-                right_table = alias_map.get(right.table)
-
-                if left_table is None or right_table is None:
-                    # Unresolved/unknown table -- already reported by
-                    # SQLSchemaValidator, avoid duplicate noise.
-                    continue
-
-                pair = (left_table, left.name, right_table, right.name)
-                if pair in already_reported:
-                    continue
-
-                if not self._is_approved(pair, approved_pairs):
-                    already_reported.add(pair)
+        for tree in statements:
+            for join in tree.find_all(exp.Join):
+                on_condition = join.args.get("on")
+                if on_condition is None:
                     issues.append(
                         ValidationIssue(
-                            type="INVALID_RELATIONSHIP",
-                            message=(
-                                f"JOIN condition '{left_table}.{left.name} = "
-                                f"{right_table}.{right.name}' is not an approved "
-                                "relationship."
-                            ),
+                            type="MISSING_JOIN_CONDITION",
+                            message="Every table join must have a column-to-column ON condition matching an approved relationship.",
                             source=_SOURCE,
                         )
                     )
+                    continue
+
+                for eq in on_condition.find_all(exp.EQ):
+                    left, right = eq.this, eq.expression
+
+                    if not (isinstance(left, exp.Column) and isinstance(right, exp.Column)):
+                        # Not a simple column-to-column equality (e.g. a filter
+                        # such as `a.status = 'active'`) -- out of scope here.
+                        continue
+
+                    left_table = alias_map.get(left.table)
+                    right_table = alias_map.get(right.table)
+
+                    if left_table is None or right_table is None:
+                        # Unresolved/unknown table -- already reported by
+                        # SQLSchemaValidator, avoid duplicate noise.
+                        continue
+
+                    pair = (left_table, left.name, right_table, right.name)
+                    if pair in already_reported:
+                        continue
+
+                    if not self._is_approved(pair, approved_pairs):
+                        already_reported.add(pair)
+                        issues.append(
+                            ValidationIssue(
+                                type="INVALID_RELATIONSHIP",
+                                message=(
+                                    f"JOIN condition '{left_table}.{left.name} = "
+                                    f"{right_table}.{right.name}' is not an approved "
+                                    "relationship."
+                                ),
+                                source=_SOURCE,
+                            )
+                        )
 
         if issues:
             return ValidationResult.fail(issues)
@@ -124,9 +129,14 @@ class SQLRelationshipValidator:
         Reused by SelfCorrectionService to build the "relevant
         relationships" slice passed to the Correction LLM prompt.
         """
+        relationships = (
+            self._semantic_repository.load().get("relationships", [])
+            if self._semantic_repository is not None
+            else []
+        )
         return [
             relationship
-            for relationship in self._semantic_repository.load().get("relationships", [])
+            for relationship in relationships
             if relationship.get("from_table") in tables
             and relationship.get("to_table") in tables
             and all(
@@ -147,7 +157,11 @@ class SQLRelationshipValidator:
         infer a relationship from matching column names; it only retains
         Backend-authoritative join facts until the revision is regenerated.
         """
-        relationships = self._semantic_repository.load().get("relationships", [])
+        relationships = (
+            self._semantic_repository.load().get("relationships", [])
+            if self._semantic_repository is not None
+            else []
+        )
         pairs: set[tuple[str, str, str, str]] = set()
 
         for relationship in relationships:

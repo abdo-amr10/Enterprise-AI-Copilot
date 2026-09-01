@@ -13,6 +13,8 @@ class StrictModel(BaseModel):
 class CopilotRequest(StrictModel):
     question: str = Field(min_length=1)
     conversation: list[dict[str, Any]] = Field(default_factory=list)
+    correlation_id: str | None = Field(default=None)
+    traceparent: str | None = Field(default=None)
 
 
 class CopilotResponse(StrictModel):
@@ -30,7 +32,7 @@ class SemanticRetrieveRequest(CopilotRequest):
 
 
 class AffectedObjectRequest(StrictModel):
-    section: Literal["entities", "relationships", "measures", "dimensions", "business_rules"]
+    section: Literal["entities", "relationships", "measures", "dimensions", "business_rules", "security_domains"]
     action: Literal["add", "update", "delete"] = "update"
     id: str | None = None
     name: str | None = None

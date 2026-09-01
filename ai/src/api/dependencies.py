@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from src.observability.mlflow_observer import MLflowObserver
 from src.application.pipelines.context_retrieval.semantic_retrieval_pipeline import (
     SemanticRetrievalPipeline,
 )
@@ -144,6 +145,7 @@ def get_self_correction_service() -> SelfCorrectionService:
         rls_validator = SQLRlsValidator(
             syntax_validator=syntax_validator,
             schema_validator=schema_validator,
+            semantic_repository=get_semantic_repository(),
         )
         critic_service = SQLCriticService(
             llm_client=OllamaClient(config=SQL_CRITIC_CONFIG)
@@ -158,7 +160,10 @@ def get_self_correction_service() -> SelfCorrectionService:
             schema_validator=schema_validator,
             relationship_validator=relationship_validator,
             critic_service=critic_service,
-            finding_verifier=CriticFindingVerifier(get_schema_provider()),
+            finding_verifier=CriticFindingVerifier(
+                get_schema_provider(),
+                semantic_repository=get_semantic_repository(),
+            ),
             correction_service=correction_service,
             max_attempts=_SELF_CORRECTION_SETTINGS.max_attempts,
             rls_validator=rls_validator,
@@ -177,6 +182,7 @@ def get_copilot_pipeline() -> CopilotRuntimePipeline:
     return CopilotRuntimePipeline(
         text_to_sql_pipeline=text_to_sql_pipeline,
         self_correction_service=get_self_correction_service(),
+        observer=MLflowObserver(),
     )
 
 

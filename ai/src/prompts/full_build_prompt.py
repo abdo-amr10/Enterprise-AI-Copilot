@@ -188,6 +188,28 @@ However, sample data MUST NOT be used to create or modify database metadata.
 
 Do not create a table, column, relationship, data type, or constraint based only on sample data.
 
+## 6B. Security Domains and Row-Level Security
+
+When the authoritative source schema, relationships, documentation, or business glossary contain evidence of row-level security (RLS), tenant isolation, or organizational security scopes:
+
+Represent them in the `security_domains` section.
+
+Each security domain must specify:
+
+- `name`: Domain name (e.g. "branch", "tenant", "organization", "department").
+- `canonical_root`: Canonical table.column holding the security root key (e.g. "accounts.branch_id" or "organizations.tenant_id").
+- `canonical_predicate`: Parameterized predicate (e.g. "accounts.branch_id = @UserBranchId" or "organizations.tenant_id = @TenantId").
+- `security_scope`: Scope identifier string.
+- `description`: Description of the security constraint.
+- `propagation_paths`: Array of propagation paths for tables in scope:
+  - `target_table`: Physical table name.
+  - `path`: Path connecting target table to canonical root.
+  - `propagation`: "allowed" | "not_allowed" | "conditional" | "unknown".
+  - `is_canonical_root`: true if this is the root table.
+  - `predicate_equivalence`: Mapping of JOIN types to boolean/conditional equivalence.
+
+Never invent security domains if no evidence exists in the source metadata.
+
 ## 7. Missing or Ambiguous Information
 
 Never fabricate database facts.
@@ -225,6 +247,7 @@ Use this structure:
     "measures": [],
     "dimensions": [],
     "business_rules": [],
+    "security_domains": [],
     "validation_issues": []
 }
 

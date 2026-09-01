@@ -12,7 +12,21 @@ _SCHEMA = {
     "tables": {
         "customers": {"columns": [{"name": "customer_id"}]},
         "accounts": {"columns": [{"name": "customer_id"}, {"name": "branch_id"}]},
-    }
+    },
+    "security_domains": [
+        {
+            "name": "branch",
+            "canonical_root": "accounts.branch_id",
+            "canonical_predicate": "accounts.branch_id = @UserBranchId",
+            "propagation_paths": [
+                {
+                    "target_table": "customers",
+                    "path": "customers.customer_id = accounts.customer_id -> accounts.branch_id = @UserBranchId",
+                    "propagation": "allowed",
+                }
+            ],
+        }
+    ],
 }
 
 

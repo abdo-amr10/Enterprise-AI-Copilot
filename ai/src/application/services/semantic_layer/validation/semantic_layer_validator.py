@@ -130,6 +130,12 @@ class SemanticLayerValidator:
             draft.get("business_rules", []),
             warnings,
         )
+        self._check_security_domains(
+            draft.get("security_domains", []),
+            tables,
+            warnings,
+            errors,
+        )
         self._check_required_semantic_sections(
             draft,
             errors,
@@ -143,11 +149,17 @@ class SemanticLayerValidator:
             warnings,
         )
 
+        checks["security_domains"] = (
+            "passed"
+            if not self._has_category(errors, "security_domain")
+            else "failed"
+        )
+
         checks["schema_consistency"] = (
             "passed"
             if not any(
                 error.get("category")
-                in {"schema", "relationship", "mapping"}
+                in {"schema", "relationship", "mapping", "security_domain"}
                 for error in errors
             )
             else "failed"
@@ -175,6 +187,9 @@ class SemanticLayerValidator:
                 ),
                 "business_rules_checked": len(
                     draft.get("business_rules", [])
+                ),
+                "security_domains_checked": len(
+                    draft.get("security_domains", [])
                 ),
                 "error_count": len(errors),
                 "warning_count": len(warnings),
@@ -268,7 +283,7 @@ class SemanticLayerValidator:
                 expected = source.get(field)
                 actual = item.get(field)
 
-                if actual != expected:
+                if expected is not None and actual != expected:
                     errors.append(
                         {
                             "category": "relationship",
@@ -280,6 +295,38 @@ class SemanticLayerValidator:
                             ),
                         }
                     )
+
+            cardinality = item.get("cardinality")
+            valid_cardinalities = {
+                "1:1", "1:N", "N:1", "N:N",
+                "one_to_one", "one_to_many", "many_to_one", "many_to_many",
+                "unknown",
+            }
+            if cardinality is not None and cardinality not in valid_cardinalities:
+                errors.append(
+                    {
+                        "category": "relationship",
+                        "code": "invalid_cardinality",
+                        "message": (
+                            f"Relationship '{name}' has invalid cardinality '{cardinality}'. "
+                            f"Must be one of: {sorted(valid_cardinalities)}."
+                        ),
+                    }
+                )
+
+            sec_prop = item.get("security_propagation")
+            valid_sec_prop = {"allowed", "not_allowed", "conditional", "unknown"}
+            if sec_prop is not None and sec_prop not in valid_sec_prop:
+                errors.append(
+                    {
+                        "category": "relationship",
+                        "code": "invalid_security_propagation",
+                        "message": (
+                            f"Relationship '{name}' has invalid security_propagation '{sec_prop}'. "
+                            f"Must be one of: {sorted(valid_sec_prop)}."
+                        ),
+                    }
+                )
 
             for side in ("from", "to"):
                 table_name = item.get(f"{side}_table")
@@ -345,6 +392,7 @@ class SemanticLayerValidator:
             "measures",
             "dimensions",
             "business_rules",
+            "security_domains",
         )
 
         for section in sections:
@@ -565,6 +613,19 @@ class SemanticLayerValidator:
                     }
                 )
 
+            distinct_key = item.get("distinct_key")
+            if distinct_key and not SemanticLayerValidator._column_exists(table, distinct_key, tables):
+                errors.append(
+                    {
+                        "category": "mapping",
+                        "code": "unknown_distinct_key",
+                        "message": (
+                            f"Measure '{name}' specifies unknown distinct_key "
+                            f"'{table}.{distinct_key}'."
+                        ),
+                    }
+                )
+
     @staticmethod
     def _split_mapping(
         mapping: str,
@@ -623,6 +684,155 @@ class SemanticLayerValidator:
                         ),
                     )
                 )
+
+    @staticmethod
+    def _check_security_domains(
+        items: list[dict[str, Any]],
+        tables: dict[str, Any],
+        warnings: list[dict[str, Any]],
+        errors: list[dict[str, Any]],
+    ) -> None:
+        """Validate security domain declarations, canonical roots, and propagation paths."""
+        if not isinstance(items, list):
+            errors.append(
+                {
+                    "category": "security_domain",
+                    "code": "invalid_security_domains_section",
+                    "message": "security_domains must be a list of domain objects.",
+                }
+            )
+            return
+
+        valid_propagations = {"allowed", "not_allowed", "conditional", "unknown"}
+
+        for item in items:
+            if not isinstance(item, dict):
+                errors.append(
+                    {
+                        "category": "security_domain",
+                        "code": "invalid_security_domain",
+                        "message": "Each security domain must be an object.",
+                    }
+                )
+                continue
+
+            name = item.get("name")
+            if not name or not isinstance(name, str) or not name.strip():
+                errors.append(
+                    {
+                        "category": "security_domain",
+                        "code": "missing_security_domain_name",
+                        "message": "Security domain is missing a required name.",
+                    }
+                )
+
+            canonical_root = item.get("canonical_root")
+            if not canonical_root or not isinstance(canonical_root, str) or not canonical_root.strip():
+                errors.append(
+                    {
+                        "category": "security_domain",
+                        "code": "missing_canonical_root",
+                        "message": f"Security domain '{name or 'unnamed'}' requires a canonical_root (table.column format).",
+                    }
+                )
+            else:
+                if "." in canonical_root:
+                    root_table, root_col = canonical_root.split(".", 1)
+                    if root_table not in tables:
+                        errors.append(
+                            {
+                                "category": "security_domain",
+                                "code": "unknown_canonical_root_table",
+                                "message": f"Security domain '{name}' canonical root table '{root_table}' not in schema.",
+                            }
+                        )
+                    elif not SemanticLayerValidator._column_exists(root_table, root_col, tables):
+                        errors.append(
+                            {
+                                "category": "security_domain",
+                                "code": "unknown_canonical_root_column",
+                                "message": f"Security domain '{name}' canonical root column '{root_col}' not in table '{root_table}'.",
+                            }
+                        )
+
+            canonical_predicate = item.get("canonical_predicate")
+            if not canonical_predicate or not isinstance(canonical_predicate, str) or not canonical_predicate.strip():
+                errors.append(
+                    {
+                        "category": "security_domain",
+                        "code": "missing_canonical_predicate",
+                        "message": f"Security domain '{name or 'unnamed'}' requires a canonical_predicate string.",
+                    }
+                )
+
+            propagation_paths = item.get("propagation_paths")
+            if propagation_paths is not None:
+                if not isinstance(propagation_paths, list):
+                    errors.append(
+                        {
+                            "category": "security_domain",
+                            "code": "invalid_propagation_paths",
+                            "message": f"Security domain '{name}' propagation_paths must be a list.",
+                        }
+                    )
+                else:
+                    for path_item in propagation_paths:
+                        if not isinstance(path_item, dict):
+                            errors.append(
+                                {
+                                    "category": "security_domain",
+                                    "code": "invalid_propagation_path",
+                                    "message": f"Security domain '{name}' propagation path must be an object.",
+                                }
+                            )
+                            continue
+                        target_table = path_item.get("target_table")
+                        if not target_table or not isinstance(target_table, str):
+                            errors.append(
+                                {
+                                    "category": "security_domain",
+                                    "code": "missing_target_table",
+                                    "message": f"Security domain '{name}' propagation path is missing target_table.",
+                                }
+                            )
+                        elif target_table not in tables:
+                            errors.append(
+                                {
+                                    "category": "security_domain",
+                                    "code": "unknown_target_table",
+                                    "message": f"Security domain '{name}' propagation path target_table '{target_table}' not in schema.",
+                                }
+                            )
+
+                        path_str = path_item.get("path")
+                        if not path_str or not isinstance(path_str, str):
+                            errors.append(
+                                {
+                                    "category": "security_domain",
+                                    "code": "missing_path_expression",
+                                    "message": f"Security domain '{name}' propagation path for '{target_table}' is missing path expression.",
+                                }
+                            )
+
+                        prop = path_item.get("propagation")
+                        if prop is not None and prop not in valid_propagations:
+                            errors.append(
+                                {
+                                    "category": "security_domain",
+                                    "code": "invalid_propagation_value",
+                                    "message": f"Security domain '{name}' propagation path has invalid propagation '{prop}'. Must be one of: {sorted(valid_propagations)}.",
+                                }
+                            )
+
+                        pred_eq = path_item.get("predicate_equivalence")
+                        if pred_eq is not None and not isinstance(pred_eq, (dict, bool, str)):
+                            errors.append(
+                                {
+                                    "category": "security_domain",
+                                    "code": "invalid_predicate_equivalence",
+                                    "message": f"Security domain '{name}' predicate_equivalence must be a dictionary or boolean/string.",
+                                }
+                            )
 
     @staticmethod
     def _check_validation_issues(

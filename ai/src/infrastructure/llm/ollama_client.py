@@ -64,8 +64,30 @@ class OllamaClient(LLMClient):
                 f"Ollama at {self._host} could not serve model '{self._config.model_name}': {exc}"
             ) from exc
 
+        # Extract real token metrics from Ollama response
+        prompt_tokens = response.get("prompt_eval_count") if isinstance(response, dict) else getattr(response, "prompt_eval_count", None)
+        eval_tokens = response.get("eval_count") if isinstance(response, dict) else getattr(response, "eval_count", None)
+
+        text = response.get("response", "") if isinstance(response, dict) else getattr(response, "response", "")
+
+        # Robust heuristic fallback if Ollama does not report token counts
+        if prompt_tokens is None:
+            prompt_tokens = max(1, len(request.prompt.split()) * 4 // 3)
+        if eval_tokens is None:
+            eval_tokens = max(1, len(text.split()) * 4 // 3)
+        total_tokens = prompt_tokens + eval_tokens
+
+        total_duration_ns = response.get("total_duration") if isinstance(response, dict) else getattr(response, "total_duration", None)
+        duration_ms = float(total_duration_ns) / 1_000_000.0 if total_duration_ns else None
+
         return GenerationResponse(
-            text=response["response"]
+            text=text,
+            input_tokens=int(prompt_tokens),
+            output_tokens=int(eval_tokens),
+            total_tokens=int(total_tokens),
+            model_name=self._config.model_name,
+            provider="ollama",
+            duration_ms=duration_ms,
         )
 
 

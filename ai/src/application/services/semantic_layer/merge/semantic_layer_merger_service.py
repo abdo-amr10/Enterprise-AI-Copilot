@@ -15,7 +15,7 @@ class SemanticLayerMergeService:
     """
 
     _MERGEABLE_SECTIONS = (
-        "entities", "relationships", "measures", "dimensions", "business_rules"
+        "entities", "relationships", "measures", "dimensions", "business_rules", "security_domains"
     )
 
     def merge(
