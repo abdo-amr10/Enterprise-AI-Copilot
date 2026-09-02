@@ -1,8 +1,11 @@
+
+
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
 .copilot-shell {
   display: grid;
   grid-template-columns: var(--sidebar-width, 258px) minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   background: #f7f9fc;
   color: #131b2e;
   font-family: Inter, sans-serif;
@@ -131,7 +134,8 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   padding: 32px clamp(24px, 6vw, 90px) 22px;
   box-sizing: border-box;
 }
@@ -141,6 +145,7 @@
   justify-content: space-between;
   gap: 20px;
   min-height: 52px;
+  flex-shrink: 0;
 }
 .copilot-header > div {
   min-width: 0;
@@ -179,8 +184,35 @@
 }
 .copilot-workspace {
   display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  align-items: center;
   justify-content: center;
   padding: 48px 0 34px;
+}
+.copilot-workspace.has-thread {
+  align-items: flex-start;
+}
+
+.history-list {
+  display: grid;
+  gap: 8px;
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+  padding-right: 6px;
+}
+.copilot-workspace::-webkit-scrollbar {
+  width: 6px;
+}
+
+.copilot-workspace::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #cbd5e1;
+}
+
+.copilot-workspace::-webkit-scrollbar-track {
+  background: transparent;
 }
 .copilot-empty-state {
   display: flex;
@@ -332,6 +364,7 @@
 }
 .copilot-composer {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 12px;
   width: min(100%, 850px);
@@ -374,6 +407,7 @@
   height: 18px;
 }
 .copilot-security-note {
+  flex-shrink: 0;
   margin: 12px 0 0;
   color: #8990a8;
   font-size: 10px;
@@ -381,6 +415,7 @@
 }
 .copilot-new-question {
   display: block;
+  flex-shrink: 0;
   margin: 12px auto 0;
   border-radius: 8px;
   padding: 8px 12px;
@@ -390,52 +425,7 @@
     transform: rotate(360deg);
   }
 }
-@media (max-width: 720px) {
-  .copilot-shell {
-    grid-template-columns: 1fr;
-  }
-  .copilot-sidebar {
-    position: static;
-    height: auto;
-    min-height: auto;
-    padding: 16px;
-  }
-  .copilot-nav,
-  .copilot-sidebar-footer {
-    display: none;
-  }
-  .copilot-main {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 100vh;
-  padding: 32px clamp(24px, 6vw, 90px) 22px;
-  box-sizing: border-box;
-}
-  .copilot-status {
-    display: none;
-  }
- .copilot-workspace {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  align-items: center;
-  justify-content: center;
-  padding: 30px 0;
-  box-sizing: border-box;
-padding: 48px 0 34px;
-}
-  .copilot-suggestions {
-    display: grid;
-    width: 100%;
-  }
-  .copilot-suggestions button {
-    width: 100%;
-  }
-  .copilot-processing-message {
-    padding: 17px;
-  }
-}
+
 
 /*to be removed after the copilot service is wired in the next integration step*/
 .chat-question-card {
@@ -494,8 +484,8 @@ padding: 48px 0 34px;
   overflow-wrap: anywhere;
 }
 
-@media (max-width: 720px) {
-  .chat-question-card {
-    max-width: 90%;
-  }
+
+.copilot-thread {
+  overflow-y: auto;
+  min-height: 0;
 }

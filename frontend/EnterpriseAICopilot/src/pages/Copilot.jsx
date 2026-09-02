@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import AppShell from "../components/AppShell";
 import ChatQuestion from "../components/ChatQuestion";
 import ConversationFeedback from "../components/ConversationFeedback";
@@ -15,7 +15,10 @@ const suggestions = [
 ];
 
 function timeNow() {
-  return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date().toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 export default function Copilot() {
@@ -23,7 +26,12 @@ export default function Copilot() {
   const [turns, setTurns] = useState([]);
   const [question, setQuestion] = useState("");
   const [sending, setSending] = useState(false);
-  const conversationRef = useRef([]); // [{ role, content }], resent to the backend each turn for context
+  const conversationRef = useRef([]);
+  const threadEndRef = useRef(null);
+
+  useEffect(() => {
+    threadEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [turns]); // [{ role, content }], resent to the backend each turn for context
 
   const ask = async (value = question) => {
     const nextQuestion = value.trim();
@@ -32,7 +40,10 @@ export default function Copilot() {
     const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     setQuestion("");
     setSending(true);
-    setTurns((prev) => [...prev, { id: turnId, question: nextQuestion, status: "processing" }]);
+    setTurns((prev) => [
+      ...prev,
+      { id: turnId, question: nextQuestion, status: "processing" },
+    ]);
 
     try {
       const response = await askCopilot({
@@ -43,7 +54,8 @@ export default function Copilot() {
       const askedAt = timeNow();
 
       if (response?.status === "Failed") {
-        const errorMessage = response.message || "I couldn’t complete that request.";
+        const errorMessage =
+          response.message || "I couldn’t complete that request.";
         conversationRef.current = [
           ...conversationRef.current,
           { role: "user", content: nextQuestion },
@@ -52,9 +64,15 @@ export default function Copilot() {
         setTurns((prev) =>
           prev.map((turn) =>
             turn.id === turnId
-              ? { ...turn, status: "failed", errorMessage, queryId: response.queryId, askedAt }
-              : turn
-          )
+              ? {
+                  ...turn,
+                  status: "failed",
+                  errorMessage,
+                  queryId: response.queryId,
+                  askedAt,
+                }
+              : turn,
+          ),
         );
         return;
       }
@@ -68,17 +86,28 @@ export default function Copilot() {
       setTurns((prev) =>
         prev.map((turn) =>
           turn.id === turnId
-            ? { ...turn, status: "completed", report, queryId: response?.queryId, askedAt }
-            : turn
-        )
+            ? {
+                ...turn,
+                status: "completed",
+                report,
+                queryId: response?.queryId,
+                askedAt,
+              }
+            : turn,
+        ),
       );
     } catch (err) {
       setTurns((prev) =>
         prev.map((turn) =>
           turn.id === turnId
-            ? { ...turn, status: "failed", errorMessage: err.message || "Something went wrong. Please try again." }
-            : turn
-        )
+            ? {
+                ...turn,
+                status: "failed",
+                errorMessage:
+                  err.message || "Something went wrong. Please try again.",
+              }
+            : turn,
+        ),
       );
     } finally {
       setSending(false);
@@ -95,7 +124,7 @@ export default function Copilot() {
 
   return (
     <AppShell active="copilot" title="Ask your data">
-      <div className="copilot-workspace">
+      <div className={`copilot-workspace${isEmpty ? "" : " has-thread"}`}>
         {isEmpty ? (
           <section className="copilot-empty-state">
             <span className="copilot-empty-icon">
@@ -103,10 +132,17 @@ export default function Copilot() {
             </span>
             <p className="copilot-kicker">Enterprise intelligence</p>
             <h2>What would you like to know?</h2>
-            <p>Ask a question in plain language and Copilot will help you understand your business information.</p>
+            <p>
+              Ask a question in plain language and Copilot will help you
+              understand your business information.
+            </p>
             <div className="copilot-suggestions">
               {suggestions.map((suggestion) => (
-                <button key={suggestion} type="button" onClick={() => ask(suggestion)}>
+                <button
+                  key={suggestion}
+                  type="button"
+                  onClick={() => ask(suggestion)}
+                >
                   {suggestion}
                 </button>
               ))}
@@ -116,7 +152,10 @@ export default function Copilot() {
           <section className="copilot-thread" aria-live="polite">
             {turns.map((turn) => (
               <div key={turn.id} className="copilot-turn">
-                <ChatQuestion isAdmin={user?.role === "admin"}>{turn.question}</ChatQuestion>
+              <div key={turn.id} className="copilot-turn">
+                <ChatQuestion isAdmin={user?.role === "admin"}>
+                  {turn.question}
+                </ChatQuestion>
 
                 {turn.status === "processing" ? (
                   <article className="copilot-processing-message">
@@ -124,7 +163,10 @@ export default function Copilot() {
                       <span>
                         <IconSparkles aria-hidden="true" /> Copilot is working
                       </span>
-                      <IconLoader className="copilot-processing-loader" aria-hidden="true" />
+                      <IconLoader
+                        className="copilot-processing-loader"
+                        aria-hidden="true"
+                      />
                     </div>
                     <p>Reviewing your question and preparing a clear answer.</p>
                   </article>
@@ -147,7 +189,10 @@ export default function Copilot() {
                   </ConversationFeedback>
                 ) : null}
               </div>
-            ))}
+            </div>
+  ))}
+
+  <div ref={threadEndRef} />
           </section>
         )}
       </div>
@@ -171,10 +216,17 @@ export default function Copilot() {
         </button>
       </form>
 
-      <p className="copilot-security-note">Your questions are handled within your secure workspace.</p>
+      <p className="copilot-security-note">
+        Your questions are handled within your secure workspace.
+      </p>
 
       {!isEmpty ? (
-        <button className="copilot-new-question" type="button" onClick={startNewConversation} disabled={sending}>
+        <button
+          className="copilot-new-question"
+          type="button"
+          onClick={startNewConversation}
+          disabled={sending}
+        >
           Start a new conversation
         </button>
       ) : null}
