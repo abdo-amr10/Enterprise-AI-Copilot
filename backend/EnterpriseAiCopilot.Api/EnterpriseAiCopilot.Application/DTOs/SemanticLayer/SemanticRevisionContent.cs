@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 
@@ -11,6 +11,7 @@ namespace EnterpriseAiCopilot.Application.DTOs.SemanticLayer
         public List<object> Measures { get; set; } = new();
         public List<object> Dimensions { get; set; } = new();
         public List<object> BusinessRules { get; set; } = new();
+        public List<object> SecurityDomains { get; set; } = new();
         public List<object> ValidationIssues { get; set; } = new();
     }
 }

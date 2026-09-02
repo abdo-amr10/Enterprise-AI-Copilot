@@ -113,6 +113,8 @@ def test_validate_with_draft_and_schema_passes(app: FastAPI, client: TestClient)
             schema=_valid_schema(),
             relationships=[],
             has_semantic_context=True,
+            documentation="User documentation",
+            glossary="User glossary",
         )
     finally:
         app.dependency_overrides.clear()

@@ -33,7 +33,9 @@ class SQLCriticService:
         )
 
         try:
-            response = self._llm_client.generate(GenerationRequest(prompt=prompt))
+            response = self._llm_client.generate(
+                GenerationRequest(prompt=prompt, format="json")
+            )
         except Exception as exc:
             return CriticResult(status="FAIL", issues=(CriticIssue(
                 type="CRITIC_UNAVAILABLE",

@@ -309,6 +309,8 @@ Examples of real defects:
   semantics
 - an aggregate is calculated at the wrong grain
 - independent one-to-many paths multiply an aggregate incorrectly
+- user asks for individual records or relationship pairs (e.g. transactions for a branch, loans and their cards) but query aggregates them with SUM/COUNT/AVG/GROUP BY or uses STRING_AGG to combine multiple child IDs into one value
+- user asks for entities with matching/associated records and query uses LEFT JOIN instead of INNER JOIN, producing unwanted NULL rows for non-matching parents
 
 Do NOT report DISTINCT as missing unless uniqueness is explicitly required.
 

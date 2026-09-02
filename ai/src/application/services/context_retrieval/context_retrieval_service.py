@@ -261,8 +261,9 @@ class ContextRetrievalService:
         """Keep only relationships that can safely be rendered as SQL joins.
 
         The approved semantic revision is Backend-owned. An incomplete
-        relationship must not crash request handling or be turned into a
-        guessed join; it simply cannot participate in a join-complete prompt.
+        relationship, or one marked UNCERTAIN / not executable, must not crash request
+        handling or be turned into a guessed join; it simply cannot participate in a
+        join-complete prompt.
         """
         if not isinstance(relationships, list):
             return []
@@ -275,7 +276,10 @@ class ContextRetrievalService:
                 isinstance(relationship.get(field), str) and relationship[field]
                 for field in required
             )
+            and relationship.get("is_executable", True) is not False
+            and relationship.get("status") not in ("UNCERTAIN", "NO_SUPPORTED_RELATIONSHIP", "uncertain", "rejected")
         ]
+
 
     @staticmethod
     def _merge_relationships(

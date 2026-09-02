@@ -66,6 +66,35 @@ def test_generate_sends_correct_configuration_to_ollama():
     )
 
 
+def test_generate_sends_format_to_ollama_when_specified():
+    """Verify that format='json' is forwarded to Ollama when specified on the request."""
+
+    client = OllamaClient(config)
+
+    client._client = Mock()
+    client._client.generate.return_value = {
+        "response": '{"result": "ok"}'
+    }
+
+    request = GenerationRequest(
+        prompt="Generate JSON.",
+        format="json",
+    )
+
+    client.generate(request)
+
+    client._client.generate.assert_called_once_with(
+        model="qwen2.5-coder:7b",
+        prompt="Generate JSON.",
+        options={
+            "temperature": 0.0,
+            "num_ctx": 32768,
+            "num_predict": 2048,
+        },
+        format="json",
+    )
+
+
 def test_ollama_client_rejects_non_ollama_runtime():
     """Verify that OllamaClient rejects configurations using a non-Ollama runtime."""
     

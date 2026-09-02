@@ -1,804 +1,426 @@
 {
   "metadata": {
-    "semantic_layer_id": "sl-local-approved",
-    "revision_id": "rev-local-approved",
-    "version": "v1.0",
-    "trigger_type": "FullRebuild",
-    "status": "approved",
-    "validated": true,
-    "human_review_required": false,
-    "review": {
-      "decision": "approve",
-      "reviewer": "mariam",
-      "comments": "Approved after validation.",
-      "reviewed_at": "2026-08-12T14:58:22.319302+00:00",
-      "validation_status_at_review": "passed"
-    }
+    "status": "initial_draft",
+    "validated": false,
+    "human_review_required": true,
+    "semantic_layer_id": "sl-543d5639d6a6468f8c8bc7d6b9afb881",
+    "revision_id": "rev-c2d73e375fd940e4babada99c6fa73b3",
+    "base_revision_id": null,
+    "trigger_type": "FullRebuild"
   },
   "entities": [
     {
       "name": "Customer",
-      "object_id": "obj-entity-customer",
-      "mapping": "customers",
-      "source_table": "customers",
-      "natural_grain": "customer_id",
-      "grain": "customer_id",
-      "primary_identifier": "customer_id",
-      "security_domain": "branch",
-      "security_scope": "branch",
       "description": "A person represented in the banking system.",
-      "source": "business_glossary"
+      "mapping": "customers",
+      "source": "schema",
+      "generated": false,
+      "object_id": "obj-256a94b8-912e-40fb-9b50-efc5092d7119"
     },
     {
       "name": "Branch",
-      "object_id": "obj-entity-branch",
-      "mapping": "branches",
-      "source_table": "branches",
-      "natural_grain": "branch_id",
-      "grain": "branch_id",
-      "primary_identifier": "branch_id",
-      "security_domain": "branch",
-      "security_scope": "branch",
       "description": "A banking branch represented in the database.",
-      "source": "business_glossary"
+      "mapping": "branches",
+      "source": "schema",
+      "generated": false,
+      "object_id": "obj-39720b7d-d780-4e5f-8025-6b7e8e03e211"
     },
     {
       "name": "Account",
-      "object_id": "obj-entity-account",
-      "mapping": "accounts",
-      "source_table": "accounts",
-      "natural_grain": "account_id",
-      "grain": "account_id",
-      "primary_identifier": "account_id",
-      "security_domain": "branch",
-      "security_scope": "branch",
       "description": "A banking account owned by a customer.",
-      "source": "business_glossary"
+      "mapping": "accounts",
+      "source": "schema",
+      "generated": false,
+      "object_id": "obj-1bb16f72-3db8-4289-a578-d0c3afdd0dcd"
     },
     {
       "name": "Card",
-      "object_id": "obj-entity-card",
-      "mapping": "cards",
-      "source_table": "cards",
-      "natural_grain": "card_id",
-      "grain": "card_id",
-      "primary_identifier": "card_id",
-      "security_domain": "branch",
-      "security_scope": "branch",
       "description": "A card associated with a bank account.",
-      "source": "business_glossary"
+      "mapping": "cards",
+      "source": "schema",
+      "generated": false,
+      "object_id": "obj-5bc06704-2d12-4457-b461-112d1f65aed0"
     },
     {
       "name": "Merchant",
-      "object_id": "obj-entity-merchant",
-      "mapping": "merchants",
-      "source_table": "merchants",
-      "natural_grain": "merchant_id",
-      "grain": "merchant_id",
-      "primary_identifier": "merchant_id",
-      "security_domain": "branch",
-      "security_scope": "branch",
       "description": "A merchant referenced by transactions.",
-      "source": "business_glossary"
+      "mapping": "merchants",
+      "source": "schema",
+      "generated": false,
+      "object_id": "obj-9b223618-7a8e-4bc9-a61e-f011aebad085"
     },
     {
       "name": "Transaction",
-      "object_id": "obj-entity-transaction",
-      "mapping": "transactions",
-      "source_table": "transactions",
-      "natural_grain": "transaction_id",
-      "grain": "transaction_id",
-      "primary_identifier": "transaction_id",
-      "security_domain": "branch",
-      "security_scope": "branch",
       "description": "A financial transaction associated with an account and merchant.",
-      "source": "business_glossary"
+      "mapping": "transactions",
+      "source": "schema",
+      "generated": false,
+      "object_id": "obj-13847c67-4eab-4a2a-81d4-37f5172349e2"
     },
     {
       "name": "Loan",
-      "object_id": "obj-entity-loan",
-      "mapping": "loans",
-      "source_table": "loans",
-      "natural_grain": "loan_id",
-      "grain": "loan_id",
-      "primary_identifier": "loan_id",
-      "security_domain": "branch",
-      "security_scope": "branch",
       "description": "A loan record associated with a customer.",
-      "source": "business_glossary"
+      "mapping": "loans",
+      "source": "schema",
+      "generated": false,
+      "object_id": "obj-3c3e5f55-508b-4289-a5aa-168fe796781d"
     }
   ],
   "relationships": [
     {
       "name": "customers_accounts",
-      "object_id": "obj-relationship-customers-accounts",
       "from_table": "customers",
       "from_column": "customer_id",
       "to_table": "accounts",
       "to_column": "customer_id",
-      "source_table": "customers",
-      "source_column": "customer_id",
-      "target_table": "accounts",
-      "target_column": "customer_id",
       "cardinality": "1:N",
       "relationship_type": "foreign_key",
-      "nullable": false,
-      "join_direction": "customers_to_accounts",
-      "allowed_join_types": [
-        "INNER JOIN",
-        "LEFT JOIN"
-      ],
-      "aggregation_behavior": "fanout_risk",
-      "fanout_risk": true,
-      "security_propagation": "allowed",
-      "predicate_equivalence": {
-        "INNER JOIN": false,
-        "LEFT JOIN": false,
-        "RIGHT JOIN": false,
-        "FULL JOIN": false
-      },
-      "security_domain": "branch",
-      "description": "Foreign key relationship from customers to accounts (1:N). One customer may own multiple accounts."
+      "object_id": "obj-226ec94e-eeb7-41cf-a7d7-076608d9bfbb"
     },
     {
       "name": "branches_accounts",
-      "object_id": "obj-relationship-branches-accounts",
       "from_table": "branches",
       "from_column": "branch_id",
       "to_table": "accounts",
       "to_column": "branch_id",
-      "source_table": "branches",
-      "source_column": "branch_id",
-      "target_table": "accounts",
-      "target_column": "branch_id",
       "cardinality": "1:N",
       "relationship_type": "foreign_key",
-      "nullable": false,
-      "join_direction": "branches_to_accounts",
-      "allowed_join_types": [
-        "INNER JOIN",
-        "LEFT JOIN"
-      ],
-      "aggregation_behavior": "fanout_risk",
-      "fanout_risk": true,
-      "security_propagation": "allowed",
-      "predicate_equivalence": {
-        "INNER JOIN": true,
-        "LEFT JOIN": "conditional",
-        "RIGHT JOIN": "conditional",
-        "FULL JOIN": false
-      },
-      "security_domain": "branch",
-      "description": "Foreign key relationship from branches to accounts (1:N). Under INNER JOIN, filtering branches.branch_id = @UserBranchId is predicate-equivalent to accounts.branch_id = @UserBranchId."
+      "object_id": "obj-34ab33f8-5e2b-45a0-921d-0034772dd6de"
     },
     {
       "name": "accounts_cards",
-      "object_id": "obj-relationship-accounts-cards",
       "from_table": "accounts",
       "from_column": "account_id",
       "to_table": "cards",
       "to_column": "account_id",
-      "source_table": "accounts",
-      "source_column": "account_id",
-      "target_table": "cards",
-      "target_column": "account_id",
       "cardinality": "1:N",
       "relationship_type": "foreign_key",
-      "nullable": false,
-      "join_direction": "accounts_to_cards",
-      "allowed_join_types": [
-        "INNER JOIN",
-        "LEFT JOIN"
-      ],
-      "aggregation_behavior": "fanout_risk",
-      "fanout_risk": true,
-      "security_propagation": "allowed",
-      "predicate_equivalence": {
-        "INNER JOIN": false,
-        "LEFT JOIN": false,
-        "RIGHT JOIN": false,
-        "FULL JOIN": false
-      },
-      "security_domain": "branch",
-      "description": "Foreign key relationship from accounts to cards (1:N). One account may have multiple cards."
+      "object_id": "obj-f5eba5dc-4d12-4ffb-b1d0-b70792e0d4d7"
     },
     {
       "name": "accounts_transactions",
-      "object_id": "obj-relationship-accounts-transactions",
       "from_table": "accounts",
       "from_column": "account_id",
       "to_table": "transactions",
       "to_column": "account_id",
-      "source_table": "accounts",
-      "source_column": "account_id",
-      "target_table": "transactions",
-      "target_column": "account_id",
       "cardinality": "1:N",
       "relationship_type": "foreign_key",
-      "nullable": false,
-      "join_direction": "accounts_to_transactions",
-      "allowed_join_types": [
-        "INNER JOIN",
-        "LEFT JOIN"
-      ],
-      "aggregation_behavior": "fanout_risk",
-      "fanout_risk": true,
-      "security_propagation": "allowed",
-      "predicate_equivalence": {
-        "INNER JOIN": false,
-        "LEFT JOIN": false,
-        "RIGHT JOIN": false,
-        "FULL JOIN": false
-      },
-      "security_domain": "branch",
-      "description": "Foreign key relationship from accounts to transactions (1:N). One account contains multiple transactions."
+      "object_id": "obj-cdf07ed6-27de-4a6f-b9e5-179d2f2314eb"
     },
     {
       "name": "merchants_transactions",
-      "object_id": "obj-relationship-merchants-transactions",
       "from_table": "merchants",
       "from_column": "merchant_id",
       "to_table": "transactions",
       "to_column": "merchant_id",
-      "source_table": "merchants",
-      "source_column": "merchant_id",
-      "target_table": "transactions",
-      "target_column": "merchant_id",
       "cardinality": "1:N",
       "relationship_type": "foreign_key",
-      "nullable": false,
-      "join_direction": "merchants_to_transactions",
-      "allowed_join_types": [
-        "INNER JOIN",
-        "LEFT JOIN"
-      ],
-      "aggregation_behavior": "fanout_risk",
-      "fanout_risk": true,
-      "security_propagation": "allowed",
-      "predicate_equivalence": {
-        "INNER JOIN": false,
-        "LEFT JOIN": false,
-        "RIGHT JOIN": false,
-        "FULL JOIN": false
-      },
-      "security_domain": "branch",
-      "description": "Foreign key relationship from merchants to transactions (1:N). One merchant processes multiple transactions."
+      "object_id": "obj-0a7e9c21-2342-4f9a-b761-cbbd7ffee506"
     },
     {
       "name": "customers_loans",
-      "object_id": "obj-relationship-customers-loans",
       "from_table": "customers",
       "from_column": "customer_id",
       "to_table": "loans",
       "to_column": "customer_id",
-      "source_table": "customers",
-      "source_column": "customer_id",
-      "target_table": "loans",
-      "target_column": "customer_id",
       "cardinality": "1:N",
       "relationship_type": "foreign_key",
-      "nullable": false,
-      "join_direction": "customers_to_loans",
-      "allowed_join_types": [
-        "INNER JOIN",
-        "LEFT JOIN"
-      ],
-      "aggregation_behavior": "fanout_risk",
-      "fanout_risk": true,
-      "security_propagation": "allowed",
-      "predicate_equivalence": {
-        "INNER JOIN": false,
-        "LEFT JOIN": false,
-        "RIGHT JOIN": false,
-        "FULL JOIN": false
-      },
-      "security_domain": "branch",
-      "description": "Foreign key relationship from customers to loans (1:N). One customer may have multiple loans."
+      "object_id": "obj-c8cc35e4-9097-4717-afd2-76095a00ddb9"
     }
   ],
   "measures": [
     {
       "name": "Transaction Volume",
-      "object_id": "obj-measure-transaction-volume",
+      "description": "Sum of transaction amounts.",
       "mapping": "transactions.amount_usd",
-      "source_table": "transactions",
-      "source_column": "amount_usd",
-      "natural_grain": "transaction",
-      "natural_entity": "Transaction",
       "aggregation": "SUM",
-      "aggregation_function": "SUM",
-      "distinct_required": false,
-      "null_behavior": "ignore_nulls",
-      "filter_dependencies": [],
-      "fanout_sensitive": true,
-      "business_definition": "Sum of transaction amounts over a selected population/time period.",
-      "description": "Sum of transaction amounts over a selected population/time period.",
-      "source": "business_glossary"
+      "source": "derived",
+      "generated": true,
+      "object_id": "obj-d37ab11a-b8fb-462c-95c1-bfd4e46acfd6"
     },
     {
       "name": "Total Balance",
-      "object_id": "obj-measure-total-balance",
-      "mapping": "accounts.balance_usd",
-      "source_table": "accounts",
-      "source_column": "balance_usd",
-      "natural_grain": "account",
-      "natural_entity": "Account",
-      "aggregation": "SUM",
-      "aggregation_function": "SUM",
-      "distinct_required": false,
-      "null_behavior": "ignore_nulls",
-      "filter_dependencies": [],
-      "fanout_sensitive": true,
-      "business_definition": "Sum of account balances over a selected population.",
       "description": "Sum of account balances over a selected population.",
-      "source": "business_glossary"
+      "mapping": "accounts.balance_usd",
+      "aggregation": "SUM",
+      "source": "derived",
+      "generated": true,
+      "object_id": "obj-5f3fad2c-868b-436c-9459-3e4c70731e6d"
     },
     {
       "name": "Loan Exposure",
-      "object_id": "obj-measure-loan-exposure",
-      "mapping": "loans.loan_amount",
-      "source_table": "loans",
-      "source_column": "loan_amount",
-      "natural_grain": "loan",
-      "natural_entity": "Loan",
-      "aggregation": "SUM",
-      "aggregation_function": "SUM",
-      "distinct_required": false,
-      "null_behavior": "ignore_nulls",
-      "filter_dependencies": [],
-      "fanout_sensitive": true,
-      "business_definition": "Sum of loan amounts over a selected population.",
       "description": "Sum of loan amounts over a selected population.",
-      "source": "business_glossary"
-    },
-    {
-      "name": "Customer Count",
-      "object_id": "obj-measure-customer-count",
-      "mapping": "customers.customer_id",
-      "source_table": "customers",
-      "source_column": "customer_id",
-      "natural_grain": "customer",
-      "natural_entity": "Customer",
-      "aggregation": "COUNT DISTINCT",
-      "aggregation_function": "COUNT DISTINCT",
-      "distinct_required": true,
-      "distinct_key": "customer_id",
-      "null_behavior": "ignore_nulls",
-      "filter_dependencies": [],
-      "fanout_sensitive": true,
-      "business_definition": "Count of unique customers.",
-      "description": "Count of unique customers. Requires COUNT(DISTINCT customer_id) to avoid row multiplication.",
-      "source": "business_glossary"
-    },
-    {
-      "name": "Account Count",
-      "object_id": "obj-measure-account-count",
-      "mapping": "accounts.account_id",
-      "source_table": "accounts",
-      "source_column": "account_id",
-      "natural_grain": "account",
-      "natural_entity": "Account",
-      "aggregation": "COUNT DISTINCT",
-      "aggregation_function": "COUNT DISTINCT",
-      "distinct_required": true,
-      "distinct_key": "account_id",
-      "null_behavior": "ignore_nulls",
-      "filter_dependencies": [],
-      "fanout_sensitive": true,
-      "business_definition": "Count of unique bank accounts.",
-      "description": "Count of unique accounts. Requires COUNT(DISTINCT account_id).",
-      "source": "business_glossary"
-    },
-    {
-      "name": "Transaction Count",
-      "object_id": "obj-measure-transaction-count",
-      "mapping": "transactions.transaction_id",
-      "source_table": "transactions",
-      "source_column": "transaction_id",
-      "natural_grain": "transaction",
-      "natural_entity": "Transaction",
-      "aggregation": "COUNT DISTINCT",
-      "aggregation_function": "COUNT DISTINCT",
-      "distinct_required": true,
-      "distinct_key": "transaction_id",
-      "null_behavior": "ignore_nulls",
-      "filter_dependencies": [],
-      "fanout_sensitive": true,
-      "business_definition": "Count of unique transactions.",
-      "description": "Count of unique transactions. Requires COUNT(DISTINCT transaction_id).",
-      "source": "business_glossary"
+      "mapping": "loans.loan_amount",
+      "aggregation": "SUM",
+      "source": "derived",
+      "generated": true,
+      "object_id": "obj-f3d169da-3b46-42fd-b05a-f5068d2b1aba"
     }
   ],
   "dimensions": [
     {
       "name": "Customer ID",
-      "object_id": "obj-dimension-customer-id",
-      "mapping": "customers.customer_id",
-      "natural_grain": "customer",
-      "grain": "customer_id",
       "description": "Unique identifier for a customer.",
-      "source": "schema"
+      "mapping": "customers.customer_id",
+      "source": "schema",
+      "generated": false,
+      "object_id": "obj-f2f83e91-c3fc-4226-b53c-43bb09c77b53"
     },
     {
       "name": "Branch ID",
-      "object_id": "obj-dimension-branch-id",
-      "mapping": "branches.branch_id",
-      "natural_grain": "branch",
-      "grain": "branch_id",
       "description": "Unique identifier for a branch.",
-      "source": "schema"
-    },
-    {
-      "name": "Branch Name",
-      "object_id": "obj-dimension-branch-name",
-      "mapping": "branches.branch_name",
-      "description": "Display name of a banking branch.",
-      "source": "schema"
-    },
-    {
-      "name": "Branch Manager",
-      "object_id": "obj-dimension-branch-manager",
-      "mapping": "branches.manager_name",
-      "description": "Name of the manager assigned to a banking branch. Use branches.manager_name to filter branches by manager, then join branches.branch_id to accounts.branch_id for branch accounts.",
-      "source": "schema"
-    },
-    {
-      "name": "Branch City",
-      "object_id": "obj-dimension-branch-city",
-      "mapping": "branches.city",
-      "description": "City where a banking branch is located.",
-      "source": "schema"
-    },
-    {
-      "name": "Branch Country",
-      "object_id": "obj-dimension-branch-country",
-      "mapping": "branches.country",
-      "description": "Country where a banking branch is located.",
-      "source": "schema"
+      "mapping": "branches.branch_id",
+      "source": "schema",
+      "generated": false,
+      "object_id": "obj-ce313ad7-300f-4e28-8a10-06d31a4e39b5"
     },
     {
       "name": "Account ID",
-      "object_id": "obj-dimension-account-id",
-      "mapping": "accounts.account_id",
-      "natural_grain": "account",
-      "grain": "account_id",
       "description": "Unique identifier for an account.",
-      "source": "schema"
+      "mapping": "accounts.account_id",
+      "source": "schema",
+      "generated": false,
+      "object_id": "obj-1e1fe329-3652-4c8a-901c-7109fa2f86ae"
     },
     {
       "name": "Card ID",
-      "object_id": "obj-dimension-card-id",
-      "mapping": "cards.card_id",
-      "natural_grain": "card",
-      "grain": "card_id",
       "description": "Unique identifier for a card.",
-      "source": "schema"
+      "mapping": "cards.card_id",
+      "source": "schema",
+      "generated": false,
+      "object_id": "obj-db5bac1e-f1d6-4271-a5df-b5428d240ae6"
     },
     {
       "name": "Merchant ID",
-      "object_id": "obj-dimension-merchant-id",
-      "mapping": "merchants.merchant_id",
-      "natural_grain": "merchant",
-      "grain": "merchant_id",
       "description": "Unique identifier for a merchant.",
-      "source": "schema"
+      "mapping": "merchants.merchant_id",
+      "source": "schema",
+      "generated": false,
+      "object_id": "obj-bd204897-5abb-47aa-afff-512ae97279e9"
     },
     {
       "name": "Transaction ID",
-      "object_id": "obj-dimension-transaction-id",
-      "mapping": "transactions.transaction_id",
-      "natural_grain": "transaction",
-      "grain": "transaction_id",
       "description": "Unique identifier for a transaction.",
-      "source": "schema"
+      "mapping": "transactions.transaction_id",
+      "source": "schema",
+      "generated": false,
+      "object_id": "obj-78c7d93c-2ab8-41d8-98bc-1f2ee8fbb78a"
     },
     {
       "name": "Loan ID",
-      "object_id": "obj-dimension-loan-id",
-      "mapping": "loans.loan_id",
-      "natural_grain": "loan",
-      "grain": "loan_id",
       "description": "Unique identifier for a loan.",
-      "source": "schema"
+      "mapping": "loans.loan_id",
+      "source": "schema",
+      "generated": false,
+      "object_id": "obj-f3cd998d-f142-455b-af9c-ccaf98501b0a"
     },
     {
-      "name": "Customer First Name",
-      "object_id": "obj-dimension-customer-first-name",
-      "mapping": "customers.first_name",
-      "description": "Customer given name.",
-      "source": "schema"
+      "name": "Customer Name",
+      "description": "Full name of a customer.",
+      "mapping": "customers.first_name, customers.last_name",
+      "source": "schema",
+      "generated": false,
+      "object_id": "obj-2b3c4568-147f-489a-b454-7e7eedfe27b0"
     },
     {
-      "name": "Customer Last Name",
-      "object_id": "obj-dimension-customer-last-name",
-      "mapping": "customers.last_name",
-      "description": "Customer family name. Combine with Customer First Name when a customer name is requested.",
-      "source": "schema"
-    },
-    {
-      "name": "Customer Email",
-      "object_id": "obj-dimension-customer-email",
-      "mapping": "customers.email",
-      "description": "Customer email address.",
-      "source": "schema"
-    },
-    {
-      "name": "Customer City",
-      "object_id": "obj-dimension-customer-city",
-      "mapping": "customers.city",
-      "description": "City recorded for a customer.",
-      "source": "schema"
-    },
-    {
-      "name": "Customer Credit Score",
-      "object_id": "obj-dimension-customer-credit-score",
-      "mapping": "customers.credit_score",
-      "description": "Numeric customer credit score.",
-      "source": "schema"
-    },
-    {
-      "name": "Customer Created At",
-      "object_id": "obj-dimension-customer-created-at",
-      "mapping": "customers.created_at",
-      "description": "Timestamp when the customer record was created.",
-      "source": "schema"
-    },
-    {
-      "name": "Account Customer ID",
-      "object_id": "obj-dimension-account-customer-id",
-      "mapping": "accounts.customer_id",
-      "description": "Foreign key from an account to its customer.",
-      "source": "schema"
-    },
-    {
-      "name": "Account Branch ID",
-      "object_id": "obj-dimension-account-branch-id",
-      "mapping": "accounts.branch_id",
-      "description": "Foreign key from an account to its branch.",
-      "source": "schema"
+      "name": "Branch Name",
+      "description": "Name of a branch.",
+      "mapping": "branches.branch_name",
+      "source": "schema",
+      "generated": false,
+      "object_id": "obj-e6998139-ba38-4eb4-ab4e-918e80572f19"
     },
     {
       "name": "Account Type",
-      "object_id": "obj-dimension-account-type",
+      "description": "Category/type of the bank account.",
       "mapping": "accounts.account_type",
-      "description": "Category of the bank account.",
-      "source": "schema"
-    },
-    {
-      "name": "Account Balance",
-      "object_id": "obj-dimension-account-balance",
-      "mapping": "accounts.balance_usd",
-      "description": "Current account balance in USD. Use as a raw column unless an aggregate total is requested.",
-      "source": "schema"
-    },
-    {
-      "name": "Account Opening Date",
-      "object_id": "obj-dimension-account-opening-date",
-      "mapping": "accounts.open_date",
-      "description": "Date an account was opened.",
-      "source": "schema"
-    },
-    {
-      "name": "Card Account ID",
-      "object_id": "obj-dimension-card-account-id",
-      "mapping": "cards.account_id",
-      "description": "Foreign key from a card to its account.",
-      "source": "schema"
+      "source": "schema",
+      "generated": false,
+      "object_id": "obj-aded0c92-ee52-4545-9ec7-3b5a25a4e150"
     },
     {
       "name": "Card Type",
-      "object_id": "obj-dimension-card-type",
+      "description": "Type/category of the card.",
       "mapping": "cards.card_type",
-      "description": "Category of a card.",
-      "source": "schema"
-    },
-    {
-      "name": "Card Expiration Date",
-      "object_id": "obj-dimension-card-expiration-date",
-      "mapping": "cards.expiration_date",
-      "description": "Date on which a card expires; this is a card attribute, not a relationship.",
-      "source": "schema"
+      "source": "schema",
+      "generated": false,
+      "object_id": "obj-b3beb9a2-8d3f-44db-b656-57f18b14d8ca"
     },
     {
       "name": "Merchant Name",
-      "object_id": "obj-dimension-merchant-name",
+      "description": "Name of a merchant.",
       "mapping": "merchants.merchant_name",
-      "description": "Display name of a merchant.",
-      "source": "schema"
-    },
-    {
-      "name": "Merchant City",
-      "object_id": "obj-dimension-merchant-city",
-      "mapping": "merchants.city",
-      "description": "City recorded for a merchant.",
-      "source": "schema"
-    },
-    {
-      "name": "Transaction Account ID",
-      "object_id": "obj-dimension-transaction-account-id",
-      "mapping": "transactions.account_id",
-      "description": "Foreign key from a transaction to its account.",
-      "source": "schema"
-    },
-    {
-      "name": "Transaction Merchant ID",
-      "object_id": "obj-dimension-transaction-merchant-id",
-      "mapping": "transactions.merchant_id",
-      "description": "Foreign key from a transaction to its merchant.",
-      "source": "schema"
-    },
-    {
-      "name": "Transaction Amount",
-      "object_id": "obj-dimension-transaction-amount",
-      "mapping": "transactions.amount_usd",
-      "description": "Amount of an individual transaction in USD.",
-      "source": "schema"
+      "source": "schema",
+      "generated": false,
+      "object_id": "obj-e5efc007-3f51-4e64-84b3-2b4f99b4210e"
     },
     {
       "name": "Transaction Date",
-      "object_id": "obj-dimension-transaction-date",
+      "description": "Date and time when the transaction occurred.",
       "mapping": "transactions.transaction_date",
-      "description": "Timestamp of an individual transaction.",
-      "source": "schema"
-    },
-    {
-      "name": "Loan Customer ID",
-      "object_id": "obj-dimension-loan-customer-id",
-      "mapping": "loans.customer_id",
-      "description": "Foreign key from a loan to its customer.",
-      "source": "schema"
-    },
-    {
-      "name": "Loan Amount",
-      "object_id": "obj-dimension-loan-amount",
-      "mapping": "loans.loan_amount",
-      "description": "Principal amount of an individual loan in USD.",
-      "source": "schema"
-    },
-    {
-      "name": "Loan Interest Rate",
-      "object_id": "obj-dimension-loan-interest-rate",
-      "mapping": "loans.interest_rate",
-      "description": "Interest rate recorded for an individual loan.",
-      "source": "schema"
+      "source": "schema",
+      "generated": false,
+      "object_id": "obj-cc331be2-efde-404a-830a-90b862281c3c"
     },
     {
       "name": "Loan Start Date",
-      "object_id": "obj-dimension-loan-start-date",
+      "description": "Date on which a loan starts.",
       "mapping": "loans.start_date",
-      "description": "Date an individual loan starts.",
-      "source": "schema"
+      "source": "schema",
+      "generated": false,
+      "object_id": "obj-9a6632c9-3396-4e21-9bd6-facff9e3461d"
+    },
+    {
+      "name": "City",
+      "description": "City where the branch or customer is located.",
+      "mapping": "branches.city, customers.city, merchants.city",
+      "source": "schema",
+      "generated": false,
+      "object_id": "obj-7a77f1c8-c11a-499d-afeb-d098d8f4d95e"
     }
   ],
-  "business_rules": [
+  "security": [
     {
-      "name": "Customer Transactions",
-      "object_id": "obj-business_rule-customer-transactions",
-      "description": "Join through accounts when asking for customer transactions.",
-      "source": "documentation"
+      "table": "branches",
+      "join_logic": "Contains branch_id directly",
+      "enforced_sql": "WHERE branches.branch_id = @UserBranchId"
     },
     {
-      "name": "Customer Cards",
-      "object_id": "obj-business_rule-customer-cards",
-      "description": "Join through accounts when asking for customer cards.",
-      "source": "documentation"
+      "table": "accounts",
+      "join_logic": "Contains branch_id directly",
+      "enforced_sql": "WHERE accounts.branch_id = @UserBranchId"
     },
     {
-      "name": "Customer Loans",
-      "object_id": "obj-business_rule-customer-loans",
-      "description": "Use the direct loans.customer_id relationship when asking for customer loans.",
-      "source": "documentation"
+      "table": "transactions",
+      "join_logic": "Joined with accounts table via account_id",
+      "enforced_sql": "INNER JOIN accounts ON transactions.account_id = accounts.account_id WHERE accounts.branch_id = @UserBranchId"
     },
     {
-      "name": "Branch Security Domain",
-      "object_id": "obj-business_rule-branch-security-domain",
-      "description": "The branch security domain canonical root is accounts.branch_id = @UserBranchId. For queries joining branches on branches.branch_id = accounts.branch_id (INNER JOIN), filtering branches.branch_id = @UserBranchId is semantically equivalent and security propagation is allowed.",
-      "security_domain": "branch",
-      "canonical_root": "accounts.branch_id",
-      "canonical_predicate": "accounts.branch_id = @UserBranchId",
-      "source": "security_policy"
+      "table": "cards",
+      "join_logic": "Joined with accounts table via account_id",
+      "enforced_sql": "INNER JOIN accounts ON cards.account_id = accounts.account_id WHERE accounts.branch_id = @UserBranchId"
     },
     {
-      "name": "Safe Aggregation and Fanout Prevention",
-      "object_id": "obj-business_rule-safe-aggregation",
-      "description": "For independent one-to-many paths, aggregate each path to the requested grain in a separate CTE or subquery before joining the aggregates. Do not join raw child rows together before SUM, COUNT, or AVG.",
-      "rule_type": "aggregation_safety",
-      "fanout_risk": true,
-      "requires_preaggregation": true,
-      "source": "semantic_architecture"
+      "table": "customers",
+      "join_logic": "Joined with accounts table via customer_id",
+      "enforced_sql": "INNER JOIN accounts ON customers.customer_id = accounts.customer_id WHERE accounts.branch_id = @UserBranchId"
     },
     {
-      "name": "Customer Distinct Count",
-      "object_id": "obj-business_rule-customer-distinct-count",
-      "description": "When counting customers or customer metrics across joined accounts, cards, transactions, or loans, use COUNT(DISTINCT customer_id) because one customer has multiple child records.",
-      "distinct_required": true,
-      "distinct_key": "customer_id",
-      "source": "business_glossary"
+      "table": "loans",
+      "join_logic": "Joined with customers then accounts then branches",
+      "enforced_sql": "INNER JOIN customers ON loans.customer_id = customers.customer_id INNER JOIN accounts ON customers.customer_id = accounts.customer_id INNER JOIN branches ON accounts.branch_id = branches.branch_id WHERE branches.branch_id = @UserBranchId"
+    },
+    {
+      "table": "merchants",
+      "join_logic": "Multiple joins with transactions then accounts",
+      "enforced_sql": "INNER JOIN transactions ON merchants.merchant_id = transactions.merchant_id INNER JOIN accounts ON transactions.account_id = accounts.account_id WHERE accounts.branch_id = @UserBranchId"
     }
   ],
-  "security_domains": [
+  "business_glossary": [
     {
-      "name": "branch",
-      "canonical_root": "accounts.branch_id",
-      "canonical_predicate": "accounts.branch_id = @UserBranchId",
-      "security_scope": "branch",
-      "description": "Branch-level row security scope with canonical root accounts.branch_id.",
-      "propagation_paths": [
-        {
-          "target_table": "accounts",
-          "path": "accounts.branch_id = @UserBranchId",
-          "propagation": "allowed",
-          "is_canonical_root": true
-        },
-        {
-          "target_table": "branches",
-          "path": "branches.branch_id = @UserBranchId",
-          "propagation": "allowed",
-          "predicate_equivalence": {
-            "INNER JOIN": true,
-            "LEFT JOIN": "conditional",
-            "RIGHT JOIN": "conditional",
-            "FULL JOIN": false
-          },
-          "condition": "INNER JOIN on branches.branch_id = accounts.branch_id"
-        },
-        {
-          "target_table": "transactions",
-          "path": "transactions.account_id = accounts.account_id -> accounts.branch_id = @UserBranchId",
-          "propagation": "allowed",
-          "predicate_equivalence": {
-            "INNER JOIN": false,
-            "LEFT JOIN": false,
-            "RIGHT JOIN": false,
-            "FULL JOIN": false
-          }
-        },
-        {
-          "target_table": "cards",
-          "path": "cards.account_id = accounts.account_id -> accounts.branch_id = @UserBranchId",
-          "propagation": "allowed",
-          "predicate_equivalence": {
-            "INNER JOIN": false,
-            "LEFT JOIN": false,
-            "RIGHT JOIN": false,
-            "FULL JOIN": false
-          }
-        },
-        {
-          "target_table": "customers",
-          "path": "customers.customer_id = accounts.customer_id -> accounts.branch_id = @UserBranchId",
-          "propagation": "allowed",
-          "predicate_equivalence": {
-            "INNER JOIN": false,
-            "LEFT JOIN": false,
-            "RIGHT JOIN": false,
-            "FULL JOIN": false
-          }
-        },
-        {
-          "target_table": "loans",
-          "path": "loans.customer_id = customers.customer_id -> customers.customer_id = accounts.customer_id -> accounts.branch_id = @UserBranchId",
-          "propagation": "allowed",
-          "predicate_equivalence": {
-            "INNER JOIN": false,
-            "LEFT JOIN": false,
-            "RIGHT JOIN": false,
-            "FULL JOIN": false
-          }
-        },
-        {
-          "target_table": "merchants",
-          "path": "merchants.merchant_id = transactions.merchant_id -> transactions.account_id = accounts.account_id -> accounts.branch_id = @UserBranchId",
-          "propagation": "allowed",
-          "predicate_equivalence": {
-            "INNER JOIN": false,
-            "LEFT JOIN": false,
-            "RIGHT JOIN": false,
-            "FULL JOIN": false
-          }
-        }
-      ]
+      "business_term": "Customer",
+      "database_mapping": "customers",
+      "meaning": "A person represented in the banking system."
+    },
+    {
+      "business_term": "Customer ID",
+      "database_mapping": "customers.customer_id",
+      "meaning": "Unique identifier for a customer."
+    },
+    {
+      "business_term": "Credit Score",
+      "database_mapping": "customers.credit_score",
+      "meaning": "Numeric score stored for the customer's credit profile."
+    },
+    {
+      "business_term": "Branch",
+      "database_mapping": "branches",
+      "meaning": "A banking branch represented in the database."
+    },
+    {
+      "business_term": "Account",
+      "database_mapping": "accounts",
+      "meaning": "A banking account owned by a customer."
+    },
+    {
+      "business_term": "Account Type",
+      "database_mapping": "accounts.account_type",
+      "meaning": "Category/type of the bank account."
+    },
+    {
+      "business_term": "Account Balance",
+      "database_mapping": "accounts.balance_usd",
+      "meaning": "Balance value associated with an account, in USD."
+    },
+    {
+      "business_term": "Account Opening Date",
+      "database_mapping": "accounts.open_date",
+      "meaning": "Date on which an account was opened."
+    },
+    {
+      "business_term": "Card",
+      "database_mapping": "cards",
+      "meaning": "A card associated with a bank account."
+    },
+    {
+      "business_term": "Card Type",
+      "database_mapping": "cards.card_type",
+      "meaning": "Type/category of the card."
+    },
+    {
+      "business_term": "Merchant",
+      "database_mapping": "merchants",
+      "meaning": "A merchant referenced by transactions."
+    },
+    {
+      "business_term": "Transaction",
+      "database_mapping": "transactions",
+      "meaning": "A financial transaction associated with an account and merchant."
+    },
+    {
+      "business_term": "Transaction Amount",
+      "database_mapping": "transactions.amount_usd",
+      "meaning": "Monetary amount of a transaction, in USD."
+    },
+    {
+      "business_term": "Transaction Date",
+      "database_mapping": "transactions.transaction_date",
+      "meaning": "Date and time when the transaction occurred."
+    },
+    {
+      "business_term": "Loan",
+      "database_mapping": "loans",
+      "meaning": "A loan record associated with a customer."
+    },
+    {
+      "business_term": "Loan Amount",
+      "database_mapping": "loans.loan_amount",
+      "meaning": "Principal amount of a loan, in USD."
+    },
+    {
+      "business_term": "Interest Rate",
+      "database_mapping": "loans.interest_rate",
+      "meaning": "Interest-rate value stored for a loan."
+    },
+    {
+      "business_term": "Loan Start Date",
+      "database_mapping": "loans.start_date",
+      "meaning": "Date on which a loan starts."
+    },
+    {
+      "business_term": "Transaction Volume",
+      "database_mapping": "transactions.amount_usd",
+      "meaning": "Sum of transaction amounts over a selected population/time period."
+    },
+    {
+      "business_term": "Total Balance",
+      "database_mapping": "accounts.balance_usd",
+      "meaning": "Sum of account balances over a selected population."
+    },
+    {
+      "business_term": "Loan Exposure",
+      "database_mapping": "loans.loan_amount",
+      "meaning": "Sum of loan amounts over a selected population."
     }
-  ],
-  "validation_issues": []
+  ]
 }

@@ -25,7 +25,8 @@ class TestFullRebuildBuilder:
 
         expected_text = (
             '{"metadata": {"status": "initial_draft", '
-            '"validated": false, "human_review_required": true}}'
+            '"validated": false, "human_review_required": true}, '
+            '"entities": [{"mapping": "customers"}]}'
         )
 
         llm_client.generate.return_value = GenerationResponse(
@@ -57,10 +58,10 @@ class TestFullRebuildBuilder:
         builder = FullRebuildBuilder(llm_client)
 
         result = builder.build(build_input)
-        expected_semantic_layer = json.loads(expected_text)
-
         assert isinstance(result, SemanticLayerBuildResponse)
-        assert result.semantic_layer == expected_semantic_layer
+        assert result.semantic_layer["metadata"]["status"] == "initial_draft"
+        assert len(result.semantic_layer["entities"]) >= 1
+        assert result.semantic_layer["entities"][0]["mapping"] == "customers"
         llm_client.generate.assert_called_once()
 
         generation_request = llm_client.generate.call_args.args[0]

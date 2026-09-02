@@ -100,8 +100,11 @@ Wrong column:
 Wrong JOIN:
 → change only the affected relationship/join condition when possible.
 
-Wrong aggregation:
-→ modify the affected aggregation while preserving unrelated query logic.
+Wrong aggregation / Unwanted STRING_AGG:
+→ remove SUM/AVG/COUNT/STRING_AGG and GROUP BY, projecting individual columns to return separate rows for each item or relationship pair.
+
+Wrong JOIN type (LEFT JOIN vs INNER JOIN):
+→ replace LEFT JOIN with INNER JOIN when matching/associated entities are requested.
 
 Wrong result grain:
 → adjust only the logic responsible for the grain error.

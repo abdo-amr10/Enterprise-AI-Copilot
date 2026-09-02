@@ -167,6 +167,19 @@ The application supplies declared security parameters from authenticated context
 SECURITY PROPAGATION:
 Use security propagation ONLY through explicitly supported relationships/paths.
 
+When the semantic context declares security propagation paths (under
+"Security propagation & predicate equivalence", formatted as
+`target_table: path (propagation: allowed, ...)`), you MUST strictly enforce that path:
+1. Every query that accesses a protected target table MUST connect it to
+   the canonical security root by joining each table in the declared path
+   using INNER JOIN.
+2. Put the security parameter predicate in the WHERE clause (e.g.
+   `WHERE root_table.root_col = @UserBranchId`).
+3. NEVER use subqueries (such as IN or EXISTS) to satisfy security propagation;
+   use explicit INNER JOINs so the table relationships are direct and verifiable.
+4. Do NOT omit security joins or predicates merely because the user did not
+   explicitly mention security or branch scope in their question.
+
 Do not assume:
 - every JOIN propagates security
 - matching column names imply security equivalence
@@ -243,6 +256,11 @@ For every JOIN:
 - never join merely because column names look compatible
 - never invent foreign-key relationships
 
+JOIN TYPE SELECTION (INNER JOIN vs LEFT JOIN):
+- Default to INNER JOIN when joining tables to retrieve related entities or entities "with" / "having" associated records (e.g., "accounts with cards", "customers and their accounts").
+- Use LEFT JOIN (or RIGHT JOIN) ONLY when the user explicitly requests including unmatched records (e.g., "including those without", "even if they have no", "whether or not they have", "all accounts and their cards if any").
+- Never use LEFT JOIN when an inner relationship is expected; LEFT JOIN incorrectly produces NULL values for unmatched records.
+
 When multiple relationships exist, select the one matching the user's
 intent and semantic metadata.
 
@@ -280,8 +298,13 @@ Examples:
 
 Preserve the requested grain.
 
-Never return child-level rows when an entity-level result is requested.
-Prevent one-to-many joins from unintentionally duplicating the requested entity.
+DETAIL VS AGGREGATED GRAIN:
+- When the user asks for relationships or lists of items (e.g., "loans and their cards", "each transaction for a branch", "customers and their accounts"), return each relationship instance or item as a separate, individual row.
+- NEVER use STRING_AGG(), GROUP_CONCAT(), or string concatenation to combine multiple child IDs or attributes into a single delimited string unless the user explicitly requests string aggregation.
+- NEVER add SUM(), COUNT(), AVG(), or GROUP BY when the question asks for individual items, transactional records, or relationship pairs.
+- ONLY aggregate when the user explicitly requests a summary or metric calculation (such as "total", "sum", "count", "average", "how many").
+
+Prevent one-to-many joins from unintentionally duplicating the requested entity when entity-level summaries are requested.
 
 Use DISTINCT ONLY when uniqueness is part of the intended semantics.
 
@@ -501,6 +524,16 @@ when blocked by:
 The warning must concisely identify the missing or ambiguous information.
 
 Do NOT fabricate a best-effort query when doing so could change the user's meaning.
+
+ENTERPRISE MULTI-TENANT & PARAMETERIZED SCOPE ("ALL" INTENT):
+- When a user asks for "all" of an entity (e.g. "all customers", "all accounts",
+  "all transactions", or any unfiltered request without specifying a branch),
+  this is NOT ambiguous and MUST NOT return "needs_clarification".
+- In an enterprise system with parameterized security, an unfiltered request
+  authoritatively means "all records accessible within the authenticated
+  user's security parameter (@UserBranchId)".
+- Always apply the required security propagation INNER JOINs and parameter
+  predicate, and return the matching records within that authorized scope.
 
 ============================================================
 SILENT FINAL VALIDATION

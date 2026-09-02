@@ -12,7 +12,7 @@ class StrictModel(BaseModel):
 
 class CopilotRequest(StrictModel):
     question: str = Field(min_length=1)
-    conversation: list[dict[str, Any]] = Field(default_factory=list)
+    conversation: list[dict[str, Any]] | None = Field(default_factory=list)
     correlation_id: str | None = Field(default=None)
     traceparent: str | None = Field(default=None)
 
@@ -52,7 +52,7 @@ class SemanticGenerateRequest(StrictModel):
     sourceFileIds: dict[str, str | None]
     baseRevisionId: str | None = None
     baseSemanticLayer: dict[str, Any] | None = None
-    affectedObjects: list[AffectedObjectRequest] = Field(default_factory=list)
+    affectedObjects: list[AffectedObjectRequest] | None = Field(default_factory=list)
 
 
 class SemanticValidateRequest(StrictModel):
@@ -67,7 +67,7 @@ class SemanticValidateRequest(StrictModel):
     revisionId: str | None = Field(default=None, min_length=1)
     draft: dict[str, Any] | None = None
     schema: dict[str, Any] | None = None
-    relationships: list[dict[str, Any]] = Field(default_factory=list)
+    relationships: list[dict[str, Any]] | None = Field(default_factory=list)
     documentation: str | None = None
     businessGlossary: str | None = None
 
@@ -89,12 +89,12 @@ class ExecutionResultRequest(StrictModel):
     """Backend result payload supplied after Backend-owned SQL execution."""
 
     status: Literal["Success", "Failed"]
-    columns: list[str] = Field(default_factory=list)
-    rows: list[list[Any]] = Field(default_factory=list)
+    columns: list[str] | None = Field(default_factory=list)
+    rows: list[list[Any]] | None = Field(default_factory=list)
     rowCount: int | None = Field(default=None, ge=0)
     errorCode: str | None = None
     errorMessage: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] | None = Field(default_factory=dict)
 
 
 class PostQueryFormatRequest(StrictModel):
@@ -102,8 +102,18 @@ class PostQueryFormatRequest(StrictModel):
     executionResult: ExecutionResultRequest | list[dict[str, Any]]
 
 
+from src.application.dto.backend.copilot.post_query_response import (
+    ExcelExport,
+    HeroMetric,
+    KpiCard,
+    PostQueryResponse,
+    TableData,
+)
+
+
 class DebugRunRequest(StrictModel):
     question: str = Field(min_length=1)
     layer: Literal["full", "retrieval", "prompt", "generation", "validation", "critic", "correction"] = "full"
     show_local_output: bool = True
+
 

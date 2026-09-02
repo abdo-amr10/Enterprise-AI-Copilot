@@ -69,3 +69,29 @@ def test_normalizes_camel_case_relationship_fields_without_guessing_missing_colu
     assert layer["relationships"][0]["to_table"] == "accounts"
     assert layer["relationships"][0]["from_column"] == "customer_id"
     assert "from_column" not in layer["relationships"][1]
+
+
+def test_auto_login_with_email_and_password(monkeypatch):
+    monkeypatch.setenv("BACKEND_API_BASE_URL", "http://backend.test")
+    monkeypatch.delenv("BACKEND_SERVICE_BEARER_TOKEN", raising=False)
+    monkeypatch.setenv("BACKEND_SERVICE_EMAIL", "admin@example.com")
+    monkeypatch.setenv("BACKEND_SERVICE_PASSWORD", "secret123")
+
+    login_called = False
+
+    def fake_post(url, **kwargs):
+        nonlocal login_called
+        if "/api/v1/Auth/login" in url:
+            login_called = True
+            class MockResponse:
+                def raise_for_status(self): pass
+                def json(self): return {"token": "auto-generated-token"}
+            return MockResponse()
+        raise NotImplementedError(url)
+
+    monkeypatch.setattr("requests.post", fake_post)
+
+    client = BackendSemanticClient()
+    assert client._http_client._token == "auto-generated-token"
+    assert login_called is True
+

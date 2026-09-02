@@ -1,23 +1,32 @@
 """Structured data transfer objects for formatting and presenting copilot query results.
 
-Provides typed representations for narrative summaries, key metrics, tabular grids,
+Provides Pydantic-validated models for narrative summaries, key metrics, tabular grids,
 and downloadable spreadsheet exports.
 """
 
-
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-@dataclass(frozen=True)
-class HeroMetric:
+class StrictBaseModel(BaseModel):
+    """Base Pydantic model with strict settings and alias population support."""
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        serialize_by_alias=True,
+        validate_assignment=True,
+        protected_namespaces=(),
+    )
+
+
+class HeroMetric(StrictBaseModel):
     """Primary headline metric for visual emphasis in the client."""
 
     label: str
     value: str
-    delta_text: str | None = None
+    delta_text: str | None = Field(default=None, alias="deltaText")
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize hero metric to camelCase dictionary."""
@@ -30,8 +39,7 @@ class HeroMetric:
         return result
 
 
-@dataclass(frozen=True)
-class KpiCard:
+class KpiCard(StrictBaseModel):
     """Individual KPI metric card providing concise dimensional insights."""
 
     label: str
@@ -49,13 +57,12 @@ class KpiCard:
         return result
 
 
-@dataclass(frozen=True)
-class TableData:
+class TableData(StrictBaseModel):
     """Structured tabular dataset for in-copilot grid rendering."""
 
-    columns: tuple[str, ...] = ()
-    rows: tuple[tuple[Any, ...], ...] = ()
-    total_rows: int = 0
+    columns: tuple[str, ...] = Field(default_factory=tuple)
+    rows: tuple[tuple[Any, ...], ...] = Field(default_factory=tuple)
+    total_rows: int = Field(default=0, alias="totalRows")
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize table dataset to camelCase dictionary."""
@@ -66,14 +73,16 @@ class TableData:
         }
 
 
-@dataclass(frozen=True)
-class ExcelExport:
+class ExcelExport(StrictBaseModel):
     """Downloadable OpenXML spreadsheet payload for 1-click client export."""
 
     available: bool = True
-    file_name: str | None = None
-    content_type: str | None = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    file_content_base64: str | None = None
+    file_name: str | None = Field(default=None, alias="fileName")
+    content_type: str | None = Field(
+        default="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        alias="contentType",
+    )
+    file_content_base64: str | None = Field(default=None, alias="fileContentBase64")
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize export metadata to camelCase dictionary."""
@@ -89,49 +98,48 @@ class ExcelExport:
         return result
 
 
-@dataclass(frozen=True)
-class PostQueryResponse:
+class PostQueryResponse(StrictBaseModel):
     """Complete adaptive response payload returned by the AI formatting pipeline."""
 
     status: str
-    presentation_type: str
+    presentation_type: str = Field(alias="presentationType")
     text: str
-    hero_metric: HeroMetric | None = None
-    kpi_cards: tuple[KpiCard, ...] | None = None
-    table_data: TableData | None = None
-    excel_export: ExcelExport | None = None
-    error_code: str | None = None
+    hero_metric: HeroMetric | None = Field(default=None, alias="heroMetric")
+    kpi_cards: tuple[KpiCard, ...] | None = Field(default=None, alias="kpiCards")
+    table_data: TableData | None = Field(default=None, alias="tableData")
+    excel_export: ExcelExport | None = Field(default=None, alias="excelExport")
+    error_code: str | None = Field(default=None, alias="errorCode")
 
-    # Backward-compatible accessors
-    @property
-    def columns(self) -> tuple[str, ...]:
-        """Return columns from table_data if present."""
-        return self.table_data.columns if self.table_data else ()
+    # Backward-compatible flat fields
+    columns: tuple[str, ...] = Field(default_factory=tuple)
+    rows: tuple[tuple[Any, ...], ...] = Field(default_factory=tuple)
+    row_count: int = Field(default=0, alias="rowCount")
+    file_name: str | None = Field(default=None, alias="fileName")
+    content_type: str | None = Field(default=None, alias="contentType")
+    file_content_base64: str | None = Field(default=None, alias="fileContentBase64")
 
-    @property
-    def rows(self) -> tuple[tuple[Any, ...], ...]:
-        """Return rows from table_data if present."""
-        return self.table_data.rows if self.table_data else ()
+    @model_validator(mode="after")
+    def _sync_backward_compatible_fields(self) -> PostQueryResponse:
+        """Synchronize flat backward-compatible fields with table_data and excel_export."""
+        if self.table_data is not None:
+            if not self.columns and self.table_data.columns:
+                object.__setattr__(self, "columns", tuple(self.table_data.columns))
+            if not self.rows and self.table_data.rows:
+                object.__setattr__(self, "rows", tuple(self.table_data.rows))
+            if self.row_count == 0 and self.table_data.total_rows != 0:
+                object.__setattr__(self, "row_count", self.table_data.total_rows)
 
-    @property
-    def row_count(self) -> int:
-        """Return total row count from table_data if present."""
-        return self.table_data.total_rows if self.table_data else 0
+        if self.excel_export is not None:
+            if self.file_name is None and self.excel_export.file_name:
+                object.__setattr__(self, "file_name", self.excel_export.file_name)
+            if self.content_type is None and self.excel_export.content_type:
+                object.__setattr__(self, "content_type", self.excel_export.content_type)
+            if self.file_content_base64 is None and self.excel_export.file_content_base64:
+                object.__setattr__(
+                    self, "file_content_base64", self.excel_export.file_content_base64
+                )
 
-    @property
-    def file_name(self) -> str | None:
-        """Return file name from excel_export if present."""
-        return self.excel_export.file_name if self.excel_export else None
-
-    @property
-    def content_type(self) -> str | None:
-        """Return content type from excel_export if present."""
-        return self.excel_export.content_type if self.excel_export else None
-
-    @property
-    def file_content_base64(self) -> str | None:
-        """Return base64 content from excel_export if present."""
-        return self.excel_export.file_content_base64 if self.excel_export else None
+        return self
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize complete response to camelCase dictionary matching backend contract."""

@@ -263,6 +263,123 @@ class SQLDeterministicRepairService:
         if modified:
             select.set("joins", new_joins)
 
+    @staticmethod
+    def _apply_dynamic_rls_joins(
+        select: exp.Select,
+        tbl_name: str,
+        alias: str,
+        path_str: str,
+        param_name: str,
+    ) -> bool:
+        """Dynamically attach required RLS propagation INNER JOINs and WHERE predicate to the select statement."""
+        if not path_str or "->" not in path_str:
+            return False
+
+        segments = [s.strip() for s in path_str.split("->") if s.strip()]
+        if not segments:
+            return False
+
+        existing_aliases = {t.alias_or_name.lower(): t.name.lower() for t in select.find_all(exp.Table)}
+        table_alias_map = {t.name.lower(): t.alias_or_name for t in select.find_all(exp.Table)}
+        table_alias_map[tbl_name.lower()] = alias
+
+        alias_counter = 1
+        joins_to_add: list[exp.Join] = []
+        where_cond: exp.Expression | None = None
+
+        for seg in segments:
+            if "=" not in seg:
+                continue
+            seg_left, seg_right = [x.strip() for x in seg.split("=", 1)]
+
+            if seg_right.startswith("@") or seg_left.startswith("@"):
+                col_side = seg_left if not seg_left.startswith("@") else seg_right
+                if "." in col_side:
+                    r_tbl, r_col = col_side.split(".", 1)
+                    r_alias = table_alias_map.get(r_tbl.lower(), r_tbl)
+                    where_cond = exp.EQ(
+                        this=exp.Column(
+                            this=exp.to_identifier(r_col),
+                            table=exp.to_identifier(r_alias),
+                        ),
+                        expression=exp.var(param_name),
+                    )
+            else:
+                if "." in seg_left and "." in seg_right:
+                    t1, c1 = seg_left.split(".", 1)
+                    t2, c2 = seg_right.split(".", 1)
+                    t1_lower, t2_lower = t1.lower(), t2.lower()
+
+                    t1_alias = table_alias_map.get(t1_lower)
+                    t2_alias = table_alias_map.get(t2_lower)
+
+                    if t1_alias and not t2_alias:
+                        base_alias = t2[0].lower()
+                        cand_alias = base_alias
+                        while cand_alias.lower() in existing_aliases:
+                            cand_alias = f"{base_alias}{alias_counter}"
+                            alias_counter += 1
+                        existing_aliases[cand_alias.lower()] = t2_lower
+                        table_alias_map[t2_lower] = cand_alias
+
+                        join_node = exp.Join(
+                            this=exp.Table(
+                                this=exp.to_identifier(t2),
+                                alias=exp.TableAlias(this=exp.to_identifier(cand_alias)),
+                            ),
+                            on=exp.EQ(
+                                this=exp.Column(
+                                    this=exp.to_identifier(c1),
+                                    table=exp.to_identifier(t1_alias),
+                                ),
+                                expression=exp.Column(
+                                    this=exp.to_identifier(c2),
+                                    table=exp.to_identifier(cand_alias),
+                                ),
+                            ),
+                            kind="INNER",
+                        )
+                        joins_to_add.append(join_node)
+
+                    elif t2_alias and not t1_alias:
+                        base_alias = t1[0].lower()
+                        cand_alias = base_alias
+                        while cand_alias.lower() in existing_aliases:
+                            cand_alias = f"{base_alias}{alias_counter}"
+                            alias_counter += 1
+                        existing_aliases[cand_alias.lower()] = t1_lower
+                        table_alias_map[t1_lower] = cand_alias
+
+                        join_node = exp.Join(
+                            this=exp.Table(
+                                this=exp.to_identifier(t1),
+                                alias=exp.TableAlias(this=exp.to_identifier(cand_alias)),
+                            ),
+                            on=exp.EQ(
+                                this=exp.Column(
+                                    this=exp.to_identifier(c2),
+                                    table=exp.to_identifier(t2_alias),
+                                ),
+                                expression=exp.Column(
+                                    this=exp.to_identifier(c1),
+                                    table=exp.to_identifier(cand_alias),
+                                ),
+                            ),
+                            kind="INNER",
+                        )
+                        joins_to_add.append(join_node)
+
+        if not joins_to_add and not where_cond:
+            return False
+
+        if joins_to_add:
+            select.args.setdefault("joins", []).extend(joins_to_add)
+
+        if where_cond is not None:
+            select.where(where_cond, copy=False)
+
+        return True
+
     def _repair_single_statement(
         self,
         tree: exp.Expression,
@@ -349,55 +466,32 @@ class SQLDeterministicRepairService:
                                 if repaired_for_domain:
                                     break
 
-                # If direct root/branch tables weren't in query, check indirect tables with approved paths (e.g. customers, transactions, cards, loans)
+                # If direct root/branch tables weren't in query, check indirect tables with approved propagation paths dynamically
                 if not repaired_for_domain:
+                    propagation_paths = domain.get("propagation_paths", [])
                     for table in select.find_all(exp.Table):
                         tbl_name = table.name
                         alias = table.alias_or_name
-                        if tbl_name == "customers":
-                            sub_ast = sqlglot.parse_one(
-                                f"SELECT a.customer_id FROM {root_table} AS a WHERE a.{root_col} = {param_name}",
-                                read=_DIALECT,
-                            )
-                            in_cond = exp.In(
-                                this=exp.Column(
-                                    this=exp.to_identifier("customer_id"),
-                                    table=exp.to_identifier(alias),
-                                ),
-                                expressions=[sub_ast],
-                            )
-                            select.where(in_cond, copy=False)
-                            repaired_for_domain = True
-                            break
-                        elif tbl_name in ("transactions", "cards"):
-                            sub_ast = sqlglot.parse_one(
-                                f"SELECT a.account_id FROM {root_table} AS a WHERE a.{root_col} = {param_name}",
-                                read=_DIALECT,
-                            )
-                            in_cond = exp.In(
-                                this=exp.Column(
-                                    this=exp.to_identifier("account_id"),
-                                    table=exp.to_identifier(alias),
-                                ),
-                                expressions=[sub_ast],
-                            )
-                            select.where(in_cond, copy=False)
-                            repaired_for_domain = True
-                            break
-                        elif tbl_name == "loans":
-                            sub_ast = sqlglot.parse_one(
-                                f"SELECT a.customer_id FROM {root_table} AS a WHERE a.{root_col} = {param_name}",
-                                read=_DIALECT,
-                            )
-                            in_cond = exp.In(
-                                this=exp.Column(
-                                    this=exp.to_identifier("customer_id"),
-                                    table=exp.to_identifier(alias),
-                                ),
-                                expressions=[sub_ast],
-                            )
-                            select.where(in_cond, copy=False)
-                            repaired_for_domain = True
-                            break
+                        path_entry = next(
+                            (
+                                p
+                                for p in propagation_paths
+                                if isinstance(p, dict)
+                                and p.get("target_table") == tbl_name
+                                and p.get("propagation") != "not_allowed"
+                            ),
+                            None,
+                        )
+                        if path_entry:
+                            path_str = path_entry.get("path", "")
+                            if self._apply_dynamic_rls_joins(
+                                select=select,
+                                tbl_name=tbl_name,
+                                alias=alias,
+                                path_str=path_str,
+                                param_name=param_name,
+                            ):
+                                repaired_for_domain = True
+                                break
 
         return tree

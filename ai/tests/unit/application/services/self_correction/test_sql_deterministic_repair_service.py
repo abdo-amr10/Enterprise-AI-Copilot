@@ -21,6 +21,13 @@ class _Schema:
                     "name": "branch",
                     "canonical_root": "accounts.branch_id",
                     "canonical_predicate": "accounts.branch_id = @UserBranchId",
+                    "propagation_paths": [
+                        {
+                            "target_table": "customers",
+                            "path": "customers.customer_id = accounts.customer_id -> accounts.branch_id = @UserBranchId",
+                            "propagation": "allowed",
+                        }
+                    ],
                 }
             ],
         }
@@ -43,3 +50,18 @@ def test_deterministic_repair_injects_missing_branch_id():
     repaired = repair_svc.repair(candidate_sql, schema=_Schema().get_schema(), enforce_rls=True)
     assert "@UserBranchId" in repaired
     assert "a.branch_id = @UserBranchId" in repaired
+
+
+def test_deterministic_repair_injects_propagation_join():
+    syntax = SQLSyntaxValidator()
+    schema = SQLSchemaValidator(_Schema(), syntax)
+    repair_svc = SQLDeterministicRepairService(syntax, schema)
+
+    candidate_sql = "SELECT c.customer_id, c.first_name FROM customers AS c WHERE c.credit_score > 700"
+    repaired = repair_svc.repair(candidate_sql, schema=_Schema().get_schema(), enforce_rls=True)
+
+    assert "@UserBranchId" in repaired
+    assert "INNER JOIN accounts" in repaired
+    assert "c.customer_id = a.customer_id" in repaired or "c.customer_id = accounts.customer_id" in repaired
+    assert "branch_id = @UserBranchId" in repaired
+    assert "IN (SELECT" not in repaired

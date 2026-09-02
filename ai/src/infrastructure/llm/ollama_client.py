@@ -50,15 +50,20 @@ class OllamaClient(LLMClient):
             if not self._model_checked:
                 self._client.show(self._config.model_name)
                 self._model_checked = True
-            response = self._client.generate(
-                model=self._config.model_name,
-                prompt=request.prompt,
-                options={
+
+            gen_kwargs = {
+                "model": self._config.model_name,
+                "prompt": request.prompt,
+                "options": {
                     "temperature": self._config.temperature,
                     "num_ctx": self._config.context_length,
                     "num_predict": self._config.max_output_tokens,
                 },
-            )
+            }
+            if request.format is not None:
+                gen_kwargs["format"] = request.format
+
+            response = self._client.generate(**gen_kwargs)
         except Exception as exc:
             raise RuntimeError(
                 f"Ollama at {self._host} could not serve model '{self._config.model_name}': {exc}"

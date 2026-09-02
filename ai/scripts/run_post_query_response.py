@@ -39,7 +39,6 @@ from __future__ import annotations
 import argparse
 import base64
 import json
-from dataclasses import asdict
 
 from src.application.dto.backend.copilot.execution_result import BackendExecutionResult
 from src.application.services.post_query_response.post_query_response_formatter import (
@@ -116,11 +115,9 @@ def main() -> int:
     formatter = PostQueryResponseFormatter(summarizer=summarizer)
     response = formatter.format(args.question, backend_result)
 
-    # PostQueryResponse is expected to be a dataclass; asdict() gives a
-    # plain dict we can dump straight to JSON. The base64 payload is left
-    # in place here so you can see it's actually populated; the decoded
-    # file itself is written separately below.
-    print(json.dumps(asdict(response), ensure_ascii=False, indent=2))
+    # PostQueryResponse is a Pydantic model; to_dict() gives a
+    # camelCase dictionary matching the backend contract.
+    print(json.dumps(response.to_dict(), ensure_ascii=False, indent=2))
     save_excel_if_present(response, args.excel_output_dir)
     return 0
 

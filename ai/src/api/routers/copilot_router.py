@@ -27,6 +27,7 @@ from src.api.contracts import (
     CopilotResponse,
     ExecutionResultRequest,
     PostQueryFormatRequest,
+    PostQueryResponse,
 )
 
 router = APIRouter(prefix="/internal/copilot", tags=["copilot"])
@@ -79,7 +80,7 @@ def text_to_sql(
     try:
         ask_request = CopilotAskRequest(
             question=request.question,
-            conversation=tuple(request.conversation),
+            conversation=tuple(request.conversation or ()),
             correlation_id=request.correlation_id,
             traceparent=request.traceparent,
         )
@@ -99,15 +100,19 @@ def text_to_sql(
     )
 
 
-@router.post("/format-execution-result")
+@router.post(
+    "/format-execution-result",
+    response_model=PostQueryResponse,
+    response_model_by_alias=True,
+)
 def format_execution_result(
     request: PostQueryFormatRequest,
     formatter: PostQueryResponseFormatter = Depends(get_post_query_response_formatter),
-) -> dict:
+) -> PostQueryResponse:
     """Format a Backend-owned execution result without executing SQL or persisting files."""
 
     try:
         result = _normalize_execution_result(request.executionResult)
-        return formatter.format(request.question, result).to_dict()
+        return formatter.format(request.question, result)
     except (TypeError, ValueError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error

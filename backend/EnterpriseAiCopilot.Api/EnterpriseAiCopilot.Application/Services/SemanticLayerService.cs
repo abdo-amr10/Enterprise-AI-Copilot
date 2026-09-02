@@ -1,4 +1,4 @@
-﻿using EnterpriseAiCopilot.Application.Common.Interfaces;
+using EnterpriseAiCopilot.Application.Common.Interfaces;
 using EnterpriseAiCopilot.Application.Common.Models;
 using EnterpriseAiCopilot.Application.DTOs;
 using EnterpriseAiCopilot.Application.DTOs.SemanticLayer;
@@ -263,6 +263,40 @@ namespace EnterpriseAiCopilot.Application.Services
 
             if (revision.Status.Equals("Approved", StringComparison.OrdinalIgnoreCase))
                 return Result<ReviewRevisionResponse>.Failure("This revision is already approved.");
+
+            if (request.Decision.Equals("Approve", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.IsNullOrEmpty(revision.ContentJson))
+                {
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(revision.ContentJson);
+                        if (doc.RootElement.TryGetProperty("validation_issues", out var issues) ||
+                            doc.RootElement.TryGetProperty("validationIssues", out issues))
+                        {
+                            if (issues.ValueKind == JsonValueKind.Array && issues.GetArrayLength() > 0)
+                            {
+                                foreach (var issue in issues.EnumerateArray())
+                                {
+                                    if (issue.TryGetProperty("severity", out var sev) &&
+                                        sev.GetString()?.Equals("error", StringComparison.OrdinalIgnoreCase) == true)
+                                    {
+                                        return Result<ReviewRevisionResponse>.Failure("Cannot approve revision with unresolved validation errors.");
+                                    }
+                                    if (issue.TryGetProperty("category", out var cat) &&
+                                        cat.GetString()?.Equals("security_domain", StringComparison.OrdinalIgnoreCase) == true)
+                                    {
+                                        return Result<ReviewRevisionResponse>.Failure("Cannot approve revision with unresolved security validation issues.");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
 
             var aiReviewResult = await _aiSemanticClient.ReviewDraftAsync(request.RevisionId, request.Decision, request.Comments, cancellationToken);
             if (!aiReviewResult.IsSuccess)

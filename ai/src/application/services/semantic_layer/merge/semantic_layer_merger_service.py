@@ -105,9 +105,39 @@ class SemanticLayerMergeService:
                 index = existing_by_id.get(object_id)
                 if index is None:
                     raise ValueError(f"Cannot update unknown {section} '{object_id}'.")
-                updated_item = deepcopy(change)
-                updated_item["object_id"] = object_id
-                existing_items[index] = updated_item
+                if section == "security_domains":
+                    existing_domain = existing_items[index]
+                    updated_domain = deepcopy(existing_domain)
+                    for field in (
+                        "name",
+                        "canonical_root",
+                        "canonical_predicate",
+                        "security_parameter",
+                        "security_scope",
+                        "description",
+                    ):
+                        if field in change and change[field]:
+                            updated_domain[field] = change[field]
+
+                    existing_paths = existing_domain.get("propagation_paths", [])
+                    new_paths = change.get("propagation_paths", [])
+                    if isinstance(new_paths, list):
+                        path_by_target = {
+                            p.get("target_table").lower(): p
+                            for p in existing_paths
+                            if isinstance(p, dict) and p.get("target_table")
+                        }
+                        for np in new_paths:
+                            if isinstance(np, dict) and np.get("target_table"):
+                                path_by_target[np.get("target_table").lower()] = deepcopy(np)
+                        updated_domain["propagation_paths"] = list(path_by_target.values())
+
+                    updated_domain["object_id"] = object_id
+                    existing_items[index] = updated_domain
+                else:
+                    updated_item = deepcopy(change)
+                    updated_item["object_id"] = object_id
+                    existing_items[index] = updated_item
                 continue
 
             if name in additions:

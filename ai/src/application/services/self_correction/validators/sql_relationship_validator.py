@@ -165,6 +165,13 @@ class SQLRelationshipValidator:
         pairs: set[tuple[str, str, str, str]] = set()
 
         for relationship in relationships:
+            if not isinstance(relationship, dict):
+                continue
+            if relationship.get("is_executable") is False:
+                continue
+            if relationship.get("status") in ("UNCERTAIN", "NO_SUPPORTED_RELATIONSHIP", "uncertain", "rejected"):
+                continue
+
             from_table = relationship.get("from_table")
             from_column = relationship.get("from_column")
             to_table = relationship.get("to_table")
@@ -184,6 +191,11 @@ class SQLRelationshipValidator:
         for relationship in source_relationships:
             if not isinstance(relationship, dict):
                 continue
+            if relationship.get("is_executable") is False:
+                continue
+            if relationship.get("status") in ("UNCERTAIN", "NO_SUPPORTED_RELATIONSHIP", "uncertain", "rejected"):
+                continue
+
             values = tuple(
                 relationship.get(field)
                 for field in ("from_table", "from_column", "to_table", "to_column")

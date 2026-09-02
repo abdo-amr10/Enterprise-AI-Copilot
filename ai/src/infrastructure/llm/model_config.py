@@ -34,7 +34,7 @@ class ModelConfig:
 
 _DEFAULT_MODEL = os.getenv("LLM_MODEL_NAME", "qwen2.5-coder:7b")
 _DEFAULT_CTX = int(os.getenv("LLM_CONTEXT_LENGTH", "4096"))
-_SEMANTIC_CTX = int(os.getenv("LLM_SEMANTIC_CONTEXT_LENGTH", "8192"))
+_SEMANTIC_CTX = int(os.getenv("LLM_SEMANTIC_CONTEXT_LENGTH", "16384"))
 
 QWEN_CONFIG = ModelConfig(
     model_name=_DEFAULT_MODEL,

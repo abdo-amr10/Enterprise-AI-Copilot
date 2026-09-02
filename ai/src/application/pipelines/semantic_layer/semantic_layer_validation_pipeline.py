@@ -1,6 +1,9 @@
 from typing import Any
 from copy import deepcopy
 
+from src.application.services.semantic_layer.security.security_rule_extractor import (
+    SecurityRuleExtractor,
+)
 from src.application.services.semantic_layer.validation.semantic_layer_auto_fixer import (
     SemanticLayerAutoFixer,
 )
@@ -47,6 +50,11 @@ class SemanticLayerValidationPipeline:
         schema: dict[str, Any],
         relationships: list[dict[str, Any]],
         has_semantic_context: bool = False,
+        documentation: Any | None = None,
+        security_rules: list[dict[str, Any]] | None = None,
+        authoritative_security_rules: list[dict[str, Any]] | None = None,
+        glossary: Any | None = None,
+        sample_data: Any | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Validate and repair a Semantic Layer draft.
 
@@ -55,10 +63,25 @@ class SemanticLayerValidationPipeline:
             schema: Authoritative physical database schema.
             relationships: Approved table relationships list.
             has_semantic_context: Whether documentation/glossary context was provided.
+            documentation: Optional documentation source.
+            security_rules: Optional security rules list.
+            authoritative_security_rules: Optional explicit authoritative security rules.
+            glossary: Optional business glossary.
+            sample_data: Optional sample data.
 
         Returns:
             A tuple of (validated_draft_or_current, validation_result_dict).
         """
+
+        effective_security_rules = (
+            authoritative_security_rules
+            if authoritative_security_rules is not None
+            else security_rules
+        )
+        if effective_security_rules is None and documentation is not None:
+            effective_security_rules = SecurityRuleExtractor.extract_security_rules(
+                documentation
+            )
 
         current = draft
 
@@ -69,6 +92,7 @@ class SemanticLayerValidationPipeline:
                 schema=schema,
                 relationships=relationships,
                 has_semantic_context=has_semantic_context,
+                authoritative_security_rules=effective_security_rules,
             )
 
             if validation["status"] == "passed":
@@ -87,6 +111,10 @@ class SemanticLayerValidationPipeline:
                 validation=validation,
                 schema=schema,
                 relationships=relationships,
+                documentation=documentation,
+                authoritative_security_rules=effective_security_rules,
+                glossary=glossary,
+                sample_data=sample_data,
             )
 
         raise RuntimeError(

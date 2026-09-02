@@ -1,13 +1,27 @@
-"""Interactive demo script to test and inspect PostQueryResponse formatting across all scenarios."""
-
 import json
+import os
 import sys
+
+# Ensure ai dir is in path
+ai_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../../"))
+sys.path.insert(0, ai_dir)
+
 from fastapi.testclient import TestClient
 from main import app
+from src.api.post_query_dependencies import get_post_query_response_formatter
+from src.application.services.post_query_response.post_query_response_formatter import (
+    PostQueryResponseFormatter,
+)
+from src.config.post_query_response_settings import PostQueryResponseSettings
 
 # Ensure utf-8 encoding for standard output on Windows
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
+
+# Override with deterministic formatter so demo runs immediately without external Ollama dependency
+app.dependency_overrides[get_post_query_response_formatter] = lambda: PostQueryResponseFormatter(
+    settings=PostQueryResponseSettings(max_inline_rows=100)
+)
 
 client = TestClient(app)
 

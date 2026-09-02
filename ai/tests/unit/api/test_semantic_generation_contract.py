@@ -56,3 +56,17 @@ def test_generation_rejects_null_schema_file_id_downstream() -> None:
                 if value is not None
             },
         )
+
+
+def test_generation_accepts_null_affected_objects() -> None:
+    request = SemanticGenerateRequest.model_validate(
+        {
+            "semanticLayerId": "sl-001",
+            "triggerType": "FullRebuild",
+            "sourceFileIds": {"schema": "file-001"},
+            "affectedObjects": None,
+        }
+    )
+
+    assert request.affectedObjects is None
+

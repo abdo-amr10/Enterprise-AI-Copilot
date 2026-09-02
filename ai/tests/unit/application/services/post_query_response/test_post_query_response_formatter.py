@@ -70,3 +70,42 @@ def test_multi_row_tables_have_structured_table_and_excel_payloads():
     assert response.excel_export.available is True
     assert base64.b64decode(response.excel_export.file_content_base64) == b"xlsx-data"
 
+
+def test_pydantic_validation_and_backward_compatibility():
+    from src.application.dto.backend.copilot.post_query_response import (
+        HeroMetric,
+        KpiCard,
+        TableData,
+        ExcelExport,
+        PostQueryResponse,
+    )
+    import pytest
+    from pydantic import ValidationError
+
+    # 1. HeroMetric type validation
+    hero = HeroMetric(label="REVENUE", value="$100k", delta_text="+10%")
+    assert hero.label == "REVENUE"
+    assert hero.value == "$100k"
+    assert hero.delta_text == "+10%"
+    assert hero.to_dict() == {"label": "REVENUE", "value": "$100k", "deltaText": "+10%"}
+
+    # 2. TableData auto sync in PostQueryResponse
+    table = TableData(columns=("id", "val"), rows=((1, 10), (2, 20)), total_rows=2)
+    resp = PostQueryResponse(
+        status="Success",
+        presentation_type="Table",
+        text="Sample data",
+        table_data=table,
+    )
+    assert resp.columns == ("id", "val")
+    assert resp.rows == ((1, 10), (2, 20))
+    assert resp.row_count == 2
+
+    # 3. Serialization to dict matching backend camelCase
+    d = resp.to_dict()
+    assert d["status"] == "Success"
+    assert d["presentationType"] == "Table"
+    assert d["rowCount"] == 2
+    assert d["tableData"]["totalRows"] == 2
+
+

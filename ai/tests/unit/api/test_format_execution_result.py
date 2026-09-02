@@ -140,3 +140,50 @@ def test_format_execution_result_with_structured_contract(client: TestClient) ->
     assert data["presentationType"] == "Table"
     assert data["columns"] == ["Id", "Name"]
     assert data["rows"] == [[1, "Charlie"], [2, "Dave"]]
+
+
+def test_format_execution_result_invalid_request_rejected(client: TestClient) -> None:
+    # Missing question (empty string violates min_length=1)
+    response = client.post(
+        "/internal/copilot/format-execution-result",
+        json={
+            "question": "",
+            "executionResult": [],
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_format_execution_result_pydantic_types_and_camelcase_serialization(client: TestClient) -> None:
+    response = client.post(
+        "/internal/copilot/format-execution-result",
+        json={
+            "question": "Show revenue",
+            "executionResult": [
+                {"Department": "Sales", "Revenue": 50000.0},
+                {"Department": "Marketing", "Revenue": 20000.0},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data["status"], str)
+    assert isinstance(data["presentationType"], str)
+    assert isinstance(data["rowCount"], int)
+    assert isinstance(data["columns"], list)
+    assert isinstance(data["rows"], list)
+    assert isinstance(data["text"], str)
+
+    # Check TableData nested structure
+    assert data["tableData"] is not None
+    assert isinstance(data["tableData"]["totalRows"], int)
+    assert data["tableData"]["totalRows"] == 2
+    assert data["tableData"]["columns"] == ["Department", "Revenue"]
+
+    # Check ExcelExport nested structure
+    assert data["excelExport"] is not None
+    assert isinstance(data["excelExport"]["available"], bool)
+    assert data["excelExport"]["available"] is True
+    assert isinstance(data["excelExport"]["fileName"], str)
+    assert data["excelExport"]["fileName"].endswith(".xlsx")
+

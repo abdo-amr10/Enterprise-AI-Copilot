@@ -6,8 +6,14 @@ import json
 from pathlib import Path
 from typing import Any
 
+from src.application.pipelines.semantic_layer.semantic_layer_embedding_pipeline import (
+    SemanticLayerEmbeddingPipeline,
+)
 from src.infrastructure.semantic_layer.retrieval.embedding_service import (
     EmbeddingService,
+)
+from src.infrastructure.semantic_layer.retrieval.semantic_index_builder import (
+    SemanticIndexBuilder,
 )
 from src.infrastructure.semantic_layer.retrieval.vector_index import (
     VectorIndex,
@@ -25,12 +31,20 @@ class FileSemanticRepository:
         semantic_layer_path: str | Path,
         embedding_service: EmbeddingService | None = None,
         vector_store: VectorIndex | None = None,
+        indexing_pipeline: SemanticLayerEmbeddingPipeline | None = None,
     ) -> None:
         self._semantic_layer_path = Path(
             semantic_layer_path
         )
         self._embedding_service = embedding_service
         self._vector_store = vector_store
+        self._indexing_pipeline = indexing_pipeline or (
+            SemanticLayerEmbeddingPipeline(
+                SemanticIndexBuilder(embedding_service, vector_store)
+            )
+            if embedding_service is not None and vector_store is not None
+            else None
+        )
 
     def load(self) -> dict[str, Any]:
         """Load the approved Semantic Layer."""
@@ -81,13 +95,20 @@ class FileSemanticRepository:
 
         layer = self.load()
         metadata = layer["metadata"]
-        self._vector_store.validate_metadata({
+        expected_metadata = {
             "index_version": 1,
             "semantic_layer_id": metadata["semantic_layer_id"],
             "revision_id": metadata["revision_id"],
             "embedding_dimension": self._embedding_service.embedding_dimension,
             "embedding_model": self._embedding_service.model_name,
-        })
+        }
+
+        try:
+            self._vector_store.validate_metadata(expected_metadata)
+        except (FileNotFoundError, ValueError, KeyError):
+            if self._indexing_pipeline is not None:
+                self._indexing_pipeline.run(layer)
+
         query_embedding = self._embedding_service.encode_query(question)
 
         return self._vector_store.search(

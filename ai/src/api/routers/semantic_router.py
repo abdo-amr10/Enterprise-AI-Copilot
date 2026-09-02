@@ -119,7 +119,7 @@ def generate_draft(
                 id=item.get("id"),
                 name=item.get("name"),
             )
-            for item in body.get("affectedObjects", [])
+            for item in (body.get("affectedObjects") or [])
         )
         generation_request = SemanticLayerGenerationRequest(
             trigger_type=_required_string(body, "triggerType"),
@@ -173,6 +173,17 @@ def generate_draft(
         response["validationIssues"] = response.pop("validation_issues")
     else:
         response.setdefault("validationIssues", [])
+    if "security_domains" in response:
+        domains = response.get("security_domains", [])
+        response["securityDomains"] = domains
+        response["security_domains"] = domains
+    elif "securityDomains" in response:
+        domains = response.get("securityDomains", [])
+        response["securityDomains"] = domains
+        response["security_domains"] = domains
+    else:
+        response.setdefault("securityDomains", [])
+        response.setdefault("security_domains", [])
     return response
 
 
@@ -199,6 +210,8 @@ def validate_draft(
                 (request.documentation and request.documentation.strip())
                 or (request.businessGlossary and request.businessGlossary.strip())
             ),
+            documentation=request.documentation,
+            glossary=request.businessGlossary,
         )
         return {"status": "Success", "draft": final_draft, "validation": validation}
 

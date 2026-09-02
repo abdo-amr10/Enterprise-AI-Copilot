@@ -19,7 +19,8 @@ class BackendSemanticClient:
         """Initialize the Backend semantic client from environment variables or shared client.
 
         Raises:
-            RuntimeError: If BACKEND_API_BASE_URL or BACKEND_SERVICE_BEARER_TOKEN is unset.
+            RuntimeError: If BACKEND_API_BASE_URL is unset, or if neither BACKEND_SERVICE_BEARER_TOKEN
+                nor (BACKEND_SERVICE_EMAIL and BACKEND_SERVICE_PASSWORD) is configured.
         """
         if http_client is not None:
             self._http_client = http_client
@@ -30,6 +31,8 @@ class BackendSemanticClient:
 
         self._base_url = os.environ.get("BACKEND_API_BASE_URL", "").rstrip("/")
         self._token = os.environ.get("BACKEND_SERVICE_BEARER_TOKEN", "")
+        self._email = os.environ.get("BACKEND_SERVICE_EMAIL", "")
+        self._password = os.environ.get("BACKEND_SERVICE_PASSWORD", "")
         self._timeout = float(os.environ.get("BACKEND_API_TIMEOUT_SECONDS", "30"))
         self._allow_insecure_local_https = (
             os.environ.get("BACKEND_ALLOW_INSECURE_LOCAL_HTTPS", "").casefold()
@@ -37,12 +40,17 @@ class BackendSemanticClient:
         )
         if not self._base_url:
             raise RuntimeError("BACKEND_API_BASE_URL must be configured for semantic runtime requests.")
-        if not self._token:
-            raise RuntimeError("BACKEND_SERVICE_BEARER_TOKEN must be configured for semantic runtime requests.")
+        if not self._token and not (self._email and self._password):
+            raise RuntimeError(
+                "Either BACKEND_SERVICE_BEARER_TOKEN or (BACKEND_SERVICE_EMAIL and BACKEND_SERVICE_PASSWORD) "
+                "must be configured for semantic runtime requests."
+            )
 
         self._http_client = BackendHttpClient(
             base_url=self._base_url,
             token=self._token,
+            email=self._email,
+            password=self._password,
             timeout=int(self._timeout),
             verify_tls=not self._allow_insecure_local_https,
         )
@@ -75,11 +83,17 @@ class BackendSemanticClient:
     @staticmethod
     def _source_key(name: str) -> str:
         """Normalize Backend source names to the AI build-input vocabulary."""
-
-        if name == "glossary":
+        key = name.lower()
+        if key in ("glossary", "businessglossary", "business_glossary"):
             return "business_glossary"
-        if name == "sampleData":
+        if key in ("sampledata", "sample_data"):
             return "sample_data"
+        if key in ("documentation", "docs", "doc"):
+            return "documentation"
+        if key in ("schema", "database_schema"):
+            return "schema"
+        if key in ("relationships", "relationship"):
+            return "relationships"
         return name
 
     def load_revision(self, revision_id: str) -> dict[str, Any]:
@@ -122,6 +136,7 @@ class BackendSemanticClient:
         # snake_case section names internally.
         result.setdefault("business_rules", result.pop("businessRules", []))
         result.setdefault("validation_issues", result.pop("validationIssues", []))
+        result.setdefault("security_domains", result.pop("securityDomains", []))
         self._normalize_relationships(result)
         return result
 

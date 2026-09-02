@@ -54,6 +54,20 @@ For customer-level transaction or card queries, join through `accounts`.
 For customer-level loan queries, use the direct `customers.customer_id` → `loans.customer_id` relationship.
 Do not join `loans` directly to `accounts` because no such relationship is defined.
 
+## RLS Mapping Security & Data Filtering
+
+These rules were built to ensure data filtering based on the branch_id extracted from the current user's Token, ensuring that no branch can view the data of other branches.
+
+| Table | Join Logic | Enforced SQL via Validation Layer |
+|---|---|---|
+| `branches` | Contains branch_id directly | `WHERE branches.branch_id = @UserBranchId` |
+| `accounts` | Contains branch_id directly | `WHERE accounts.branch_id = @UserBranchId` |
+| `transactions` | Joined with accounts table via account_id | `INNER JOIN accounts ON transactions.account_id = accounts.account_id WHERE accounts.branch_id = @UserBranchId` |
+| `cards` | Joined with accounts table via account_id | `INNER JOIN accounts ON cards.account_id = accounts.account_id WHERE accounts.branch_id = @UserBranchId` |
+| `customers` | Joined with accounts table via customer_id | `INNER JOIN accounts ON customers.customer_id = accounts.customer_id WHERE accounts.branch_id = @UserBranchId` |
+| `loans` | Joined with customers then accounts then branches | `INNER JOIN customers ON loans.customer_id = customers.customer_id INNER JOIN accounts ON customers.customer_id = accounts.customer_id INNER JOIN branches ON accounts.branch_id = branches.branch_id WHERE branches.branch_id = @UserBranchId` |
+| `merchants` | Multiple joins with transactions then accounts | `INNER JOIN transactions ON merchants.merchant_id = transactions.merchant_id INNER JOIN accounts ON transactions.account_id = accounts.account_id WHERE accounts.branch_id = @UserBranchId` |
+
 ## Sample Data
 
 `sample_data.json` contains synthetic, referentially complete examples.
@@ -63,3 +77,4 @@ The sample records are intentionally aligned across all defined relationships an
 The sample dataset is not a representation of the full database and must not be used to infer row counts, distributions, nullability, or business rules that are not explicitly defined in the schema.
 
 All records in `sample_data.json` are synthetic examples and are not presented as raw source rows.
+

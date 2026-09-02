@@ -24,6 +24,7 @@ class IncrementalBuilder:
         "measures",
         "dimensions",
         "business_rules",
+        "security_domains",
     }
 
     _VALID_ACTIONS = {
@@ -63,7 +64,7 @@ class IncrementalBuilder:
         )
 
         response: GenerationResponse = self._llm_client.generate(
-            GenerationRequest(prompt=prompt)
+            GenerationRequest(prompt=prompt, format="json")
         )
 
         semantic_layer = self._output_parser.parse(
