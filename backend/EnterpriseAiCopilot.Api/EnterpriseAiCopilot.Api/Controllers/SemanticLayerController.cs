@@ -143,6 +143,24 @@ namespace EnterpriseAiCopilot.Api.Controllers
             return Ok(result.Data);
         }
 
+        [HttpGet]
+        public async Task<IActionResult> GetSemanticLayers(CancellationToken cancellationToken)
+        {
+            var result = await _semanticLayerService.GetSemanticLayersAsync(cancellationToken);
+
+            if (!result.IsSuccess)
+            {
+                return BadRequest(new
+                {
+                    status = "Failed",
+                    errorCode = "BUSINESS_ERROR",
+                    message = result.ErrorMessage
+                });
+            }
+
+            return Ok(result.Data);
+        }
+
         [HttpDelete("{layerId}")]
         public async Task<IActionResult> DeleteSemanticLayer(Guid layerId, CancellationToken cancellationToken)
         {
