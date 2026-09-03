@@ -8,7 +8,5 @@ namespace EnterpriseAiCopilot.Application.DTOs.Copilot
     {
         public string TextSummary { get; set; } = string.Empty;
         public string PresentationType { get; set; } = string.Empty;
-        public object? Data { get; set; }
-        public long ExecutionTimeMs { get; set; }
     }
 }

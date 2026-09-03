@@ -14,6 +14,6 @@ namespace EnterpriseAiCopilot.Application.DTOs.Copilot
         public long ExecutionTimeMs { get; set; }
         public string? ErrorMessage { get; set; }
         public string? SemanticLayerId { get; set; }
-        public CopilotReport? Result { get; set; }
+        public CopilotReportSummary? Result { get; set; }
     }
 }

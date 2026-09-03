@@ -148,9 +148,6 @@ namespace EnterpriseAiCopilot.Infrastructure.Migrations
                     b.Property<string>("GeneratedSql")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<string>("ResultJson")
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<Guid>("SemanticLayerId")
                         .HasColumnType("uniqueidentifier");
 
@@ -247,9 +244,6 @@ namespace EnterpriseAiCopilot.Infrastructure.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<string>("LastModifiedBy")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("PhysicalSchemaJson")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("RegeneratedObjectsCount")

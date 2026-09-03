@@ -7,7 +7,6 @@ namespace EnterpriseAiCopilot.Domain.Entities
     {
         public int VersionNumber { get; set; }
         public string ContentJson { get; set; } = string.Empty;
-        public string? PhysicalSchemaJson { get; set; }
 
         public string Status { get; set; } = "PendingReview";
 

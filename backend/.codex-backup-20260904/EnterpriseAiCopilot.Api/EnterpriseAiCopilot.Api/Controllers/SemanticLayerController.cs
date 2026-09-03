@@ -143,28 +143,10 @@ namespace EnterpriseAiCopilot.Api.Controllers
             return Ok(result.Data);
         }
 
-        [HttpGet("revisions/active/schema")]
-        public async Task<IActionResult> GetActiveRevisionSchema(CancellationToken cancellationToken)
-        {
-            var result = await _semanticLayerService.GetActiveRevisionSchemaAsync(cancellationToken);
-
-            if (!result.IsSuccess)
-            {
-                return NotFound(new
-                {
-                    status = "Failed",
-                    errorCode = "NOT_FOUND",
-                    message = result.ErrorMessage
-                });
-            }
-
-            return Ok(result.Data);
-        }
-
         [HttpGet]
-        public async Task<IActionResult> GetSemanticLayers([FromQuery(Name = "id")] Guid? layerId, CancellationToken cancellationToken)
+        public async Task<IActionResult> GetSemanticLayers(CancellationToken cancellationToken)
         {
-            var result = await _semanticLayerService.GetSemanticLayersAsync(layerId, cancellationToken);
+            var result = await _semanticLayerService.GetSemanticLayersAsync(cancellationToken);
 
             if (!result.IsSuccess)
             {
