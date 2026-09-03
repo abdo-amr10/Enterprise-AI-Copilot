@@ -556,6 +556,26 @@ namespace EnterpriseAiCopilot.Application.Services
             return Result<SemanticLayerStatusResponse>.Success(response);
         }
 
+        public async Task<Result<List<SemanticLayerListItemResponse>>> GetSemanticLayersAsync(CancellationToken cancellationToken = default)
+        {
+            var layers = await _context.SemanticLayers
+                .AsNoTracking()
+                .OrderByDescending(layer => layer.IsActive)
+                .ThenBy(layer => layer.Name)
+                .Select(layer => new SemanticLayerListItemResponse
+                {
+                    SemanticLayerId = layer.Id.ToString(),
+                    Name = layer.Name,
+                    DatabaseName = layer.DatabaseName,
+                    Description = layer.Description,
+                    IsActive = layer.IsActive,
+                    HasApprovedRevision = layer.Revisions.Any(revision => revision.Status == "Approved")
+                })
+                .ToListAsync(cancellationToken);
+
+            return Result<List<SemanticLayerListItemResponse>>.Success(layers);
+        }
+
         private static SemanticSources BuildSemanticSources(IEnumerable<SemanticSourceFile> sourceFiles)
         {
             var files = sourceFiles.OrderBy(f => f.CreatedAt).ToList();
