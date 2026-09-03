@@ -1,0 +1,74 @@
+{
+  "tables": [
+    {
+      "name": "customers",
+      "columns": [
+        { "name": "customer_id", "type": "varchar(20)" },
+        { "name": "first_name", "type": "varchar(50)" },
+        { "name": "last_name", "type": "varchar(50)" },
+        { "name": "email", "type": "varchar(100)" },
+        { "name": "city", "type": "varchar(50)" },
+        { "name": "credit_score", "type": "int" },
+        { "name": "created_at", "type": "datetime" }
+      ]
+    },
+    {
+      "name": "loans",
+      "columns": [
+        { "name": "loan_id", "type": "varchar(20)" },
+        { "name": "customer_id", "type": "varchar(20)" },
+        { "name": "loan_amount", "type": "decimal(12,2)" },
+        { "name": "interest_rate", "type": "decimal(5,2)" },
+        { "name": "start_date", "type": "date" }
+      ]
+    },
+    {
+      "name": "branches",
+      "columns": [
+        { "name": "branch_id", "type": "varchar(20)" },
+        { "name": "branch_name", "type": "varchar(100)" },
+        { "name": "manager_name", "type": "varchar(100)" },
+        { "name": "city", "type": "varchar(50)" },
+        { "name": "country", "type": "varchar(50)" }
+      ]
+    },
+    {
+      "name": "merchants",
+      "columns": [
+        { "name": "merchant_id", "type": "varchar(20)" },
+        { "name": "merchant_name", "type": "varchar(100)" },
+        { "name": "city", "type": "varchar(50)" }
+      ]
+    },
+    {
+      "name": "accounts",
+      "columns": [
+        { "name": "account_id", "type": "varchar(20)" },
+        { "name": "customer_id", "type": "varchar(20)" },
+        { "name": "branch_id", "type": "varchar(20)" },
+        { "name": "account_type", "type": "varchar(20)" },
+        { "name": "balance_usd", "type": "decimal(12,2)" },
+        { "name": "open_date", "type": "date" }
+      ]
+    },
+    {
+      "name": "cards",
+      "columns": [
+        { "name": "card_id", "type": "varchar(20)" },
+        { "name": "account_id", "type": "varchar(20)" },
+        { "name": "card_type", "type": "varchar(20)" },
+        { "name": "expiration_date", "type": "date" }
+      ]
+    },
+    {
+      "name": "transactions",
+      "columns": [
+        { "name": "transaction_id", "type": "varchar(25)" },
+        { "name": "account_id", "type": "varchar(20)" },
+        { "name": "merchant_id", "type": "varchar(20)" },
+        { "name": "amount_usd", "type": "decimal(12,2)" },
+        { "name": "transaction_date", "type": "datetime" }
+      ]
+    }
+  ]
+}
