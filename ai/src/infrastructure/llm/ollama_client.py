@@ -11,6 +11,22 @@ from src.infrastructure.llm.model_config import ModelConfig
 
 
 
+def _parse_keep_alive(val: str | None) -> int | str:
+    """Parse keep_alive setting into an integer or duration string.
+
+    Ollama accepts integer values (e.g. -1 for indefinitely loaded, 0 for immediate unload)
+    or duration strings with unit suffixes (e.g. '5m', '1h'). A raw string like '-1'
+    lacks a duration unit and causes Ollama's Go runtime to fail with status 400.
+    """
+    if not val:
+        return -1
+    val = val.strip()
+    try:
+        return int(val)
+    except ValueError:
+        return val
+
+
 class OllamaClient(LLMClient):
     """Provides the LLMClient implementation using the Ollama runtime.
 
@@ -38,7 +54,7 @@ class OllamaClient(LLMClient):
     def warmup(self) -> None:
         """Pre-load model into memory so first query has zero cold-start delay."""
         try:
-            keep_alive = os.getenv("OLLAMA_KEEP_ALIVE", "-1")
+            keep_alive = _parse_keep_alive(os.getenv("OLLAMA_KEEP_ALIVE", "-1"))
             self._client.generate(
                 model=self._config.model_name,
                 prompt="",
@@ -73,7 +89,7 @@ class OllamaClient(LLMClient):
                     "num_ctx": self._config.context_length,
                     "num_predict": self._config.max_output_tokens,
                 },
-                "keep_alive": os.getenv("OLLAMA_KEEP_ALIVE", "-1"),
+                "keep_alive": _parse_keep_alive(os.getenv("OLLAMA_KEEP_ALIVE", "-1")),
             }
             if request.format is not None:
                 gen_kwargs["format"] = request.format
