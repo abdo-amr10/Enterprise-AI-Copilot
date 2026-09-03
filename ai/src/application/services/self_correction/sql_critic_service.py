@@ -33,9 +33,27 @@ class SQLCriticService:
         )
 
         try:
-            response = self._llm_client.generate(
-                GenerationRequest(prompt=prompt, format="json")
+            from src.observability.latency_audit import record_prompt
+            record_prompt(
+                stage_name="sql_critic_prompt",
+                model="qwen2.5-coder:7b",
+                config_name="sql_critic",
+                prompt=prompt,
+                components={
+                    "question_chars": len(question),
+                    "sql_chars": len(sql),
+                    "semantic_context_chars": len(semantic_context),
+                },
             )
+        except Exception:
+            pass
+
+        try:
+            from src.observability.latency_audit import stage as audit_stage
+            with audit_stage("sql_critic", is_leaf=True):
+                response = self._llm_client.generate(
+                    GenerationRequest(prompt=prompt, format="json")
+                )
         except Exception as exc:
             return CriticResult(status="FAIL", issues=(CriticIssue(
                 type="CRITIC_UNAVAILABLE",

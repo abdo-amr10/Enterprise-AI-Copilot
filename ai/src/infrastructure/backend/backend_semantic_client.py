@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 
 import requests
@@ -22,6 +23,11 @@ class BackendSemanticClient:
             RuntimeError: If BACKEND_API_BASE_URL is unset, or if neither BACKEND_SERVICE_BEARER_TOKEN
                 nor (BACKEND_SERVICE_EMAIL and BACKEND_SERVICE_PASSWORD) is configured.
         """
+        self._cached_status: dict[str, Any] | None = None
+        self._cached_status_time: float = 0.0
+        self._status_cache_ttl: float = float(
+            os.environ.get("BACKEND_STATUS_CACHE_TTL_SECONDS", "3.0")
+        )
         if http_client is not None:
             self._http_client = http_client
             self._base_url = http_client._base_url
@@ -191,8 +197,19 @@ class BackendSemanticClient:
                     relationship.get("to_entity")
                 )
 
-    def get_status(self) -> dict[str, Any]:
-        return self._get("/api/v1/semantic-layer/status")
+    def get_status(self, force: bool = False) -> dict[str, Any]:
+        now = time.monotonic()
+        if (
+            not force
+            and self._cached_status is not None
+            and (now - self._cached_status_time) < self._status_cache_ttl
+        ):
+            return self._cached_status
+
+        status = self._get("/api/v1/semantic-layer/status")
+        self._cached_status = status
+        self._cached_status_time = now
+        return status
 
     def _get(self, path: str) -> dict[str, Any]:
         try:

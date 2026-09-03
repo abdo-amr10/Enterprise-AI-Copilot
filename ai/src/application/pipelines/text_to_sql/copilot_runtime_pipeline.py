@@ -9,6 +9,7 @@ from collections.abc import Callable
 from typing import Any
 
 import uuid
+from src.observability.latency_audit import request_lifecycle, stage as audit_stage
 from src.observability.mlflow_observer import MLflowObserver
 from src.application.dto.backend.copilot.copilot_ask_request import CopilotAskRequest
 from src.application.dto.backend.copilot.text_to_sql_runtime_response import (
@@ -114,6 +115,23 @@ class CopilotRuntimePipeline:
         traceparent = getattr(request, "traceparent", None)
         ai_trace_id = str(uuid.uuid4())
 
+        with request_lifecycle(
+            request_id=correlation_id or ai_trace_id,
+            correlation_id=correlation_id,
+            traceparent=traceparent,
+        ):
+            return self._run_pipeline(
+                request, trace_observer, ai_trace_id, correlation_id, traceparent
+            )
+
+    def _run_pipeline(
+        self,
+        request: CopilotAskRequest,
+        trace_observer: Callable[[dict[str, Any]], None] | None,
+        ai_trace_id: str,
+        correlation_id: str | None,
+        traceparent: str | None,
+    ) -> TextToSQLRuntimeResponse:
         observer = self._observer or MLflowObserver()
         tags: dict[str, Any] = {
             "ai_trace_id": ai_trace_id,
@@ -146,7 +164,7 @@ class CopilotRuntimePipeline:
                 return response
 
             try:
-                with observer.stage("context_retrieval"):
+                with observer.stage("context_retrieval"), audit_stage("context_retrieval", is_leaf=True):
                     semantic_context = self._text_to_sql_pipeline.build_context(request.question)
                 correction_feedback = "\n".join(
                     str(message.get("content", ""))
@@ -159,7 +177,7 @@ class CopilotRuntimePipeline:
                     for message in request.conversation
                     if message.get("role") in ("user", "assistant")
                 )
-                with observer.stage("llm_generation"):
+                with observer.stage("llm_generation"), audit_stage("sql_generation", is_leaf=True):
                     try:
                         generated = self._text_to_sql_pipeline.run(
                             question=request.question,
@@ -288,7 +306,7 @@ class CopilotRuntimePipeline:
                 if trace_observer is not None:
                     correction_kwargs["trace_observer"] = trace_observer
 
-                with observer.stage("self_correction"):
+                with observer.stage("self_correction"), audit_stage("self_correction", is_leaf=True):
                     outcome = self._self_correction_service.run(**correction_kwargs)
             except Exception as exc:
                 logger.exception("Text-to-SQL validation/correction failed")

@@ -81,3 +81,57 @@ def test_backend_repository_uses_vector_index_and_rebuilds_only_for_new_revision
 
     assert index.build_calls == 2
     assert client.revision_calls == 2
+
+
+def test_sync_active_index_builds_and_caches_in_memory():
+    client, index = _Client(), _Index()
+    repository = BackendSemanticRepository(
+        client=client,
+        embedding_service=_Embedding(),
+        vector_index=index,
+        settings=SemanticSettings(),
+    )
+
+    assert repository.indexed_revision_id is None
+    # 1. First sync builds index in memory
+    synced = repository.sync_active_index()
+    assert synced is True
+    assert repository.indexed_revision_id == "REV-1"
+    assert index.build_calls == 1
+
+    # 2. Subsequent sync with same revision is a no-op (no rebuild)
+    synced_again = repository.sync_active_index()
+    assert synced_again is False
+    assert index.build_calls == 1
+
+    # 3. Retrieve now uses warm index without rebuilding
+    results = repository.retrieve("customers", 1)
+    assert len(results) == 1
+    assert index.build_calls == 1  # Still 1, did not rebuild!
+
+    # 4. Revision changes -> sync updates index in memory
+    client.revision_id = "REV-NEW"
+    synced_new = repository.sync_active_index()
+    assert synced_new is True
+    assert repository.indexed_revision_id == "REV-NEW"
+    assert index.build_calls == 2
+
+
+def test_sync_active_index_handles_non_approved_or_error_gracefully():
+    client, index = _Index(), _Index()
+
+    class _FailingClient:
+        def get_status(self):
+            return {"status": "PendingReview", "revisionId": "REV-DRAFT"}
+
+    repository = BackendSemanticRepository(
+        client=_FailingClient(),
+        embedding_service=_Embedding(),
+        vector_index=index,
+        settings=SemanticSettings(),
+    )
+
+    assert repository.sync_active_index() is False
+    assert repository.indexed_revision_id is None
+    assert index.build_calls == 0
+

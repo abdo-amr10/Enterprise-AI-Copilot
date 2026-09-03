@@ -84,6 +84,7 @@ def test_auto_login_with_email_and_password(monkeypatch):
         if "/api/v1/Auth/login" in url:
             login_called = True
             class MockResponse:
+                status_code = 200
                 def raise_for_status(self): pass
                 def json(self): return {"token": "auto-generated-token"}
             return MockResponse()
@@ -94,4 +95,35 @@ def test_auto_login_with_email_and_password(monkeypatch):
     client = BackendSemanticClient()
     assert client._http_client._token == "auto-generated-token"
     assert login_called is True
+
+
+def test_get_status_uses_short_ttl_cache_to_avoid_duplicate_calls(monkeypatch):
+    monkeypatch.setenv("BACKEND_API_BASE_URL", "http://backend.test")
+    monkeypatch.setenv("BACKEND_SERVICE_BEARER_TOKEN", "test-token")
+    client = BackendSemanticClient()
+
+    call_count = 0
+
+    def mock_get(path):
+        nonlocal call_count
+        call_count += 1
+        return {"status": "Approved", "revisionId": "REV-1"}
+
+    monkeypatch.setattr(client, "_get", mock_get)
+
+    # First call: hits network
+    res1 = client.get_status()
+    assert res1["revisionId"] == "REV-1"
+    assert call_count == 1
+
+    # Second call immediately after: hits TTL cache, no network call!
+    res2 = client.get_status()
+    assert res2 == res1
+    assert call_count == 1
+
+    # Force bypasses cache
+    res3 = client.get_status(force=True)
+    assert res3 == res1
+    assert call_count == 2
+
 

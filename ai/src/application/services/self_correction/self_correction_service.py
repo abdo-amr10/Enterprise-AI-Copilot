@@ -233,6 +233,7 @@ class SelfCorrectionService:
                     sql=current_sql,
                     semantic_context=critic_context,
                 )
+                t_ver_start = time.perf_counter()
                 try:
                     issues = self._finding_verifier.verify(critic_result, schema=_get_schema(), sql=current_sql)
                 except TypeError:
@@ -240,10 +241,24 @@ class SelfCorrectionService:
                         issues = self._finding_verifier.verify(critic_result, schema=_get_schema())
                     except TypeError:
                         issues = self._finding_verifier.verify(critic_result)
+                ver_dur_ms = (time.perf_counter() - t_ver_start) * 1000
                 critic_dur_ms = (time.perf_counter() - t_critic_start) * 1000
                 trace[-1]["criticStatus"] = critic_result.status
                 trace[-1]["criticDurationMs"] = critic_dur_ms
                 trace[-1]["verifiedCriticIssues"] = [issue.message for issue in issues]
+
+                try:
+                    from src.observability.latency_audit import record_critic
+                    record_critic(
+                        status=critic_result.status,
+                        findings_count=len(critic_result.issues),
+                        finding_categories=[getattr(iss, "type", str(iss)) for iss in critic_result.issues],
+                        total_duration_ms=critic_dur_ms,
+                        llm_duration_ms=max(0.0, critic_dur_ms - ver_dur_ms),
+                        verifier_duration_ms=ver_dur_ms,
+                    )
+                except Exception:
+                    pass
 
             if not issues:
                 logger.info("Validation passed on attempt %s", attempt)
@@ -307,6 +322,19 @@ class SelfCorrectionService:
                 )
                 corr_dur_ms = (time.perf_counter() - t_corr_start) * 1000
                 trace[-1]["correctionDurationMs"] = corr_dur_ms
+
+                try:
+                    from src.observability.latency_audit import record_correction_attempt
+                    record_correction_attempt(
+                        attempt=attempt + 1,
+                        trigger_reason="; ".join(issue.message for issue in issues)[:120],
+                        duration_ms=corr_dur_ms,
+                        previous_sql=current_sql,
+                        new_sql=corrected_sql,
+                        issues_count=len(issues),
+                    )
+                except Exception:
+                    pass
             except Exception as exc:
                 logger.warning("SQL correction call failed: %s", type(exc).__name__)
                 trace[-1]["correctionError"] = type(exc).__name__
@@ -367,13 +395,20 @@ class SelfCorrectionService:
         schema_getter: Callable[[], dict[str, Any]] | None = None,
         enforce_rls: bool = False,
     ) -> list[ValidationIssue]:
+        t0 = time.perf_counter()
         schema = schema_getter() if schema_getter is not None else None
-        for validator in (
-            self._syntax_validator,
-            self._schema_validator,
-            self._relationship_validator,
-            *(([self._rls_validator]) if self._rls_validator is not None else []),
-        ):
+        sub_stages: dict[str, float] = {}
+        validators = [
+            ("syntax", self._syntax_validator),
+            ("schema", self._schema_validator),
+            ("relationship", self._relationship_validator),
+        ]
+        if self._rls_validator is not None:
+            validators.append(("rls", self._rls_validator))
+
+        found_issues: list[ValidationIssue] = []
+        for name, validator in validators:
+            t_sub = time.perf_counter()
             try:
                 if validator is self._rls_validator:
                     result = validator.validate(sql, schema=schema, enforce_presence=enforce_rls)
@@ -381,9 +416,31 @@ class SelfCorrectionService:
                     result = validator.validate(sql, schema=schema)
             except TypeError:
                 result = validator.validate(sql)
+            sub_stages[f"{name}_ms"] = round((time.perf_counter() - t_sub) * 1000.0, 2)
             if not result.is_valid:
-                return list(result.issues)
-        return []
+                found_issues = list(result.issues)
+                break
+
+        tot_ms = (time.perf_counter() - t0) * 1000.0
+        try:
+            from src.observability.latency_audit import record_validation
+            from src.observability.audit_context import get_current_audit
+
+            ctx = get_current_audit()
+            if ctx:
+                ctx.record_leaf_duration("deterministic_validation", tot_ms)
+            record_validation(
+                stage_name="deterministic_validation",
+                sql=sql,
+                is_valid=len(found_issues) == 0,
+                findings=found_issues,
+                duration_ms=tot_ms,
+                sub_stages=sub_stages,
+            )
+        except Exception:
+            pass
+
+        return found_issues
 
     def _relevant_schema(
         self,

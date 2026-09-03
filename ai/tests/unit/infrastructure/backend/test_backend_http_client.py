@@ -21,7 +21,7 @@ class TestBackendHttpClient:
     def test_initialization_rejects_empty_token(self) -> None:
         """Ensure an empty authentication token is rejected."""
 
-        with pytest.raises(ValueError, match="Either token or"):
+        with pytest.raises(ValueError, match="Either a Bearer token or email/password"):
             BackendHttpClient(
                 base_url="http://localhost:5000",
                 token="",

@@ -1,4 +1,5 @@
 import os
+import time
 
 from ollama import Client
 
@@ -34,6 +35,19 @@ class OllamaClient(LLMClient):
         self._client = Client(host=self._host, timeout=self._timeout)
         self._model_checked = False
 
+    def warmup(self) -> None:
+        """Pre-load model into memory so first query has zero cold-start delay."""
+        try:
+            keep_alive = os.getenv("OLLAMA_KEEP_ALIVE", "-1")
+            self._client.generate(
+                model=self._config.model_name,
+                prompt="",
+                keep_alive=keep_alive,
+            )
+            self._model_checked = True
+        except Exception:
+            pass
+
     def generate(self, request: GenerationRequest) -> GenerationResponse:
         """Generate text using the configured model through Ollama.
 
@@ -59,11 +73,37 @@ class OllamaClient(LLMClient):
                     "num_ctx": self._config.context_length,
                     "num_predict": self._config.max_output_tokens,
                 },
+                "keep_alive": os.getenv("OLLAMA_KEEP_ALIVE", "-1"),
             }
             if request.format is not None:
                 gen_kwargs["format"] = request.format
 
+            t_start = time.perf_counter()
             response = self._client.generate(**gen_kwargs)
+            client_dur_ms = (time.perf_counter() - t_start) * 1000.0
+
+            try:
+                from src.observability.latency_audit import record_llm_call
+                from src.observability.audit_context import get_current_audit
+
+                ctx = get_current_audit()
+                current_stage = (
+                    ctx.span_stack[-1][0]
+                    if (ctx and ctx.span_stack)
+                    else (ctx.final_stage if ctx else "llm_generation")
+                )
+                est_tokens = max(1, len(request.prompt.split()) * 4 // 3)
+                record_llm_call(
+                    stage_name=current_stage,
+                    model=self._config.model_name,
+                    config_name=getattr(self._config, "runtime", "ollama"),
+                    options_sent=dict(gen_kwargs.get("options", {})),
+                    raw_response=response,
+                    client_duration_ms=client_dur_ms,
+                    estimated_prompt_tokens=est_tokens,
+                )
+            except Exception:
+                pass
         except Exception as exc:
             raise RuntimeError(
                 f"Ollama at {self._host} could not serve model '{self._config.model_name}': {exc}"

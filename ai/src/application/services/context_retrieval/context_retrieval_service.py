@@ -92,7 +92,32 @@ class ContextRetrievalService:
         self._append_security_domain(lines, layer, tables)
         self._append_query_scope(lines, seed_tables, relationships)
         self._append_retrieved_rules(lines, results)
-        return "\n".join(lines)
+        assembled_context = "\n".join(lines)
+
+        try:
+            from src.observability.audit_context import get_current_audit
+            from src.observability.audit_logger import write_audit_event
+
+            ctx = get_current_audit()
+            if ctx:
+                ctx.increment_count("retrieval_calls")
+                est_toks = max(1, len(assembled_context.split()) * 4 // 3)
+                write_audit_event({
+                    "event": "retrieval_complete",
+                    "request_id": ctx.request_id,
+                    "stage": "context_retrieval",
+                    "tables_count": len(tables),
+                    "seed_tables_count": len(seed_tables),
+                    "relationships_count": len(relationships),
+                    "rls_tables_count": len(rls_tables),
+                    "context_chars": len(assembled_context),
+                    "estimated_context_tokens": est_toks,
+                    "results_count": len(results),
+                })
+        except Exception:
+            pass
+
+        return assembled_context
 
     def _candidate_limit(self, question: str) -> int:
         """Return a wider retrieval candidate set for multi-table questions.

@@ -11,6 +11,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.dependencies import (
+    get_semantic_repository,
     get_semantic_retrieval_pipeline,
 )
 from src.api.generation_validation_dependencies import (
@@ -240,6 +241,25 @@ def review_draft(
     return {
         "status": "Approved" if request.decision == "Approve" else "Rejected",
         "revisionId": request.revisionId,
+    }
+
+
+@router.post("/sync")
+def sync_index(
+    repository=Depends(get_semantic_repository),
+) -> dict[str, Any]:
+    """Synchronize the in-memory FAISS index with the active Backend revision immediately."""
+    if hasattr(repository, "sync_active_index"):
+        built = repository.sync_active_index(force=True)
+        return {
+            "status": "Success",
+            "rebuilt": built,
+            "indexedRevisionId": getattr(repository, "indexed_revision_id", None),
+        }
+    return {
+        "status": "Success",
+        "rebuilt": False,
+        "detail": "Semantic repository does not support live sync.",
     }
 
 

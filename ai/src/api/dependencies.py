@@ -76,6 +76,7 @@ _LOCAL_SCHEMA = _REPO_ROOT / "docs" / "database_metadata" / "schema.json"
 _semantic_repository: BackendSemanticRepository | FileSemanticRepository | None = None
 _context_retrieval_service: ContextRetrievalService | None = None
 _self_correction_service: SelfCorrectionService | None = None
+_schema_provider: BackendDatabaseSchemaProvider | DatabaseSchemaProvider | None = None
 
 
 def is_local_development_mode() -> bool:
@@ -123,10 +124,15 @@ def get_context_service() -> ContextRetrievalService:
     return _context_retrieval_service
 
 
-def get_schema_provider():
-    if is_local_development_mode():
-        return DatabaseSchemaProvider(_LOCAL_SCHEMA)
-    return BackendDatabaseSchemaProvider()
+def get_schema_provider() -> BackendDatabaseSchemaProvider | DatabaseSchemaProvider:
+    global _schema_provider
+    if _schema_provider is None:
+        _schema_provider = (
+            DatabaseSchemaProvider(_LOCAL_SCHEMA)
+            if is_local_development_mode()
+            else BackendDatabaseSchemaProvider()
+        )
+    return _schema_provider
 
 
 def get_self_correction_service() -> SelfCorrectionService:

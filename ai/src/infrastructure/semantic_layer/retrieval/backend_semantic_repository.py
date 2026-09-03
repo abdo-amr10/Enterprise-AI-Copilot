@@ -48,6 +48,49 @@ class BackendSemanticRepository:
         )
         self._cached_revision_id: str | None = None
         self._cached_layer: dict[str, Any] | None = None
+        self._indexed_revision_id: str | None = None
+
+    @property
+    def indexed_revision_id(self) -> str | None:
+        """Return the revision ID currently indexed in memory."""
+        return self._indexed_revision_id
+
+    def sync_active_index(self, force: bool = False) -> bool:
+        """Synchronize the in-memory FAISS index with the active Backend revision.
+
+        Fetches status, loads the approved revision if unindexed or changed, and builds
+        the index directly in memory.
+
+        Args:
+            force: If True, re-indexes even if revision_id matches current index.
+
+        Returns:
+            True if a new index was built, False if already up-to-date or unavailable.
+        """
+        try:
+            status = self._client.get_status()
+        except Exception:
+            return False
+
+        if status.get("status") != "Approved":
+            return False
+        revision_id = status.get("revisionId")
+        if not isinstance(revision_id, str) or not revision_id:
+            return False
+
+        if not force and self._indexed_revision_id == revision_id:
+            return False
+
+        try:
+            layer = self.load()
+            if self._indexed_revision_id != revision_id or force:
+                self._indexing_pipeline.run(layer)
+                self._indexed_revision_id = revision_id
+                return True
+        except Exception:
+            return False
+
+        return False
 
     def load(self) -> dict[str, Any]:
         """Return the active approved revision, refreshing cache on revision change."""
@@ -90,10 +133,54 @@ class BackendSemanticRepository:
             self._indexing_pipeline.run(layer)
             self._indexed_revision_id = revision_id
 
+        import time
+        from src.observability.audit_logger import write_audit_event
+        from src.observability.audit_context import get_current_audit
+
+        t_emb = time.perf_counter()
+        query_vector = self._embedding_service.encode_query(question)
+        emb_dur_ms = (time.perf_counter() - t_emb) * 1000.0
+
+        ctx = get_current_audit()
+        req_id = ctx.request_id if ctx else None
+        if ctx:
+            ctx.record_leaf_duration("embedding_generation", emb_dur_ms)
+
+        try:
+            write_audit_event({
+                "event": "embedding_complete",
+                "request_id": req_id,
+                "stage": "retrieval",
+                "model_name": self._embedding_service.model_name,
+                "dimension": self._embedding_service.embedding_dimension,
+                "device": self._embedding_service.device,
+                "input_chars": len(question),
+                "duration_ms": round(emb_dur_ms, 2),
+            })
+        except Exception:
+            pass
+
+        t_faiss = time.perf_counter()
         results = self._vector_index.search(
-            self._embedding_service.encode_query(question),
+            query_vector,
             top_k,
         )
+        faiss_dur_ms = (time.perf_counter() - t_faiss) * 1000.0
+
+        if ctx:
+            ctx.record_leaf_duration("faiss_vector_search", faiss_dur_ms)
+
+        try:
+            write_audit_event({
+                "event": "vector_search_complete",
+                "request_id": req_id,
+                "stage": "retrieval",
+                "top_k": top_k,
+                "results_count": len(results),
+                "duration_ms": round(faiss_dur_ms, 2),
+            })
+        except Exception:
+            pass
         return [
             {
                 **result,

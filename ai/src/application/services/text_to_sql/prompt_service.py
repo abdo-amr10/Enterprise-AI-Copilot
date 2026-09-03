@@ -48,4 +48,22 @@ class PromptService:
             conversation_context=conversation_context,
         )
 
+        try:
+            from src.observability.latency_audit import record_prompt
+
+            record_prompt(
+                stage_name="sql_generation_prompt",
+                model="qwen2.5-coder:7b",
+                config_name="text_to_sql",
+                prompt=prompt,
+                components={
+                    "question_chars": len(question),
+                    "semantic_context_chars": len(semantic_context),
+                    "correction_feedback_chars": len(correction_feedback),
+                    "conversation_context_chars": len(conversation_context),
+                },
+            )
+        except Exception:
+            pass
+
         return GenerationRequest(prompt=prompt)

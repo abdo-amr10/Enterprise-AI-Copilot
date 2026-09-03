@@ -41,7 +41,28 @@ class SQLCorrectionService:
             rejected_candidates=self._render_rejected_candidates(rejected_candidates),
         )
 
-        response = self._llm_client.generate(GenerationRequest(prompt=prompt))
+        try:
+            from src.observability.latency_audit import record_prompt
+            record_prompt(
+                stage_name="sql_correction_prompt",
+                model="qwen2.5-coder:7b",
+                config_name="sql_correction",
+                prompt=prompt,
+                components={
+                    "question_chars": len(question),
+                    "current_sql_chars": len(current_sql),
+                    "issues_count": len(issues),
+                },
+            )
+        except Exception:
+            pass
+
+        try:
+            from src.observability.latency_audit import stage as audit_stage
+            with audit_stage("sql_correction_llm", is_leaf=True):
+                response = self._llm_client.generate(GenerationRequest(prompt=prompt))
+        except Exception:
+            response = self._llm_client.generate(GenerationRequest(prompt=prompt))
 
         return self._extract_sql(response.text)
 
