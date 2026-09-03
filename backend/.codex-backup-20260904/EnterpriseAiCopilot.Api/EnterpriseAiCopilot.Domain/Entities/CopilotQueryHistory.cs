@@ -22,7 +22,6 @@ namespace EnterpriseAiCopilot.Domain.Entities
         public string? ErrorMessage { get; set; }
 
         public long ExecutionTimeMs { get; set; }
-        public string? ResultJson { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }

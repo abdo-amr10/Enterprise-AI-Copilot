@@ -2,7 +2,6 @@
 using EnterpriseAiCopilot.Application.Common.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Hosting;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -16,11 +15,14 @@ namespace EnterpriseAiCopilot.Infrastructure.FileStorage
     {
         private readonly string _baseStoragePath;
 
-        public LocalFileStorage(IConfiguration configuration, IHostEnvironment environment)
+        public LocalFileStorage(IConfiguration configuration)
         {
             var configuredRoot = configuration["FileStorage:BasePath"];
             var storageRoot = string.IsNullOrWhiteSpace(configuredRoot)
-                ? Path.Combine(environment.ContentRootPath, "Storage")
+                ? Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "EnterpriseAiCopilot",
+                    "Storage")
                 : configuredRoot;
 
             if (!Path.IsPathFullyQualified(storageRoot))
