@@ -131,20 +131,7 @@
   margin: 22px auto;
   padding: 6px;
 }
-@media (max-width: 720px) {
-  .history-actions {
-    display: block;
-  }
-  .history-actions div {
-    margin-top: 14px;
-  }
-  .history-row {
-    grid-template-columns: 1fr auto;
-  }
-  .history-row b {
-    display: none;
-  }
-}
+
 
 .question-details-main {
   display: block;
@@ -206,11 +193,7 @@
   overflow-wrap: anywhere;
 }
 
-@media (max-width: 720px) {
-  .chat-question-card {
-    max-width: 90%;
-  }
-}
+
 
 
 .history-state {
@@ -373,21 +356,5 @@
   }
 }
 
-/* Mobile */
 
-@media (max-width: 720px) {
-  .history-state {
-    min-height: 340px;
-    margin-top: 25px;
-    padding: 32px 22px;
-  }
-
-  .history-state h2 {
-    font-size: 21px;
-  }
-
-  .history-state p {
-    font-size: 12px;
-  }
-}
 

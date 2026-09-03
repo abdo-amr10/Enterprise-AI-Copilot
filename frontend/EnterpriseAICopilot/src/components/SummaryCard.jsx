@@ -77,8 +77,8 @@ export default function SummaryCard({ question, textSummary, data, status = "Com
 
       <footer className="summary-card-footer">
         <span>
-          {queryId ? `Query ID: ${queryId}` : "Based on the information available to you."}
-          {askedAt ? ` · ${askedAt}` : ""}
+          {/*queryId ? `Query ID: ${queryId}` : "Based on the information available to you."*/}
+          {askedAt ? `  ${askedAt}` : ""}
         </span>
         {hasResult ? <ExportMenu payload={{ question, textSummary, data: rows, queryId, status }} /> : null}
       </footer>

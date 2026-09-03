@@ -181,6 +181,7 @@ export default function Copilot() {
                     queryId={turn.queryId}
                     askedAt={turn.askedAt}
                   />
+                  
                 ) : null}
 
                 {turn.status === "failed" ? (

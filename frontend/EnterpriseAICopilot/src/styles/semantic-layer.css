@@ -1,0 +1,208 @@
+/*
+.semantic-status-card { min-height: 246px; }
+.semantic-status-meta { margin: 16px 0 0; color: #6f778e; font-size: 12px; line-height: 1.65; }
+.semantic-status-meta strong { color: #3f465b; }
+.semantic-state { display: grid; max-width: 700px; min-height: 260px; place-content: center; text-align: center; }
+.semantic-state h3 { margin: 10px 0 8px; }
+.semantic-state p { max-width: 510px; margin: 0; color: #6f778e; line-height: 1.65; }
+.semantic-state .admin-actions { justify-content: center; }
+.source-file-picker { position: relative; display: flex; align-items: center; min-height: 50px; cursor: pointer; }
+.source-file-picker input { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+.source-file-picker:focus-within { outline: 2px solid #8ca8ff; outline-offset: 2px; }
+.source-file-empty { color: #6f778e; font-size: 10px; }
+.source-file-ready { width: 100%; }
+.source-file-card.is-missing { border-left-color: #dbe1ee; }
+.source-file-card.is-missing .source-file-ready { background: #f7f9fc; color: #8990a8; }
+.source-file-card.is-invalid { border-color: #fecaca; border-left-color: #dc2626; }
+.source-file-card.is-invalid .source-file-ready { background: #fef2f2; color: #dc2626; }
+.source-field-error, .semantic-form-message { margin: 7px 0 0; color: #dc2626; font-size: 11px; line-height: 1.45; }
+.semantic-form-message.is-success { color: #16804a; }
+.semantic-draft-result { margin-top: 20px; border-color: #bbf7d0; }
+.semantic-draft-result h3 { margin: 7px 0; }
+.semantic-draft-result p { margin: 0; }
+.semantic-draft-result small { color: #16804a; }
+*/
+
+
+.semantic-status-card {
+  min-height: 220px;
+}
+
+.semantic-status-meta {
+  margin: 12px 0 0;
+  color: #6f778e;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.semantic-status-meta strong {
+  color: #3f465b;
+}
+
+.semantic-state {
+  display: grid;
+  max-width: 700px;
+  min-height: 220px;
+  place-content: center;
+  text-align: center;
+}
+
+.semantic-state h3 {
+  margin: 8px 0 6px;
+}
+
+.semantic-state p {
+  max-width: 510px;
+  margin: 0;
+  color: #6f778e;
+  line-height: 1.5;
+}
+
+.semantic-state .admin-actions {
+  justify-content: center;
+}
+
+/* Upload Sources */
+
+.source-upload {
+  gap: 16px;
+}
+
+.source-details {
+  padding: 16px 18px;
+}
+
+.source-details h3,
+.source-files-heading h3 {
+  margin: 0;
+}
+
+.source-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.source-fields label {
+  font-size: 12px;
+}
+
+.source-fields input {
+  min-height: 38px;
+  margin-top: 5px;
+}
+
+.source-files-heading {
+  margin-top: 14px;
+  margin-bottom: 8px;
+}
+
+.source-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: max-content;
+  align-items: start;
+  gap: 10px;
+}
+
+.source-file-picker {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  cursor: pointer;
+}
+
+.source-file-picker input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.source-file-picker:focus-within {
+  outline: 2px solid #8ca8ff;
+  outline-offset: 2px;
+}
+
+.source-file-empty {
+  color: #6f778e;
+  font-size: 10px;
+}
+
+.source-file-ready {
+  width: 100%;
+  min-height: 32px;
+}
+
+.source-file-card.is-missing {
+  border-left-color: #dbe1ee;
+}
+
+.source-file-card.is-missing .source-file-ready {
+  background: #f7f9fc;
+  color: #8990a8;
+}
+
+.source-file-card.is-invalid {
+  border-color: #fecaca;
+  border-left-color: #dc2626;
+}
+
+.source-file-card.is-invalid .source-file-ready {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.source-field-error,
+.semantic-form-message {
+  margin: 5px 0 0;
+  color: #dc2626;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.semantic-form-message.is-success {
+  color: #16804a;
+}
+
+.source-footer {
+  margin-top: 4px;
+  align-items: center;
+  min-height: 52px;
+}
+
+.source-footer button {
+  align-self: center;
+  height: 34px;
+  min-height: 34px;
+}
+
+.semantic-draft-result {
+  margin-top: 16px;
+  border-color: #bbf7d0;
+}
+
+.semantic-draft-result h3 {
+  margin: 6px 0;
+}
+
+.semantic-draft-result p {
+  margin: 0;
+}
+
+.semantic-draft-result small {
+  color: #16804a;
+}
+
+@media (max-width: 900px) {
+  .source-fields,
+  .source-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -15,14 +15,19 @@ export default function QuestionDetails() {
   const [state, setState] = useState("loading"); // loading | success | failed | unavailable | error
   const [item, setItem] = useState(null);
 
+  
+
   const load = () => {
     setState("loading");
     fetchHistoryItem(queryId)
-      .then((response) => {
-        if (!response) {
-          setState("unavailable");
-          return;
-        }
+  .then((response) => {
+    console.log("RESULT:", response.result);
+    console.log("FULL RESPONSE:", response);
+
+    if (!response) {
+      setState("unavailable");
+      return;
+    }
         setItem(response);
         setState(response.status === "Failed" ? "failed" : "success");
       })
