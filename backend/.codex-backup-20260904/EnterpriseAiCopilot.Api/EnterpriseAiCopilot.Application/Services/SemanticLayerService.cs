@@ -1,4 +1,4 @@
-using EnterpriseAiCopilot.Application.Common.Interfaces;
+﻿using EnterpriseAiCopilot.Application.Common.Interfaces;
 using EnterpriseAiCopilot.Application.Common.Models;
 using EnterpriseAiCopilot.Application.DTOs;
 using EnterpriseAiCopilot.Application.DTOs.SemanticLayer;
@@ -205,19 +205,6 @@ namespace EnterpriseAiCopilot.Application.Services
                 return Result<GenerateDraftResponse>.Failure($"AI_RUNTIME_ERROR: Failed to generate draft. {aiDraftResult.ErrorMessage}");
 
             string generatedJson = aiDraftResult.ContentJson ?? "{}";
-            string? physicalSchemaJson = null;
-            var schemaSource = semanticLayer.SourceFiles
-                .Where(file => file.FileType.Equals("schema", StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(file => file.CreatedAt)
-                .FirstOrDefault();
-            if (schemaSource != null)
-            {
-                var schemaFileResult = await _fileStorage.GetFileAsync(schemaSource.StoragePath, cancellationToken);
-                if (schemaFileResult.IsSuccess && schemaFileResult.Data != null)
-                {
-                    physicalSchemaJson = System.Text.Encoding.UTF8.GetString(schemaFileResult.Data);
-                }
-            }
 
             int objectsCount = aiDraftResult.RegeneratedObjectsCount > 0
                                 ? aiDraftResult.RegeneratedObjectsCount
@@ -231,7 +218,6 @@ namespace EnterpriseAiCopilot.Application.Services
                 Id = newRevisionId,
                 VersionNumber = nextVersion,
                 ContentJson = generatedJson,
-                PhysicalSchemaJson = physicalSchemaJson,
                 Status = "PendingReview",
                 SemanticLayerId = semanticLayer.Id,
                 RegenerationType = request.TriggerType,
@@ -278,40 +264,6 @@ namespace EnterpriseAiCopilot.Application.Services
             if (revision.Status.Equals("Approved", StringComparison.OrdinalIgnoreCase))
                 return Result<ReviewRevisionResponse>.Failure("This revision is already approved.");
 
-            if (request.Decision.Equals("Approve", StringComparison.OrdinalIgnoreCase))
-            {
-                if (!string.IsNullOrEmpty(revision.ContentJson))
-                {
-                    try
-                    {
-                        using var doc = JsonDocument.Parse(revision.ContentJson);
-                        if (doc.RootElement.TryGetProperty("validation_issues", out var issues) ||
-                            doc.RootElement.TryGetProperty("validationIssues", out issues))
-                        {
-                            if (issues.ValueKind == JsonValueKind.Array && issues.GetArrayLength() > 0)
-                            {
-                                foreach (var issue in issues.EnumerateArray())
-                                {
-                                    if (issue.TryGetProperty("severity", out var sev) &&
-                                        sev.GetString()?.Equals("error", StringComparison.OrdinalIgnoreCase) == true)
-                                    {
-                                        return Result<ReviewRevisionResponse>.Failure("Cannot approve revision with unresolved validation errors.");
-                                    }
-                                    if (issue.TryGetProperty("category", out var cat) &&
-                                        cat.GetString()?.Equals("security_domain", StringComparison.OrdinalIgnoreCase) == true)
-                                    {
-                                        return Result<ReviewRevisionResponse>.Failure("Cannot approve revision with unresolved security validation issues.");
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    catch
-                    {
-                    }
-                }
-            }
-
             var aiReviewResult = await _aiSemanticClient.ReviewDraftAsync(request.RevisionId, request.Decision, request.Comments, cancellationToken);
             if (!aiReviewResult.IsSuccess)
                 return Result<ReviewRevisionResponse>.Failure($"AI_RUNTIME_ERROR: Failed to submit review to AI. {aiReviewResult.ErrorMessage}");
@@ -333,8 +285,23 @@ namespace EnterpriseAiCopilot.Application.Services
 
             if (revision.Status == "Approved")
             {
-                // Approval validates the revision only. Activation is an
-                // explicit operation handled by ActivateSemanticLayerAsync.
+                var activeLayers = await _context.SemanticLayers
+                    .Where(sl => sl.IsActive)
+                    .ToListAsync(cancellationToken);
+
+                foreach (var activeLayer in activeLayers)
+                {
+                    activeLayer.IsActive = false;
+                }
+
+                var semanticLayer = await _context.SemanticLayers
+                    .FirstOrDefaultAsync(sl => sl.Id == layerId, cancellationToken);
+
+                if (semanticLayer != null)
+                {
+                    semanticLayer.IsActive = true;
+                }
+
                 response.Version = $"v{revision.VersionNumber}.0";
                 response.ApprovedBy = currentUser;
                 response.ApprovedAt = timeNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
@@ -555,18 +522,10 @@ namespace EnterpriseAiCopilot.Application.Services
             return Result<SemanticLayerStatusResponse>.Success(response);
         }
 
-        public async Task<Result<List<SemanticLayerListItemResponse>>> GetSemanticLayersAsync(Guid? layerId = null, CancellationToken cancellationToken = default)
+        public async Task<Result<List<SemanticLayerListItemResponse>>> GetSemanticLayersAsync(CancellationToken cancellationToken = default)
         {
-            var query = _context.SemanticLayers
+            var layers = await _context.SemanticLayers
                 .AsNoTracking()
-                .AsQueryable();
-
-            if (layerId.HasValue)
-            {
-                query = query.Where(layer => layer.Id == layerId.Value);
-            }
-
-            var layers = await query
                 .OrderByDescending(layer => layer.IsActive)
                 .ThenBy(layer => layer.Name)
                 .Select(layer => new SemanticLayerListItemResponse
@@ -581,57 +540,6 @@ namespace EnterpriseAiCopilot.Application.Services
                 .ToListAsync(cancellationToken);
 
             return Result<List<SemanticLayerListItemResponse>>.Success(layers);
-        }
-
-        public async Task<Result<SemanticRevisionSchemaResponse>> GetActiveRevisionSchemaAsync(CancellationToken cancellationToken = default)
-        {
-            var activeRevision = await _context.SemanticRevisions
-                .AsNoTracking()
-                .Where(revision => revision.SemanticLayer != null && revision.SemanticLayer.IsActive && revision.Status == "Approved")
-                .OrderByDescending(revision => revision.VersionNumber)
-                .FirstOrDefaultAsync(cancellationToken);
-
-            if (activeRevision == null)
-                return Result<SemanticRevisionSchemaResponse>.Failure("No approved active semantic revision found.");
-
-            if (string.IsNullOrWhiteSpace(activeRevision.PhysicalSchemaJson))
-            {
-                // Backward-compatible bridge for revisions created before the
-                // physical schema snapshot column existed. New revisions use
-                // the database snapshot above and never need this file read.
-                var schemaFile = await _context.SemanticSourceFiles
-                    .AsNoTracking()
-                    .Where(file => file.SemanticLayerId == activeRevision.SemanticLayerId &&
-                                   file.FileType == "schema")
-                    .OrderByDescending(file => file.CreatedAt)
-                    .FirstOrDefaultAsync(cancellationToken);
-
-                if (schemaFile == null)
-                    return Result<SemanticRevisionSchemaResponse>.Failure("The active revision has no physical schema snapshot or schema source file.");
-
-                var legacyFile = await _fileStorage.GetFileAsync(schemaFile.StoragePath, cancellationToken);
-                if (!legacyFile.IsSuccess || legacyFile.Data == null)
-                    return Result<SemanticRevisionSchemaResponse>.Failure($"The active revision schema source could not be read: {legacyFile.ErrorMessage}");
-
-                activeRevision.PhysicalSchemaJson = System.Text.Encoding.UTF8.GetString(legacyFile.Data);
-            }
-
-            try
-            {
-                using var document = JsonDocument.Parse(activeRevision.PhysicalSchemaJson);
-                return Result<SemanticRevisionSchemaResponse>.Success(new SemanticRevisionSchemaResponse
-                {
-                    SemanticLayerId = activeRevision.SemanticLayerId.ToString(),
-                    RevisionId = activeRevision.Id.ToString(),
-                    Status = activeRevision.Status,
-                    Schema = document.RootElement.Clone()
-                });
-            }
-            catch (JsonException ex)
-            {
-                _logger.LogError(ex, "Physical schema snapshot is invalid for revision {RevisionId}", activeRevision.Id);
-                return Result<SemanticRevisionSchemaResponse>.Failure("The active revision contains an invalid physical schema snapshot.");
-            }
         }
 
         private static SemanticSources BuildSemanticSources(IEnumerable<SemanticSourceFile> sourceFiles)
@@ -1139,13 +1047,8 @@ namespace EnterpriseAiCopilot.Application.Services
             if (!hasApprovedRevision)
                 return Result<bool>.Failure("Cannot activate semantic layer without an approved revision.");
 
-            if (targetLayer.IsActive)
-            {
-                return Result<bool>.Success(true);
-            }
-
             var activeLayers = await _context.SemanticLayers
-                .Where(sl => sl.IsActive && sl.Id != layerId)
+                .Where(sl => sl.IsActive)
                 .ToListAsync(cancellationToken);
 
             foreach (var layer in activeLayers)
@@ -1153,24 +1056,15 @@ namespace EnterpriseAiCopilot.Application.Services
                 layer.IsActive = false;
             }
 
+            targetLayer.IsActive = true;
+
             try
             {
-                // The filtered unique index on IsActive allows only one active
-                // layer. Persist the deactivation first so SQL Server never
-                // observes two active layers in the same update batch.
-                await _context.SaveChangesAsync(cancellationToken);
-
-                targetLayer.IsActive = true;
                 await _context.SaveChangesAsync(cancellationToken);
             }
-            catch (DbUpdateException ex)
+            catch (DbUpdateException)
             {
-                _logger.LogError(
-                    ex,
-                    "Failed to activate semantic layer {LayerId}. Database error: {DatabaseError}",
-                    layerId,
-                    ex.InnerException?.Message ?? ex.Message);
-                return Result<bool>.Failure("DATABASE_ERROR: Failed to activate the semantic layer. Check the backend logs for the database error.");
+                return Result<bool>.Failure("The active semantic layer changed concurrently. Please retry.");
             }
 
             _cache.Remove(AllowedTablesCacheKey(layerId));

@@ -37,9 +37,6 @@ namespace EnterpriseAiCopilot.Infrastructure.Persistence.Configurations
             builder.Property(q => q.ErrorMessage)
                 .HasMaxLength(2000);
 
-            builder.Property(q => q.ResultJson)
-                .HasColumnType("nvarchar(max)");
-
             builder.HasOne(q => q.SemanticLayer)
                 .WithMany()
                 .HasForeignKey(q => q.SemanticLayerId)

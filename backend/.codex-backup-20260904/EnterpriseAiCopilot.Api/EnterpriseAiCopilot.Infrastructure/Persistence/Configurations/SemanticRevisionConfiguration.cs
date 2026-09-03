@@ -14,10 +14,7 @@ namespace EnterpriseAiCopilot.Infrastructure.Persistence.Configurations
             builder.HasKey(r => r.Id);
 
             builder.Property(r => r.ContentJson)
-                .IsRequired();
-
-            builder.Property(r => r.PhysicalSchemaJson)
-                .HasColumnType("nvarchar(max)");
+                .IsRequired(); 
 
             builder.Property(r => r.Status)
                 .IsRequired()

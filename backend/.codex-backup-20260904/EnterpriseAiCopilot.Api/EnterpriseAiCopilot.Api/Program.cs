@@ -69,12 +69,7 @@ app.MapScalarApiReference("/scalar", options =>
 });
 
 
-// Keep the HTTP development profile usable for the local Vite frontend.
-// Production deployments should continue to enforce HTTPS.
-if (!app.Environment.IsDevelopment())
-{
-    app.UseHttpsRedirection();
-}
+app.UseHttpsRedirection();
 
 app.UseCors("FrontendDevelopment");
 

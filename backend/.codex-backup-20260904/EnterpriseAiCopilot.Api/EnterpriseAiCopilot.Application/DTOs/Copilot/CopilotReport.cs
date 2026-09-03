@@ -12,7 +12,6 @@ namespace EnterpriseAiCopilot.Application.DTOs.Copilot
         public List<KpiCardDto>? KpiCards { get; set; }
         public TableDataDto? TableData { get; set; }
         public ExcelExportDto? ExcelExport { get; set; }
-        public long ExecutionTimeMs { get; set; }
 
         public object? Data { get; set; }
 

@@ -460,11 +460,7 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
                 var length = Math.Min(node.FragmentLength, _sql.Length - start);
                 var querySql = length > 0 ? _sql.Substring(start, length) : string.Empty;
 
-                // Only inspect tables belonging to this query scope. Nested
-                // subqueries/CTEs are visited separately by this visitor; if
-                // their tables are included here too, the outer scope can be
-                // incorrectly rejected for not having its own branch filter.
-                var tableVisitor = new DirectTableExtractionVisitor();
+                var tableVisitor = new TableExtractionVisitor();
                 node.Accept(tableVisitor);
                 var hasProtectedTable = tableVisitor.Tables.Any(_protectedTables.Contains);
 
@@ -552,22 +548,6 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
                         TableAliases[node.Alias.Value] = tableName;
                     }
                 }
-                base.ExplicitVisit(node);
-            }
-        }
-
-        private sealed class DirectTableExtractionVisitor : TableExtractionVisitor
-        {
-            private bool _rootQueryVisited;
-
-            public override void ExplicitVisit(QuerySpecification node)
-            {
-                if (_rootQueryVisited)
-                {
-                    return;
-                }
-
-                _rootQueryVisited = true;
                 base.ExplicitVisit(node);
             }
         }

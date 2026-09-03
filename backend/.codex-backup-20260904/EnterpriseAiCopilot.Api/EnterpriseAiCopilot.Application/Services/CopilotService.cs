@@ -8,7 +8,6 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Diagnostics;
 using System.Linq;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -217,14 +216,9 @@ namespace EnterpriseAiCopilot.Application.Services
                 {
                     TextSummary = "Query executed successfully, but we couldn't generate an AI summary at the moment.",
                     PresentationType = "DataTable",
-                    Data = executionResult!.Data,
-                    ExecutionTimeMs = totalExecutionTimeMs
+                    Data = executionResult!.Data
                 };
             }
-
-            formattedReport.ExecutionTimeMs = totalExecutionTimeMs;
-
-            await SaveQueryResultSafeAsync(historyId, formattedReport, cancellationToken);
 
             var response = new AskCopilotResponse
             {
@@ -292,19 +286,6 @@ namespace EnterpriseAiCopilot.Application.Services
                     return Result<QueryDetailsResponse>.Failure("Query not found or you do not have permission to view it.");
                 }
 
-                CopilotReport? storedReport = null;
-                if (history.Status == "Completed" && !string.IsNullOrWhiteSpace(history.ResultJson))
-                {
-                    try
-                    {
-                        storedReport = JsonSerializer.Deserialize<CopilotReport>(history.ResultJson);
-                    }
-                    catch (JsonException ex)
-                    {
-                        _logger.LogWarning(ex, "Stored report could not be deserialized for query {QueryId}", queryId);
-                    }
-                }
-
                 var response = new QueryDetailsResponse
                 {
                     QueryId = history.Id.ToString(),
@@ -315,12 +296,10 @@ namespace EnterpriseAiCopilot.Application.Services
                     ExecutionTimeMs = history.ExecutionTimeMs,
                     ErrorMessage = history.ErrorMessage,
                     SemanticLayerId = history.SemanticLayerId.ToString(),
-                    Result = storedReport ?? new CopilotReport
+                    Result = new CopilotReportSummary
                     {
                         TextSummary = history.Status == "Completed" ? "Query executed successfully." : $"Query failed: {history.ErrorMessage}",
-                        PresentationType = history.Status == "Completed" ? "DataTable" : "ErrorCard",
-                        Data = DeserializeResultData(history.ResultJson),
-                        ExecutionTimeMs = history.ExecutionTimeMs
+                        PresentationType = history.Status == "Completed" ? "DataTable" : "ErrorCard"
                     }
                 };
 
@@ -375,54 +354,6 @@ namespace EnterpriseAiCopilot.Application.Services
             {
                 _logger.LogError(ex, "Critical error: Failed to save query history to database.");
                 return Guid.Empty;
-            }
-        }
-
-        private async Task SaveQueryResultSafeAsync(
-            Guid historyId,
-            CopilotReport report,
-            CancellationToken cancellationToken)
-        {
-            try
-            {
-                var history = await _context.CopilotQueryHistories
-                    .FirstOrDefaultAsync(item => item.Id == historyId, cancellationToken);
-
-                if (history == null)
-                    return;
-
-                history.ResultJson = JsonSerializer.Serialize(report);
-                await _context.SaveChangesAsync(cancellationToken);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to persist result data for query history {QueryId}", historyId);
-            }
-        }
-
-        private static object? DeserializeResultData(string? resultJson)
-        {
-            if (string.IsNullOrWhiteSpace(resultJson))
-                return null;
-
-            try
-            {
-                using var document = JsonDocument.Parse(resultJson);
-                if (!document.RootElement.TryGetProperty("Data", out var data) &&
-                    !document.RootElement.TryGetProperty("data", out data))
-                {
-                    return null;
-                }
-
-                return data.Clone();
-            }
-            catch (JsonException)
-            {
-                return null;
             }
         }
     }
