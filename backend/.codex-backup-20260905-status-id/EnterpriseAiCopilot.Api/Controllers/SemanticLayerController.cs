@@ -144,9 +144,9 @@ namespace EnterpriseAiCopilot.Api.Controllers
         }
 
         [HttpGet("status")]
-        public async Task<IActionResult> GetStatus([FromQuery(Name = "id")] Guid? layerId, CancellationToken cancellationToken)
+        public async Task<IActionResult> GetStatus(CancellationToken cancellationToken)
         {
-            var result = await _semanticLayerService.GetSemanticLayerStatusAsync(layerId, cancellationToken);
+            var result = await _semanticLayerService.GetSemanticLayerStatusAsync(cancellationToken);
 
             if (!result.IsSuccess)
             {

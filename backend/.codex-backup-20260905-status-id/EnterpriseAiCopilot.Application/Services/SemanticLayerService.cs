@@ -598,21 +598,15 @@ namespace EnterpriseAiCopilot.Application.Services
             return Result<SubmitRevisionResponse>.Success(response);
         }
 
-        public async Task<Result<SemanticLayerStatusResponse>> GetSemanticLayerStatusAsync(Guid? layerId = null, CancellationToken cancellationToken = default)
+        public async Task<Result<SemanticLayerStatusResponse>> GetSemanticLayerStatusAsync(CancellationToken cancellationToken = default)
         {
-            var layerQuery = _context.SemanticLayers
+            var semanticLayer = await _context.SemanticLayers
                 .Include(s => s.Revisions)
                 .Include(s => s.SourceFiles)
-                .AsQueryable();
-
-            var semanticLayer = await (layerId.HasValue
-                ? layerQuery.SingleOrDefaultAsync(s => s.Id == layerId.Value, cancellationToken)
-                : layerQuery.SingleOrDefaultAsync(s => s.IsActive, cancellationToken));
+                .SingleOrDefaultAsync(s => s.IsActive, cancellationToken);
 
             if (semanticLayer == null)
-                return Result<SemanticLayerStatusResponse>.Failure(layerId.HasValue
-                    ? "Semantic Layer not found."
-                    : "No active Semantic Layer found.");
+                return Result<SemanticLayerStatusResponse>.Failure("No active Semantic Layer found.");
 
             var approvedRevision = semanticLayer.Revisions
                 .Where(r => r.Status == "Approved")
