@@ -48,62 +48,6 @@ namespace EnterpriseAiCopilot.Application.Services
 
         private static string AllowedTablesCacheKey(Guid layerId) => $"AllowedTables_{layerId}";
 
-        public async Task<Result<SemanticLayerTablesResponse>> GetLayerTablesAsync(Guid layerId, CancellationToken cancellationToken = default)
-        {
-            var tables = await _context.AllowedTables
-                .AsNoTracking()
-                .Where(table => table.SemanticLayerId == layerId)
-                .OrderBy(table => table.TableName)
-                .Select(table => new SemanticLayerTableResponse { TableName = table.TableName, IsAllowed = table.IsAllowed })
-                .ToListAsync(cancellationToken);
-
-            return Result<SemanticLayerTablesResponse>.Success(new SemanticLayerTablesResponse
-            {
-                SemanticLayerId = layerId.ToString(),
-                Tables = tables
-            });
-        }
-
-        public async Task<Result<TablePermissionsResponse>> GetTablePermissionsAsync(Guid layerId, CancellationToken cancellationToken = default)
-        {
-            var tableNames = await _context.AllowedTables
-                .AsNoTracking()
-                .Where(table => table.SemanticLayerId == layerId)
-                .Select(table => table.TableName)
-                .Distinct()
-                .OrderBy(name => name)
-                .ToListAsync(cancellationToken);
-
-            var permissions = await _context.UserTablePermissions
-                .AsNoTracking()
-                .Where(permission => permission.SemanticLayerId == layerId)
-                .Select(permission => new { permission.UserId, permission.TableName, permission.IsAllowed })
-                .ToListAsync(cancellationToken);
-
-            var users = await _context.Users.AsNoTracking()
-                .OrderBy(user => user.Email)
-                .Select(user => new { user.Id, user.Email, user.FirstName, user.LastName })
-                .ToListAsync(cancellationToken);
-
-            var rows = users.Select(user => new TablePermissionUserResponse
-            {
-                UserId = user.Id.ToString(),
-                Email = user.Email,
-                DisplayName = $"{user.FirstName} {user.LastName}".Trim(),
-                Tables = tableNames.ToDictionary(
-                    tableName => tableName,
-                    tableName => permissions.FirstOrDefault(permission => permission.UserId == user.Id && permission.TableName == tableName)?.IsAllowed ?? true,
-                    StringComparer.OrdinalIgnoreCase)
-            }).ToList();
-
-            return Result<TablePermissionsResponse>.Success(new TablePermissionsResponse
-            {
-                SemanticLayerId = layerId.ToString(),
-                TableNames = tableNames,
-                Users = rows
-            });
-        }
-
         public async Task<Result<UploadDataSourcesResponse>> UploadDataSourcesAsync(UploadDataSourcesRequest request, CancellationToken cancellationToken = default)
         {
             if (request.SchemaFile == null || request.SchemaFile.Length == 0)
@@ -496,43 +440,6 @@ namespace EnterpriseAiCopilot.Application.Services
             return Result<RetrieveSourceFileResponse>.Success(response);
         }
 
-        public async Task<Result<SourceFileBinaryResponse>> GetSourceFileBinaryAsync(Guid fileId, CancellationToken cancellationToken = default)
-        {
-            var sourceFile = await _context.SemanticSourceFiles
-                .AsNoTracking()
-                .FirstOrDefaultAsync(file => file.Id == fileId, cancellationToken);
-
-            if (sourceFile == null)
-                return Result<SourceFileBinaryResponse>.Failure("File not found.");
-
-            var fileResult = await _fileStorage.GetFileAsync(sourceFile.StoragePath, cancellationToken);
-            if (!fileResult.IsSuccess || fileResult.Data == null || fileResult.Data.Length == 0)
-                return Result<SourceFileBinaryResponse>.Failure($"Failed to read file from storage: {fileResult.ErrorMessage ?? "File is empty."}");
-
-            var contentType = GetContentType(sourceFile.FileName);
-            return Result<SourceFileBinaryResponse>.Success(new SourceFileBinaryResponse
-            {
-                Content = fileResult.Data,
-                FileName = sourceFile.FileName,
-                ContentType = contentType
-            });
-        }
-
-        private static string GetContentType(string fileName)
-        {
-            var extension = Path.GetExtension(fileName).ToLowerInvariant();
-            return extension switch
-            {
-                ".pdf" => "application/pdf",
-                ".json" => "application/json",
-                ".csv" => "text/csv",
-                ".md" => "text/markdown",
-                ".txt" => "text/plain",
-                ".yaml" or ".yml" => "application/yaml",
-                _ => "application/octet-stream"
-            };
-        }
-
         public async Task<Result<RetrieveSemanticRevisionResponse>> GetRevisionAsync(Guid revisionId, CancellationToken cancellationToken = default)
         {
             var revision = await _context.SemanticRevisions
@@ -598,21 +505,15 @@ namespace EnterpriseAiCopilot.Application.Services
             return Result<SubmitRevisionResponse>.Success(response);
         }
 
-        public async Task<Result<SemanticLayerStatusResponse>> GetSemanticLayerStatusAsync(Guid? layerId = null, CancellationToken cancellationToken = default)
+        public async Task<Result<SemanticLayerStatusResponse>> GetSemanticLayerStatusAsync(CancellationToken cancellationToken = default)
         {
-            var layerQuery = _context.SemanticLayers
+            var semanticLayer = await _context.SemanticLayers
                 .Include(s => s.Revisions)
                 .Include(s => s.SourceFiles)
-                .AsQueryable();
-
-            var semanticLayer = await (layerId.HasValue
-                ? layerQuery.SingleOrDefaultAsync(s => s.Id == layerId.Value, cancellationToken)
-                : layerQuery.SingleOrDefaultAsync(s => s.IsActive, cancellationToken));
+                .SingleOrDefaultAsync(s => s.IsActive, cancellationToken);
 
             if (semanticLayer == null)
-                return Result<SemanticLayerStatusResponse>.Failure(layerId.HasValue
-                    ? "Semantic Layer not found."
-                    : "No active Semantic Layer found.");
+                return Result<SemanticLayerStatusResponse>.Failure("No active Semantic Layer found.");
 
             var approvedRevision = semanticLayer.Revisions
                 .Where(r => r.Status == "Approved")

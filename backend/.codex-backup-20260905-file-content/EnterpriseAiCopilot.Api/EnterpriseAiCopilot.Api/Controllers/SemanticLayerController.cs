@@ -89,24 +89,6 @@ namespace EnterpriseAiCopilot.Api.Controllers
             return Ok(result.Data);
         }
 
-        [HttpGet("files/{fileId}/content")]
-        public async Task<IActionResult> GetSourceFileContent(Guid fileId, CancellationToken cancellationToken)
-        {
-            var result = await _semanticLayerService.GetSourceFileBinaryAsync(fileId, cancellationToken);
-
-            if (!result.IsSuccess || result.Data == null)
-            {
-                return NotFound(new
-                {
-                    status = "Failed",
-                    errorCode = "NOT_FOUND",
-                    message = result.ErrorMessage
-                });
-            }
-
-            return File(result.Data.Content, result.Data.ContentType, result.Data.FileName, enableRangeProcessing: true);
-        }
-
         [HttpGet("revisions/{revisionId}")]
         public async Task<IActionResult> GetRevision(Guid revisionId, CancellationToken cancellationToken)
         {
@@ -144,9 +126,9 @@ namespace EnterpriseAiCopilot.Api.Controllers
         }
 
         [HttpGet("status")]
-        public async Task<IActionResult> GetStatus([FromQuery(Name = "id")] Guid? layerId, CancellationToken cancellationToken)
+        public async Task<IActionResult> GetStatus(CancellationToken cancellationToken)
         {
-            var result = await _semanticLayerService.GetSemanticLayerStatusAsync(layerId, cancellationToken);
+            var result = await _semanticLayerService.GetSemanticLayerStatusAsync(cancellationToken);
 
             if (!result.IsSuccess)
             {
@@ -266,20 +248,6 @@ namespace EnterpriseAiCopilot.Api.Controllers
             }
 
             return Ok(new { Message = $"Table '{tableName}' access set to {isAllowed}" });
-        }
-
-        [HttpGet("{layerId}/tables")]
-        public async Task<IActionResult> GetLayerTables(Guid layerId, CancellationToken cancellationToken)
-        {
-            var result = await _semanticLayerService.GetLayerTablesAsync(layerId, cancellationToken);
-            return Ok(result.Data);
-        }
-
-        [HttpGet("{layerId}/users/table-permissions")]
-        public async Task<IActionResult> GetTablePermissions(Guid layerId, CancellationToken cancellationToken)
-        {
-            var result = await _semanticLayerService.GetTablePermissionsAsync(layerId, cancellationToken);
-            return Ok(result.Data);
         }
 
         [HttpPatch("{layerId}/users/table-permission")]

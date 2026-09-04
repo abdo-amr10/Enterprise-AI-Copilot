@@ -16,7 +16,7 @@ namespace EnterpriseAiCopilot.Application.Common.Interfaces
         Task<Result<SourceFileBinaryResponse>> GetSourceFileBinaryAsync(Guid fileId, CancellationToken cancellationToken = default);
         Task<Result<RetrieveSemanticRevisionResponse>> GetRevisionAsync(Guid revisionId, CancellationToken cancellationToken = default);
         Task<Result<SubmitRevisionResponse>> SubmitRevisionAsync(Guid revisionId, CancellationToken cancellationToken = default);
-        Task<Result<SemanticLayerStatusResponse>> GetSemanticLayerStatusAsync(Guid? layerId = null, CancellationToken cancellationToken = default);
+        Task<Result<SemanticLayerStatusResponse>> GetSemanticLayerStatusAsync(CancellationToken cancellationToken = default);
         Task<Result<SemanticRevisionSchemaResponse>> GetActiveRevisionSchemaAsync(CancellationToken cancellationToken = default);
         Task<Result<List<SemanticLayerListItemResponse>>> GetSemanticLayersAsync(Guid? layerId = null, CancellationToken cancellationToken = default);
         Task<Result<bool>> DeleteSemanticLayerAsync(Guid layerId, CancellationToken cancellationToken = default);
@@ -24,8 +24,6 @@ namespace EnterpriseAiCopilot.Application.Common.Interfaces
         Task<Result<RetrieveSourceFileResponse>> UpsertSourceFileAsync(Guid layerId, Guid? fileId, UpsertSourceFileRequest request, CancellationToken cancellationToken = default);
         Task<Result<bool>> ToggleTablePermissionAsync(Guid layerId, string tableName, bool isAllowed, CancellationToken cancellationToken = default);
         Task<Result<bool>> ToggleUserTablePermissionAsync(Guid layerId, string email, string tableName, bool isAllowed, CancellationToken cancellationToken = default);
-        Task<Result<SemanticLayerTablesResponse>> GetLayerTablesAsync(Guid layerId, CancellationToken cancellationToken = default);
-        Task<Result<TablePermissionsResponse>> GetTablePermissionsAsync(Guid layerId, CancellationToken cancellationToken = default);
         Task<Result<bool>> ActivateSemanticLayerAsync(Guid layerId, CancellationToken cancellationToken = default);
     }
 }
