@@ -27,6 +27,11 @@ logger = logging.getLogger("ai_runtime.semantic_watcher")
 _POLL_INTERVAL_SECONDS = float(os.getenv("SEMANTIC_SYNC_INTERVAL_SECONDS", "60"))
 
 
+def _environment_flag(name: str, default: bool = False) -> bool:
+    """Read a conventional boolean environment flag."""
+    return os.getenv(name, str(default)).strip().casefold() in {"1", "true", "yes", "on"}
+
+
 async def _semantic_index_watcher(interval_seconds: float = _POLL_INTERVAL_SECONDS) -> None:
     """Periodically check Backend status and update in-memory index and schema when active revision changes."""
     loop = asyncio.get_running_loop()
@@ -53,7 +58,15 @@ async def _semantic_index_watcher(interval_seconds: float = _POLL_INTERVAL_SECON
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    watcher_task = asyncio.create_task(_semantic_index_watcher())
+    # Swagger and lightweight local development do not need to load both the
+    # embedding model and the Ollama model at startup.  On low-memory machines
+    # that concurrent warmup can exhaust virtual memory before the first request.
+    lightweight_startup = _environment_flag("AI_RUNTIME_LIGHTWEIGHT_STARTUP")
+    watcher_task = (
+        None
+        if lightweight_startup or not _environment_flag("SEMANTIC_SYNC_ENABLED", True)
+        else asyncio.create_task(_semantic_index_watcher())
+    )
 
     # Pre-warm LLM model in background to eliminate cold-load delay on the first query
     loop = asyncio.get_running_loop()
@@ -68,14 +81,18 @@ async def lifespan(app: FastAPI):
         except Exception as err:
             logger.debug("Ollama warmup skipped: %s", err)
 
-    loop.run_in_executor(None, _warmup_llm)
+    if not lightweight_startup and _environment_flag("AI_PREWARM_LLM", True):
+        loop.run_in_executor(None, _warmup_llm)
+    elif lightweight_startup:
+        logger.info("Lightweight startup enabled: semantic sync and LLM warmup are deferred until requested.")
 
     yield
-    watcher_task.cancel()
-    try:
-        await watcher_task
-    except asyncio.CancelledError:
-        pass
+    if watcher_task is not None:
+        watcher_task.cancel()
+        try:
+            await watcher_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="Enterprise AI Copilot - AI Runtime", lifespan=lifespan)

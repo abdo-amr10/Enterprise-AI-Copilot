@@ -7,6 +7,7 @@ remains required; only the approved artifact is indexed for runtime.
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 def main(semantic_layer_id: str | None = None) -> None:
     from build_semantic_layer import main as build_draft
@@ -14,7 +15,7 @@ def main(semantic_layer_id: str | None = None) -> None:
     from validate_and_review import main as validate_and_review
 
     build_draft(semantic_layer_id)
-    validate_and_review()
+    validate_and_review(Path("outputs/semantic_layer/initial_draft.json"), allow_auto_fix=False)
     build_index()
 
 

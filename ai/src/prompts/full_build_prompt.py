@@ -681,13 +681,11 @@ Each relationship object must include:
 
 3. `measures`
 
-Derive standard numerical aggregations such as:
-
-- SUM
-- COUNT
-- AVG
-
-from numerical and monetary columns when supported.
+Create a measure only when its business meaning and aggregation are explicitly
+supported by the business glossary or documentation.  Do not create AVG/SUM
+measures merely because a column is numeric.  A primary-key count uses COUNT at
+the entity's natural grain; reserve COUNT DISTINCT for a documented fanout-safe
+calculation across joins.
 
 4. `dimensions`
 

@@ -1,18 +1,18 @@
 {
   "index_version": 1,
-  "semantic_layer_id": "sl-local-approved",
-  "revision_id": "rev-local-approved",
+  "semantic_layer_id": "sl-4c34f74060444ecaa4d78b71f91f965f",
+  "revision_id": "rev-a9aeb432445b42e989f2c7113a7791fa",
   "embedding_model": "BAAI/bge-m3",
-  "embedding_model_version": "6.0.0",
+  "embedding_model_version": "2.2.2",
   "embedding_dimension": 1024,
   "similarity_metric": "cosine",
   "index_type": "faiss.IndexFlatIP",
-  "document_count": 65,
+  "document_count": 58,
   "timings": {
-    "document_preparation_seconds": 0.001531900001282338,
-    "embedding_seconds": 248.08514549999927,
-    "index_build_seconds": 0.2402300000012474,
-    "total_seconds": 248.32691570000134
+    "document_preparation_seconds": 0.0004021001514047384,
+    "embedding_seconds": 269.8523404998705,
+    "index_build_seconds": 2.2720055000390857,
+    "total_seconds": 272.1248872000724
   },
   "index_path": "outputs\\semantic_layer\\semantic_index.faiss"
 }
