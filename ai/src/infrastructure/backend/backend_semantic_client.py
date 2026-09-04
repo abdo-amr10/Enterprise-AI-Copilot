@@ -197,6 +197,23 @@ class BackendSemanticClient:
                     relationship.get("to_entity")
                 )
 
+    def get_active_revision_schema(self) -> dict[str, Any]:
+        """Fetch the physical database schema for the active revision from the Backend API.
+
+        Calls GET /api/v1/semantic-layer/revisions/active/schema.
+
+        Returns:
+            Dictionary containing:
+                - semanticLayerId: UUID string
+                - revisionId: UUID string
+                - status: string (e.g. "Approved")
+                - schema: dict representing the physical database schema
+        """
+        payload = self._get("/api/v1/semantic-layer/revisions/active/schema")
+        if not isinstance(payload, dict):
+            raise ValueError("Backend active revision schema response must be a JSON object.")
+        return payload
+
     def get_status(self, force: bool = False) -> dict[str, Any]:
         now = time.monotonic()
         if (

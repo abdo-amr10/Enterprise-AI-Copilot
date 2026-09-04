@@ -16,3 +16,8 @@ class CopilotAskRequest:
             raise ValueError("question cannot be empty.")
         if not isinstance(self.conversation, tuple):
             raise ValueError("conversation must be a tuple.")
+
+    @property
+    def user_question(self) -> str:
+        """Alias for question matching conversation layer naming conventions."""
+        return self.question

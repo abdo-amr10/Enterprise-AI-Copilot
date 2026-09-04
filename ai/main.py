@@ -78,7 +78,10 @@ async def lifespan(app: FastAPI):
         pass
 
 
+from src.observability.asgi_middleware import LatencyAuditASGIMiddleware
+
 app = FastAPI(title="Enterprise AI Copilot - AI Runtime", lifespan=lifespan)
+app.add_middleware(LatencyAuditASGIMiddleware)
 
 app.include_router(copilot_router.router)
 app.include_router(semantic_router.router)

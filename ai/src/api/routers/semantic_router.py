@@ -11,6 +11,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.dependencies import (
+    get_schema_provider,
     get_semantic_repository,
     get_semantic_retrieval_pipeline,
 )
@@ -247,20 +248,43 @@ def review_draft(
 @router.post("/sync")
 def sync_index(
     repository=Depends(get_semantic_repository),
+    schema_provider=Depends(get_schema_provider),
 ) -> dict[str, Any]:
-    """Synchronize the in-memory FAISS index with the active Backend revision immediately."""
+    """Synchronize the in-memory FAISS index and physical schema with the active Backend revision immediately."""
+    built = False
+    schema_synced = False
     if hasattr(repository, "sync_active_index"):
         built = repository.sync_active_index(force=True)
-        return {
-            "status": "Success",
-            "rebuilt": built,
-            "indexedRevisionId": getattr(repository, "indexed_revision_id", None),
-        }
+    if hasattr(schema_provider, "sync_schema"):
+        try:
+            schema_provider.sync_schema()
+            schema_synced = True
+        except Exception:
+            schema_synced = False
     return {
         "status": "Success",
-        "rebuilt": False,
-        "detail": "Semantic repository does not support live sync.",
+        "rebuilt": built,
+        "schemaSynced": schema_synced,
+        "indexedRevisionId": getattr(repository, "indexed_revision_id", None),
     }
+
+
+@router.get("/active-schema")
+def get_active_schema(
+    schema_provider=Depends(get_schema_provider),
+) -> dict[str, Any]:
+    """Return the active physical database schema currently cached in memory."""
+    try:
+        schema = schema_provider.get_schema()
+        return {
+            "status": "Success",
+            "schema": schema,
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Unable to load active physical schema: {exc}",
+        ) from exc
 
 
 def _validate_resolved_sources(trigger_type: str, sources: dict[str, Any]) -> None:

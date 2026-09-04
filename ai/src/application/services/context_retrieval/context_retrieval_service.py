@@ -6,6 +6,7 @@ from typing import Any
 
 from src.application.ports.physical_schema_repository import PhysicalSchemaRepository
 from src.application.ports.semantic_repository import SemanticRepository
+from src.observability.latency_audit import stage
 
 
 class ContextRetrievalService:
@@ -43,8 +44,11 @@ class ContextRetrievalService:
         Returns:
             List of semantic document dictionaries matched by vector similarity.
         """
-        limit = top_k if top_k is not None else self._candidate_limit(question)
-        return self._semantic_repository.retrieve(question, limit)
+        with stage("context_retrieval", operation="candidate_planning", is_leaf=False):
+            limit = top_k if top_k is not None else self._candidate_limit(question)
+
+        with stage("context_retrieval", operation="retrieval", is_leaf=False):
+            return self._semantic_repository.retrieve(question, limit)
 
     def build_llm_context(self, question: str, top_k: int | None = None) -> str:
         """Construct a join-complete, formatted semantic context string for LLM prompts.
@@ -58,41 +62,45 @@ class ContextRetrievalService:
             query scope guidance, and business rules.
         """
         results = self.retrieve(question, top_k)
-        layer = self._semantic_repository.load()
-        requested_tables = self._planned_tables(question, layer)
-        # For a multi-entity question, table coverage is more important than
-        # allowing a few high-scoring attribute documents to introduce
-        # unrelated tables.  The vector search above is deliberately wider;
-        # this is the compact, approved-schema projection passed to the LLM.
-        seed_tables = requested_tables | self._seed_tables(results)
-        physical_schema = self._physical_schema()
-        valid_relationships = self._merge_relationships(
-            self._valid_relationships(layer.get("relationships", [])),
-            self._valid_relationships(physical_schema.get("relationships", [])),
-        )
-        rls_tables = self._rls_required_tables(seed_tables, layer)
-        relationships = self._connecting_relationships(
-            seed_tables | rls_tables, valid_relationships
-        )
-        tables = seed_tables | {
-            table
-            for relationship in relationships
-            for table in (relationship["from_table"], relationship["to_table"])
-        }
-        lines = [
-            "SEMANTIC CONTEXT",
-            "This is a join-complete subgraph from the approved Semantic Layer.",
-            "Use only the supplied tables, columns, and relationships.",
-            "",
-        ]
-        self._append_entities(lines, layer.get("entities", []), tables)
-        self._append_columns(lines, layer, tables, physical_schema)
-        self._append_relationships(lines, relationships)
-        self._append_measures(lines, layer.get("measures", []), tables)
-        self._append_security_domain(lines, layer, tables)
-        self._append_query_scope(lines, seed_tables, relationships)
-        self._append_retrieved_rules(lines, results)
-        assembled_context = "\n".join(lines)
+
+        with stage("context_retrieval", operation="relevance_filtering_and_planning", is_leaf=False):
+            layer = self._semantic_repository.load()
+            requested_tables = self._planned_tables(question, layer)
+            # For a multi-entity question, table coverage is more important than
+            # allowing a few high-scoring attribute documents to introduce
+            # unrelated tables.  The vector search above is deliberately wider;
+            # this is the compact, approved-schema projection passed to the LLM.
+            seed_tables = requested_tables | self._seed_tables(results)
+            physical_schema = self._physical_schema()
+            valid_relationships = self._merge_relationships(
+                self._valid_relationships(layer.get("relationships", [])),
+                self._valid_relationships(physical_schema.get("relationships", [])),
+            )
+            rls_tables = self._rls_required_tables(seed_tables, layer)
+            relationships = self._connecting_relationships(
+                seed_tables | rls_tables, valid_relationships
+            )
+            tables = seed_tables | {
+                table
+                for relationship in relationships
+                for table in (relationship["from_table"], relationship["to_table"])
+            }
+
+        with stage("context_retrieval", operation="context_assembly", is_leaf=False):
+            lines = [
+                "SEMANTIC CONTEXT",
+                "This is a join-complete subgraph from the approved Semantic Layer.",
+                "Use only the supplied tables, columns, and relationships.",
+                "",
+            ]
+            self._append_entities(lines, layer.get("entities", []), tables)
+            self._append_columns(lines, layer, tables, physical_schema)
+            self._append_relationships(lines, relationships)
+            self._append_measures(lines, layer.get("measures", []), tables)
+            self._append_security_domain(lines, layer, tables)
+            self._append_query_scope(lines, seed_tables, relationships)
+            self._append_retrieved_rules(lines, results)
+            assembled_context = "\n".join(lines)
 
         try:
             from src.observability.audit_context import get_current_audit
@@ -514,6 +522,7 @@ class ContextRetrievalService:
             propagation_paths = domain.get("propagation_paths", [])
             if propagation_paths:
                 lines.append("- Security propagation & predicate equivalence:")
+                lines.append("  (Enforcement: Join each hop in the declared path using explicit INNER JOINs and apply the canonical security predicate in the WHERE clause)")
                 for p in propagation_paths:
                     if not isinstance(p, dict):
                         continue

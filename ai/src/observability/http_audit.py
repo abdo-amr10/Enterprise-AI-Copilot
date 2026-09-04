@@ -42,6 +42,11 @@ def build_http_audit_event(
     retry_count: int = 0,
     exception: Exception | None = None,
     is_duplicate: bool = False,
+    client_preparation_ms: float = 0.0,
+    http_request_duration_ms: float = 0.0,
+    response_processing_ms: float = 0.0,
+    backend_request_id: str | None = None,
+    parent_request_id: str | None = None,
 ) -> dict[str, Any]:
     """Create a structured, sanitized audit event for an AI -> Backend HTTP call."""
     sanitized = sanitize_url(url)
@@ -50,12 +55,17 @@ def build_http_audit_event(
     event = {
         "event": "backend_http_call",
         "request_id": request_id,
+        "backend_request_id": backend_request_id,
+        "parent_request_id": parent_request_id,
         "stage": stage,
         "http_method": method.upper(),
         "endpoint": endpoint_path,
         "url": sanitized,
         "status_code": status_code,
         "duration_ms": round(duration_ms, 2),
+        "client_preparation_ms": round(client_preparation_ms, 2),
+        "http_request_duration_ms": round(http_request_duration_ms, 2),
+        "response_processing_ms": round(response_processing_ms, 2),
         "request_bytes": request_bytes,
         "response_bytes": response_bytes,
         "timeout_seconds": timeout,

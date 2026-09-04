@@ -9,7 +9,7 @@ def build_request_summary(ctx: RequestAuditContext) -> dict[str, Any]:
     """Compile the final request summary event from a completed RequestAuditContext."""
     total_ms = ctx.total_duration_ms or 0.0
 
-    # Calculate sum of leaf-stage durations
+    # Calculate sum of leaf-stage durations for backward compatibility
     leaf_durations = {k: round(v, 2) for k, v in ctx.leaf_stage_durations_ms.items()}
     sum_leaf_ms = round(sum(leaf_durations.values()), 2)
     unaccounted_ms = max(0.0, round(total_ms - sum_leaf_ms, 2))
@@ -21,6 +21,23 @@ def build_request_summary(ctx: RequestAuditContext) -> dict[str, Any]:
         for k, v in leaf_durations.items()
     }
 
+    # Pipeline vs API Framework Overhead
+    pipeline_span = next(
+        (s for s in ctx.all_spans if s.name == "pipeline"),
+        None,
+    )
+    if pipeline_span is not None:
+        pipeline_ms = round(pipeline_span.inclusive_duration_ms, 2)
+        api_overhead_ms = max(0.0, round(total_ms - pipeline_ms, 2))
+    elif ctx.pipeline_duration_ms is not None:
+        pipeline_ms = round(ctx.pipeline_duration_ms, 2)
+        api_overhead_ms = max(0.0, round(total_ms - pipeline_ms, 2))
+    else:
+        pipeline_ms = round(total_ms, 2)
+        api_overhead_ms = 0.0
+
+    root_dict = ctx.root_span.to_dict() if ctx.root_span else {}
+
     summary = {
         "event": "request_summary",
         "request_id": ctx.request_id,
@@ -30,6 +47,8 @@ def build_request_summary(ctx: RequestAuditContext) -> dict[str, Any]:
         "error_type": ctx.error_type,
         "final_stage": ctx.final_stage,
         "total_duration_ms": round(total_ms, 2),
+        "pipeline_duration_ms": pipeline_ms,
+        "api_framework_overhead_ms": api_overhead_ms,
         "sum_of_leaf_stages_ms": sum_leaf_ms,
         "unaccounted_ms": unaccounted_ms,
         "unaccounted_percentage": unaccounted_pct,
@@ -41,6 +60,10 @@ def build_request_summary(ctx: RequestAuditContext) -> dict[str, Any]:
             or ctx.counts.get("duplicate_sql", 0) > 0
             or ctx.counts.get("duplicate_backend_calls", 0) > 0
         ),
+        "hierarchy": root_dict,
+        "child_covered_ms": round(ctx.root_span.child_covered_duration_ms, 2) if ctx.root_span else sum_leaf_ms,
+        "orchestration_gaps_ms": round(ctx.root_span.orchestration_gaps_ms, 2) if ctx.root_span else 0.0,
+        "exclusive_duration_ms": round(ctx.root_span.exclusive_duration_ms, 2) if ctx.root_span else 0.0,
     }
 
     # Include system resource delta if available

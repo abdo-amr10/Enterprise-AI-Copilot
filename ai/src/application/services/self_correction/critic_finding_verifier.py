@@ -29,7 +29,7 @@ _ANTI_DISTINCT_PATTERN = re.compile(
 
 # Regex to detect Critic claims that a condition/filter is missing
 _MISSING_FILTER_PATTERN = re.compile(
-    r"\b(?:does\s+not\s+filter|missing\s+(?:a\s+)?filter|missing\s+(?:a\s+)?condition|no\s+filter)\b",
+    r"\b(?:does\s+not\s+(?:filter|include|contain|have|apply)|missing\s+(?:a\s+)?(?:filter|condition|where)|no\s+(?:filter|condition))\b",
     re.IGNORECASE,
 )
 _MISSING_JOIN_PATTERN = re.compile(
@@ -140,6 +140,9 @@ class CriticFindingVerifier:
                     numbers = _NUMBER_PATTERN.findall(description)
                     if numbers and all(num in target_sql for num in numbers):
                         continue
+                    if any(term in ref_lower for term in ("top", "highest", "most", "lowest", "least", "first", "rank", "limit")):
+                        if "top" in target_sql_lower or "order by" in target_sql_lower:
+                            continue
 
                 # 4. Check if the finding falsely claims a join/table/CTE is missing when SQL already contains/joins it
                 if _MISSING_JOIN_PATTERN.search(reference_text):

@@ -6,6 +6,7 @@ without modifying production code or coupling business logic to telemetry.
 from __future__ import annotations
 
 import json
+import sys
 import time
 from dataclasses import dataclass, field
 from datetime import date
@@ -13,6 +14,9 @@ from typing import Any, Callable
 
 from src.api.dependencies import get_copilot_pipeline, get_context_service, get_semantic_repository
 from src.application.dto.backend.copilot.copilot_ask_request import CopilotAskRequest
+from src.observability.audit_context import RequestAuditContext
+from src.observability.audit_summary import build_request_summary
+from src.observability.latency_audit import stage as audit_stage, request_lifecycle
 from src.observability.metadata import model_metadata, prompt_metadata, retrieval_metadata
 from src.observability.local_diagnostics import backend_request_diagnostic
 from src.observability.mlflow_observer import MLflowObserver
@@ -120,6 +124,16 @@ class DebugRunner:
         result.local["flow"] = self._initial_flow(layer)
         self._observer.start(tags)
         started = self._clock()
+        audit_ctx: RequestAuditContext | None = None
+        lifecycle_cm = request_lifecycle(
+            request_id=f"debug_{layer}_{stable_hash(question)[:8]}",
+            correlation_id=f"debug_corr_{stable_hash(question)[:8]}",
+        )
+        try:
+            audit_ctx = lifecycle_cm.__enter__()
+        except Exception:
+            pass
+
         try:
             if layer in UNSUPPORTED_LAYERS:
                 result.status, result.stopping_point = "unsupported", "not independently callable with current production contract"
@@ -136,7 +150,9 @@ class DebugRunner:
                 with self._observer.stage("retrieval") as measure: semantic_context = pipeline.build_context(question)
                 result.metrics["retrieval_latency_ms"] = measure["duration_ms"]
                 result.local["flow"]["retrieval"].update(executed=True, status="passed", duration_ms=measure["duration_ms"])
-                with self._observer.stage("prompt") as measure: request = pipeline._prompt_service.build_request(question, semantic_context, date.today().isoformat())
+                with self._observer.stage("prompt") as measure:
+                    with audit_stage("prompt_construction"):
+                        request = pipeline._prompt_service.build_request(question, semantic_context, date.today().isoformat())
                 result.metrics.update(prompt_latency_ms=measure["duration_ms"], prompt_length=float(len(request.prompt)))
                 result.local["flow"]["prompt"].update(executed=True, status="passed", duration_ms=measure["duration_ms"])
                 result.local.update(semantic_context=semantic_context, prompt=request.prompt)
@@ -145,7 +161,10 @@ class DebugRunner:
                     generation_service = pipeline._sql_generation_service
                     config = getattr(getattr(generation_service, "_llm_client", None), "_config", None)
                     if config: result.tags.update(model_metadata(config))
-                    with self._observer.stage("generation") as measure: generation = generation_service.generate(request)
+                    with self._observer.stage("generation") as measure:
+                        with audit_stage("sql_generation", is_leaf=False):
+                            with audit_stage("llm_inference"):
+                                generation = generation_service.generate(request)
                     result.metrics["generation_latency_ms"] = measure["duration_ms"]
                     result.local["flow"]["generation"].update(executed=True, status="passed", duration_ms=measure["duration_ms"])
                     
@@ -208,25 +227,29 @@ class DebugRunner:
                 )
 
                 if can_run_granular:
-                    # 1. Semantic Retrieval Stage
-                    with self._observer.stage("retrieval") as measure_ret:
-                        semantic_context = text_to_sql.build_context(question)
-                    result.metrics["retrieval_latency_ms"] = measure_ret["duration_ms"]
-                    result.local["flow"]["retrieval"].update(executed=True, status="passed", duration_ms=measure_ret["duration_ms"])
-                    result.local["semantic_context"] = semantic_context
+                    with audit_stage("pipeline", is_leaf=False):
+                        # 1. Semantic Retrieval Stage
+                        with self._observer.stage("retrieval") as measure_ret:
+                            semantic_context = text_to_sql.build_context(question)
+                        result.metrics["retrieval_latency_ms"] = measure_ret["duration_ms"]
+                        result.local["flow"]["retrieval"].update(executed=True, status="passed", duration_ms=measure_ret["duration_ms"])
+                        result.local["semantic_context"] = semantic_context
 
-                    # 2. Prompt Construction Stage
-                    with self._observer.stage("prompt") as measure_prompt:
-                        prompt_req = text_to_sql._prompt_service.build_request(question, semantic_context, date.today().isoformat())
-                    result.metrics.update(prompt_latency_ms=measure_prompt["duration_ms"], prompt_length=float(len(prompt_req.prompt)))
-                    result.local["flow"]["prompt"].update(executed=True, status="passed", duration_ms=measure_prompt["duration_ms"])
-                    result.local["prompt"] = prompt_req.prompt
+                        # 2. Prompt Construction Stage
+                        with self._observer.stage("prompt") as measure_prompt:
+                            with audit_stage("prompt_construction"):
+                                prompt_req = text_to_sql._prompt_service.build_request(question, semantic_context, date.today().isoformat())
+                        result.metrics.update(prompt_latency_ms=measure_prompt["duration_ms"], prompt_length=float(len(prompt_req.prompt)))
+                        result.local["flow"]["prompt"].update(executed=True, status="passed", duration_ms=measure_prompt["duration_ms"])
+                        result.local["prompt"] = prompt_req.prompt
 
-                    # 3. LLM SQL Generation Stage
-                    with self._observer.stage("generation") as measure_gen:
-                        gen_response = generation_service.generate(prompt_req)
-                    result.metrics["generation_latency_ms"] = measure_gen["duration_ms"]
-                    result.local["flow"]["generation"].update(executed=True, status="passed", duration_ms=measure_gen["duration_ms"])
+                        # 3. LLM SQL Generation Stage
+                        with self._observer.stage("generation") as measure_gen:
+                            with audit_stage("sql_generation", is_leaf=False):
+                                with audit_stage("llm_inference"):
+                                    gen_response = generation_service.generate(prompt_req)
+                        result.metrics["generation_latency_ms"] = measure_gen["duration_ms"]
+                        result.local["flow"]["generation"].update(executed=True, status="passed", duration_ms=measure_gen["duration_ms"])
 
                     in_tok = getattr(gen_response, "input_tokens", None)
                     out_tok = getattr(gen_response, "output_tokens", None)
@@ -502,6 +525,20 @@ class DebugRunner:
                 result.local["local_diagnostic"] = backend_request_diagnostic(exc)
             return result
         finally:
+            if lifecycle_cm is not None:
+                try:
+                    exc_type, exc_val, exc_tb = sys.exc_info()
+                    lifecycle_cm.__exit__(exc_type, exc_val, exc_tb)
+                except Exception:
+                    pass
+            if audit_ctx is not None:
+                try:
+                    summary = build_request_summary(audit_ctx)
+                    result.local["latency_summary"] = summary
+                    result.local["latency_hierarchy"] = summary.get("hierarchy", {})
+                    self._enrich_flow_from_audit(result.local.get("flow", {}), audit_ctx)
+                except Exception:
+                    pass
             result.metrics["total_latency_ms"] = (self._clock() - started) * 1000
             result.tags.update(retrieval_metadata(repository))
             result.tags["trace_reason"] = trace_reason({**result.metrics, "status": result.status}, self._settings, developer_debug=True)
@@ -533,8 +570,59 @@ class DebugRunner:
             self._observer.log_artifact_text(TEXT_TO_SQL_PROMPT, "prompt_template.txt")
             self._observer.finish()
 
+    @staticmethod
+    def _enrich_flow_from_audit(flow: dict[str, dict[str, Any]], audit_ctx: RequestAuditContext) -> None:
+        if not flow or not audit_ctx:
+            return
 
+        span_by_name: dict[str, Any] = {s.name: s for s in audit_ctx.all_spans}
+
+        if "request" in flow and audit_ctx.root_span:
+            root = audit_ctx.root_span
+            flow["request"]["inclusive_duration_ms"] = round(root.inclusive_duration_ms, 2)
+            flow["request"]["exclusive_duration_ms"] = round(root.exclusive_duration_ms, 2)
+            flow["request"]["child_covered_duration_ms"] = round(root.child_covered_duration_ms, 2)
+            flow["request"]["orchestration_gaps_ms"] = round(root.orchestration_gaps_ms, 2)
+            flow["request"]["unaccounted_ms"] = round(root.unaccounted_ms, 2)
+
+        stage_mapping = {
+            "retrieval": ("context_retrieval", "retrieval"),
+            "prompt": ("prompt_construction", "prompt"),
+            "generation": ("sql_generation", "generation", "llm_inference"),
+            "validation": ("deterministic_validation", "validation"),
+            "critic": ("critic",),
+            "correction": ("self_correction", "correction"),
+        }
+
+        for stg_key, candidate_names in stage_mapping.items():
+            if stg_key not in flow:
+                continue
+            item = flow[stg_key]
+            matched_span = next((span_by_name[name] for name in candidate_names if name in span_by_name), None)
+            if matched_span is not None:
+                item["inclusive_duration_ms"] = round(matched_span.inclusive_duration_ms, 2)
+                item["exclusive_duration_ms"] = round(matched_span.exclusive_duration_ms, 2)
+                item["child_covered_duration_ms"] = round(matched_span.child_covered_duration_ms, 2)
+                item["orchestration_gaps_ms"] = round(matched_span.orchestration_gaps_ms, 2)
+                item["unaccounted_ms"] = round(matched_span.unaccounted_ms, 2)
+            elif item.get("executed") and isinstance(item.get("duration_ms"), (int, float)):
+                dur = round(float(item["duration_ms"]), 2)
+                item["inclusive_duration_ms"] = dur
+                item["exclusive_duration_ms"] = dur
+                item["child_covered_duration_ms"] = 0.0
+                item["orchestration_gaps_ms"] = 0.0
+                item["unaccounted_ms"] = 0.0
 
     @staticmethod
     def _initial_flow(layer: str) -> dict[str, dict[str, Any]]:
-        return {stage: {"executed": False, "status": "not_executed", "duration_ms": "unavailable", "reason": "not requested"} for stage in ("request", "retrieval", "prompt", "generation", "validation", "critic", "correction", "final")}
+        return {
+            stage: {
+                "executed": False,
+                "status": "not_executed",
+                "duration_ms": "unavailable",
+                "inclusive_duration_ms": "unavailable",
+                "exclusive_duration_ms": "unavailable",
+                "reason": "not requested",
+            }
+            for stage in ("request", "retrieval", "prompt", "generation", "validation", "critic", "correction", "final")
+        }

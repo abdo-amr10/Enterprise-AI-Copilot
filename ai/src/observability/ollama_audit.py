@@ -35,17 +35,38 @@ def parse_ollama_metrics(
     load_ms = float(load_ns) / 1_000_000.0 if load_ns is not None else 0.0
     prompt_eval_ms = float(prompt_eval_ns) / 1_000_000.0 if prompt_eval_ns is not None else 0.0
     eval_ms = float(eval_ns) / 1_000_000.0 if eval_ns is not None else 0.0
+    server_eval_ms = prompt_eval_ms + eval_ms
+
+    client_overhead_ms = (
+        max(0.0, client_duration_ms - (server_eval_ms + load_ms))
+        if client_duration_ms is not None
+        else 0.0
+    )
 
     metrics["total_duration_ms"] = round(total_ms, 2) if total_ms is not None else None
     metrics["load_duration_ms"] = round(load_ms, 2)
     metrics["prompt_eval_duration_ms"] = round(prompt_eval_ms, 2)
     metrics["eval_duration_ms"] = round(eval_ms, 2)
+    metrics["server_duration_ms"] = round(server_eval_ms, 2)
+    metrics["client_duration_ms"] = round(client_duration_ms, 2) if client_duration_ms is not None else None
+    metrics["client_overhead_ms"] = round(client_overhead_ms, 2)
     metrics["prompt_eval_count"] = int(prompt_eval_count) if prompt_eval_count is not None else None
     metrics["eval_count"] = int(eval_count) if eval_count is not None else None
     metrics["done_reason"] = str(done_reason) if done_reason else None
 
-    # Cold vs warm classification
-    metrics["is_cold_load"] = bool(load_ms > 1000.0)
+    # Factual model loading evidence
+    if load_ns is None:
+        metrics["model_load_type"] = "none"
+        metrics["cold_load"] = None
+        metrics["is_cold_load"] = False
+    elif load_ms == 0.0:
+        metrics["model_load_type"] = "warm"
+        metrics["cold_load"] = False
+        metrics["is_cold_load"] = False
+    else:
+        metrics["model_load_type"] = "cold"
+        metrics["cold_load"] = True
+        metrics["is_cold_load"] = True
 
     # Throughput calculations (TPS)
     if prompt_eval_count is not None and prompt_eval_ms > 0:

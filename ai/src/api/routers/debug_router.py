@@ -109,11 +109,12 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
               <tr class="bg-[#141720] text-zinc-400 border-b border-[#1F2430]">
                 <th class="py-2.5 px-3 font-semibold">Stage</th>
                 <th class="py-2.5 px-3 font-semibold">Status</th>
-                <th class="py-2.5 px-3 font-semibold text-right">Duration</th>
+                <th class="py-2.5 px-3 font-semibold text-right">Inclusive</th>
+                <th class="py-2.5 px-3 font-semibold text-right">Exclusive</th>
               </tr>
             </thead>
             <tbody id="stageTableBody" class="divide-y divide-[#1F2430] text-zinc-300">
-              <tr><td colspan="3" class="py-3.5 px-3 text-center text-zinc-500 italic">No stages executed yet</td></tr>
+              <tr><td colspan="4" class="py-3.5 px-3 text-center text-zinc-500 italic">No stages executed yet</td></tr>
             </tbody>
           </table>
         </div>
@@ -151,6 +152,7 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
           <div class="flex gap-5">
             <button id="tab-sql" onclick="switchTab('sql')" class="py-3 text-sm font-semibold text-blue-400 border-b-2 border-blue-500 transition cursor-pointer">Generated SQL</button>
             <button id="tab-trace" onclick="switchTab('trace')" class="py-3 text-sm font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent transition cursor-pointer">Validation & Self-Correction</button>
+            <button id="tab-latency" onclick="switchTab('latency')" class="py-3 text-sm font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent transition cursor-pointer flex items-center gap-1.5"><span>⏱️</span> Latency Hierarchy</button>
             <button id="tab-json" onclick="switchTab('json')" class="py-3 text-sm font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent transition cursor-pointer">Raw JSON</button>
           </div>
           <button onclick="copyActiveContent()" class="text-xs font-medium text-zinc-400 hover:text-zinc-200 border border-[#242B3B] px-2.5 py-1 rounded-md bg-[#0B0D13] hover:bg-[#161A23] transition cursor-pointer flex items-center gap-1.5">
@@ -175,7 +177,37 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
             </div>
           </div>
 
-          <!-- View 3: Raw JSON -->
+          <!-- View 3: Hierarchical Latency -->
+          <div id="view-latency" class="hidden flex flex-col gap-4 font-sans">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              <div class="bg-[#12151D] border border-[#1F2430] p-2.5 rounded-lg">
+                <span class="text-zinc-400 block text-[10px] uppercase">Total Request</span>
+                <span id="latencyTotal" class="font-mono font-bold text-zinc-100 text-sm">--</span>
+              </div>
+              <div class="bg-[#12151D] border border-[#1F2430] p-2.5 rounded-lg">
+                <span class="text-zinc-400 block text-[10px] uppercase">Pipeline Time</span>
+                <span id="latencyPipeline" class="font-mono font-bold text-blue-400 text-sm">--</span>
+              </div>
+              <div class="bg-[#12151D] border border-[#1F2430] p-2.5 rounded-lg">
+                <span class="text-zinc-400 block text-[10px] uppercase">API Overhead</span>
+                <span id="latencyOverhead" class="font-mono font-bold text-amber-400 text-sm">--</span>
+              </div>
+              <div class="bg-[#12151D] border border-[#1F2430] p-2.5 rounded-lg">
+                <span class="text-zinc-400 block text-[10px] uppercase">Orchestration Gaps</span>
+                <span id="latencyGaps" class="font-mono font-bold text-emerald-400 text-sm">--</span>
+              </div>
+            </div>
+
+            <div class="bg-[#0A0C11] border border-[#1F2430] rounded-lg p-4 font-mono text-xs leading-relaxed overflow-x-auto">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-zinc-400 font-sans text-xs font-semibold">Exact Latency Tree (Inclusive, Exclusive & Gaps)</span>
+                <span id="latencyAuditBadge" class="text-[11px] font-mono text-zinc-500"></span>
+              </div>
+              <pre id="outputLatencyTree" class="text-zinc-300 font-mono text-xs select-all whitespace-pre leading-loose">-- Run execution to display hierarchical latency tree</pre>
+            </div>
+          </div>
+
+          <!-- View 4: Raw JSON -->
           <div id="view-json" class="hidden">
             <pre id="outputRawJson" class="text-zinc-400 whitespace-pre-wrap font-mono text-xs leading-relaxed"></pre>
           </div>
@@ -190,22 +222,62 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
     let activeTab = 'sql';
     let lastResponseData = null;
 
+    function formatMs(val) {
+      if (val == null || val === 'unavailable') return '--';
+      const num = Number(val);
+      if (isNaN(num)) return String(val);
+      return (num >= 1000) ? (num / 1000).toFixed(2) + 's' : num.toFixed(1) + 'ms';
+    }
+
+    function renderLatencyNode(node, prefix = '', isLast = true) {
+      if (!node || !node.name) return '';
+      const branch = prefix ? (isLast ? '└── ' : '├── ') : '';
+      const dur = (node.inclusive_duration_ms != null) ? formatMs(node.inclusive_duration_ms) : '--';
+      const excl = (node.exclusive_duration_ms != null) ? ` (self: ${formatMs(node.exclusive_duration_ms)})` : '';
+      const gaps = (node.orchestration_gaps_ms != null && node.orchestration_gaps_ms > 0) ? ` [gaps: ${formatMs(node.orchestration_gaps_ms)}]` : '';
+      const unaccounted = (node.unaccounted_ms != null && node.unaccounted_ms > 0.05) ? ` [unaccounted: ${formatMs(node.unaccounted_ms)}]` : '';
+
+      let extra = '';
+      if (node.metadata) {
+        if (node.metadata.model_load_type) {
+          extra += ` [load: ${node.metadata.model_load_type}]`;
+        }
+        if (node.metadata.server_duration_ms != null) {
+          extra += ` [server: ${formatMs(node.metadata.server_duration_ms)}]`;
+        }
+        if (node.metadata.client_overhead_ms != null) {
+          extra += ` [overhead: ${formatMs(node.metadata.client_overhead_ms)}]`;
+        }
+      }
+
+      let line = `${prefix}${branch}${node.name} [${dur}]${excl}${gaps}${unaccounted}${extra}\n`;
+
+      const children = node.children || [];
+      const childPrefix = prefix + (prefix ? (isLast ? '    ' : '│   ') : '');
+      children.forEach((child, idx) => {
+        line += renderLatencyNode(child, childPrefix, idx === children.length - 1);
+      });
+      return line;
+    }
+
     function setPreset(question) {
       document.getElementById('questionInput').value = question;
     }
 
     function switchTab(tab) {
       activeTab = tab;
-      const tabs = ['sql', 'trace', 'json'];
+      const tabs = ['sql', 'trace', 'latency', 'json'];
       tabs.forEach(t => {
         const btn = document.getElementById('tab-' + t);
         const view = document.getElementById('view-' + t);
-        if (t === tab) {
-          btn.className = 'py-3 text-sm font-semibold text-blue-400 border-b-2 border-blue-500 transition cursor-pointer';
-          view.classList.remove('hidden');
-        } else {
-          btn.className = 'py-3 text-sm font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent transition cursor-pointer';
-          view.classList.add('hidden');
+        if (btn && view) {
+          if (t === tab) {
+            btn.className = 'py-3 text-sm font-semibold text-blue-400 border-b-2 border-blue-500 transition cursor-pointer flex items-center gap-1.5';
+            view.classList.remove('hidden');
+          } else {
+            btn.className = 'py-3 text-sm font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent transition cursor-pointer flex items-center gap-1.5';
+            view.classList.add('hidden');
+          }
         }
       });
     }
@@ -216,6 +288,8 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
         content = document.getElementById('outputSqlCode').innerText;
       } else if (activeTab === 'trace') {
         content = (lastResponseData && lastResponseData.local && lastResponseData.local.validation_history_sql) || '';
+      } else if (activeTab === 'latency') {
+        content = (document.getElementById('outputLatencyTree') && document.getElementById('outputLatencyTree').innerText) || '';
       } else if (activeTab === 'json') {
         content = document.getElementById('outputRawJson').innerText;
       }
@@ -298,7 +372,7 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
 
       document.getElementById('stoppingBadge').innerText = data.stopping_point ? 'stopped at: ' + data.stopping_point : (isPassed ? 'complete' : 'failed');
 
-      // 2. Stage Breakdown Table
+      // 2. Stage Breakdown Table (Inclusive & Exclusive)
       const stageBody = document.getElementById('stageTableBody');
       stageBody.innerHTML = '';
       const flow = (data.local && data.local.flow) || {};
@@ -314,10 +388,17 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
           const item = flow[stg];
           if (!item) return;
           const tr = document.createElement('tr');
-          let dur = '--';
-          if (item.duration_ms != null && item.duration_ms !== 'unavailable') {
-            dur = (item.duration_ms >= 1000) ? (item.duration_ms / 1000).toFixed(2) + 's' : item.duration_ms.toFixed(0) + 'ms';
+          const incVal = (item.inclusive_duration_ms != null && item.inclusive_duration_ms !== 'unavailable') ? item.inclusive_duration_ms : item.duration_ms;
+          const exclVal = (item.exclusive_duration_ms != null && item.exclusive_duration_ms !== 'unavailable') ? item.exclusive_duration_ms : null;
+          let incDur = '--';
+          if (incVal != null && incVal !== 'unavailable') {
+            incDur = (incVal >= 1000) ? (incVal / 1000).toFixed(2) + 's' : Number(incVal).toFixed(1) + 'ms';
           }
+          let exclDur = '--';
+          if (exclVal != null && exclVal !== 'unavailable') {
+            exclDur = (exclVal >= 1000) ? (exclVal / 1000).toFixed(2) + 's' : Number(exclVal).toFixed(1) + 'ms';
+          }
+
           let stColor = 'text-zinc-500';
           let statusText = item.status || 'not_executed';
           if (statusText === 'passed' || statusText === 'Success' || statusText === 'success') {
@@ -345,12 +426,39 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
           tr.innerHTML = `
             <td class="py-2.5 px-3 font-medium text-zinc-200">${stageLabel}</td>
             <td class="py-2.5 px-3 font-medium ${stColor}">${statusText}</td>
-            <td class="py-2.5 px-3 text-right mono font-medium text-zinc-400">${dur}</td>
+            <td class="py-2.5 px-3 text-right mono font-medium text-zinc-200">${incDur}</td>
+            <td class="py-2.5 px-3 text-right mono font-medium text-zinc-400">${exclDur}</td>
           `;
           stageBody.appendChild(tr);
         });
       } else {
-        stageBody.innerHTML = '<tr><td colspan="3" class="py-3.5 px-3 text-center text-zinc-500 italic">No stage timing available</td></tr>';
+        stageBody.innerHTML = '<tr><td colspan="4" class="py-3.5 px-3 text-center text-zinc-500 italic">No stage timing available</td></tr>';
+      }
+
+      // Latency Hierarchy Tab
+      const summary = (data.local && data.local.latency_summary) || null;
+      const hierarchy = (data.local && data.local.latency_hierarchy) || (summary && summary.hierarchy) || null;
+      if (summary) {
+        document.getElementById('latencyTotal').innerText = formatMs(summary.total_duration_ms);
+        document.getElementById('latencyPipeline').innerText = formatMs(summary.pipeline_duration_ms);
+        document.getElementById('latencyOverhead').innerText = formatMs(summary.api_framework_overhead_ms);
+        const gaps = summary.orchestration_gaps_ms != null ? summary.orchestration_gaps_ms : 0.0;
+        document.getElementById('latencyGaps').innerText = formatMs(gaps);
+        if (summary.request_id) {
+          document.getElementById('latencyAuditBadge').innerText = 'Req: ' + summary.request_id.slice(0, 8);
+        }
+      } else {
+        const reqDur = (data.metrics && data.metrics.total_latency_ms) || (data.metrics && data.metrics.request_latency_ms) || null;
+        document.getElementById('latencyTotal').innerText = reqDur ? formatMs(reqDur) : '--';
+        document.getElementById('latencyPipeline').innerText = '--';
+        document.getElementById('latencyOverhead').innerText = '--';
+        document.getElementById('latencyGaps').innerText = '--';
+      }
+
+      if (hierarchy && hierarchy.name) {
+        document.getElementById('outputLatencyTree').innerText = renderLatencyNode(hierarchy);
+      } else {
+        document.getElementById('outputLatencyTree').innerText = '-- No hierarchical span trace recorded for this layer execution.';
       }
 
       // 3. Generated SQL Tab

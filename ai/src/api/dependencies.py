@@ -41,6 +41,8 @@ from src.application.services.text_to_sql.sql_generation_service import (
     SQLGenerationService,
 )
 from src.application.services.text_to_sql.text_to_sql_pipeline import TextToSQLPipeline
+from src.application.services.preflight.preflight_service import PreflightService
+from src.config.preflight_settings import PreflightSettings
 from src.config.self_correction_settings import SelfCorrectionSettings
 from src.config.semantic_settings import SemanticSettings
 from src.infrastructure.llm.model_config import (
@@ -62,6 +64,7 @@ from src.infrastructure.semantic_layer.retrieval.file_semantic_repository import
 
 _SETTINGS = SemanticSettings()
 _SELF_CORRECTION_SETTINGS = SelfCorrectionSettings()
+_PREFLIGHT_SETTINGS = PreflightSettings()
 _AI_ROOT = Path(__file__).resolve().parents[2]
 _REPO_ROOT = _AI_ROOT.parent
 _LOCAL_APPROVED_LAYER = _AI_ROOT / "outputs" / "semantic_layer" / "approved_semantic_layer.json"
@@ -77,6 +80,7 @@ _semantic_repository: BackendSemanticRepository | FileSemanticRepository | None 
 _context_retrieval_service: ContextRetrievalService | None = None
 _self_correction_service: SelfCorrectionService | None = None
 _schema_provider: BackendDatabaseSchemaProvider | DatabaseSchemaProvider | None = None
+_preflight_service: PreflightService | None = None
 
 
 def is_local_development_mode() -> bool:
@@ -177,6 +181,18 @@ def get_self_correction_service() -> SelfCorrectionService:
     return _self_correction_service
 
 
+def get_preflight_service() -> PreflightService | None:
+    global _preflight_service
+    if _preflight_service is None:
+        if not _PREFLIGHT_SETTINGS.enabled:
+            return None
+
+        _preflight_service = PreflightService(
+            schema_provider=get_schema_provider(),
+        )
+    return _preflight_service
+
+
 def get_copilot_pipeline() -> CopilotRuntimePipeline:
     sql_generation_service = SQLGenerationService(
         llm_client=OllamaClient(config=QWEN_CONFIG)
@@ -189,6 +205,7 @@ def get_copilot_pipeline() -> CopilotRuntimePipeline:
         text_to_sql_pipeline=text_to_sql_pipeline,
         self_correction_service=get_self_correction_service(),
         observer=MLflowObserver(),
+        preflight_service=get_preflight_service(),
     )
 
 

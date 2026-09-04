@@ -15,6 +15,12 @@ class GenerationResponse:
     model_name: str | None = None
     provider: str | None = None
     duration_ms: float | None = None
+    server_duration_ms: float | None = None
+    client_duration_ms: float | None = None
+    client_overhead_ms: float | None = None
+    model_load_duration_ms: float = 0.0
+    model_load_type: str = "unknown"
+    cold_load: bool | None = None
 
     def __post_init__(self) -> None:
         """Validate the generation response."""

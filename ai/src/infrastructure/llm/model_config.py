@@ -33,10 +33,15 @@ class ModelConfig:
 
 
 _DEFAULT_MODEL = os.getenv("LLM_MODEL_NAME", "qwen2.5-coder:7b")
+
+# Text-to-SQL: prompt + semantic context + output must fit comfortably.
 _DEFAULT_CTX = int(os.getenv("LLM_CONTEXT_LENGTH", "8192"))
 _DEFAULT_MAX_OUTPUT = int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "1024"))
-_SEMANTIC_CTX = int(os.getenv("LLM_SEMANTIC_CONTEXT_LENGTH", "24576"))
-_SEMANTIC_MAX_OUTPUT = int(os.getenv("LLM_SEMANTIC_MAX_OUTPUT_TOKENS", "8192"))
+
+# Semantic relationship discovery may receive substantially larger schemas.
+_SEMANTIC_CTX = int(os.getenv("LLM_SEMANTIC_CONTEXT_LENGTH", "16384"))
+_SEMANTIC_MAX_OUTPUT = int( os.getenv("LLM_SEMANTIC_MAX_OUTPUT_TOKENS", "4096"))
+
 
 QWEN_CONFIG = ModelConfig(
     model_name=_DEFAULT_MODEL,
@@ -46,6 +51,7 @@ QWEN_CONFIG = ModelConfig(
     max_output_tokens=min(_DEFAULT_MAX_OUTPUT, _DEFAULT_CTX),
 )
 
+
 SEMANTIC_LAYER_CONFIG = ModelConfig(
     model_name=_DEFAULT_MODEL,
     runtime="ollama",
@@ -53,6 +59,7 @@ SEMANTIC_LAYER_CONFIG = ModelConfig(
     context_length=_SEMANTIC_CTX,
     max_output_tokens=min(_SEMANTIC_MAX_OUTPUT, _SEMANTIC_CTX),
 )
+
 
 SQL_CRITIC_CONFIG = ModelConfig(
     model_name=_DEFAULT_MODEL,
@@ -62,6 +69,7 @@ SQL_CRITIC_CONFIG = ModelConfig(
     max_output_tokens=min(512, _DEFAULT_CTX),
 )
 
+
 SQL_CORRECTION_CONFIG = ModelConfig(
     model_name=_DEFAULT_MODEL,
     runtime="ollama",
@@ -69,4 +77,3 @@ SQL_CORRECTION_CONFIG = ModelConfig(
     context_length=_DEFAULT_CTX,
     max_output_tokens=min(512, _DEFAULT_CTX),
 )
-

@@ -51,6 +51,7 @@ from src.application.services.self_correction.sql_deterministic_repair_service i
 from src.application.services.context_retrieval.context_retrieval_service import (
     ContextRetrievalService,
 )
+from src.observability.latency_audit import stage
 
 logger = logging.getLogger(__name__)
 
@@ -159,14 +160,15 @@ class SelfCorrectionService:
         # Pre-pass: Deterministic repair if safe before calling LLM
         initial_issues = self._deterministic_issues(current_sql, _get_schema, enforce_rls=enforce_rls)
         if initial_issues:
-            t_rep_start = time.perf_counter()
-            repaired_sql = self._repair_service.repair(current_sql, schema=_get_schema(), enforce_rls=enforce_rls)
-            rep_dur_ms = (time.perf_counter() - t_rep_start) * 1000
-            if repaired_sql != current_sql:
-                post_rep_issues = self._deterministic_issues(repaired_sql, _get_schema, enforce_rls=enforce_rls)
-                if not post_rep_issues:
-                    logger.info("Deterministic repair resolved initial issues without LLM correction")
-                    current_sql = repaired_sql
+            with stage("self_correction", operation="deterministic_repair", is_leaf=False):
+                t_rep_start = time.perf_counter()
+                repaired_sql = self._repair_service.repair(current_sql, schema=_get_schema(), enforce_rls=enforce_rls)
+                rep_dur_ms = (time.perf_counter() - t_rep_start) * 1000
+                if repaired_sql != current_sql:
+                    post_rep_issues = self._deterministic_issues(repaired_sql, _get_schema, enforce_rls=enforce_rls)
+                    if not post_rep_issues:
+                        logger.info("Deterministic repair resolved initial issues without LLM correction")
+                        current_sql = repaired_sql
 
         for attempt in range(self._max_attempts + 1):
             logger.info("Self-correction attempt %s", attempt)
@@ -204,15 +206,16 @@ class SelfCorrectionService:
             # If deterministic issues exist, try deterministic repair on this iteration
             repair_applied = False
             if issues:
-                t_rep = time.perf_counter()
-                repaired = self._repair_service.repair(current_sql, schema=_get_schema(), enforce_rls=enforce_rls)
-                rep_dur = (time.perf_counter() - t_rep) * 1000
-                if repaired != current_sql:
-                    rep_issues = self._deterministic_issues(repaired, _get_schema, enforce_rls=enforce_rls)
-                    if not rep_issues:
-                        current_sql = repaired
-                        issues = []
-                        repair_applied = True
+                with stage("self_correction", operation="deterministic_repair", is_leaf=False):
+                    t_rep = time.perf_counter()
+                    repaired = self._repair_service.repair(current_sql, schema=_get_schema(), enforce_rls=enforce_rls)
+                    rep_dur = (time.perf_counter() - t_rep) * 1000
+                    if repaired != current_sql:
+                        rep_issues = self._deterministic_issues(repaired, _get_schema, enforce_rls=enforce_rls)
+                        if not rep_issues:
+                            current_sql = repaired
+                            issues = []
+                            repair_applied = True
 
             trace.append({
                 "attempt": attempt,
@@ -222,43 +225,47 @@ class SelfCorrectionService:
             })
 
             if not issues:
-                t_critic_start = time.perf_counter()
-                critic_context = self._build_critic_context(
-                    sql=current_sql,
-                    schema_getter=_get_schema,
-                    fallback_context=semantic_context,
-                )
-                critic_result = self._critic_service.evaluate(
-                    question=question,
-                    sql=current_sql,
-                    semantic_context=critic_context,
-                )
-                t_ver_start = time.perf_counter()
-                try:
-                    issues = self._finding_verifier.verify(critic_result, schema=_get_schema(), sql=current_sql)
-                except TypeError:
-                    try:
-                        issues = self._finding_verifier.verify(critic_result, schema=_get_schema())
-                    except TypeError:
-                        issues = self._finding_verifier.verify(critic_result)
-                ver_dur_ms = (time.perf_counter() - t_ver_start) * 1000
-                critic_dur_ms = (time.perf_counter() - t_critic_start) * 1000
-                trace[-1]["criticStatus"] = critic_result.status
-                trace[-1]["criticDurationMs"] = critic_dur_ms
-                trace[-1]["verifiedCriticIssues"] = [issue.message for issue in issues]
+                with stage("self_correction", operation="critic", is_leaf=False):
+                    t_critic_start = time.perf_counter()
+                    with stage("self_correction", operation="critic_context", is_leaf=True):
+                        critic_context = self._build_critic_context(
+                            sql=current_sql,
+                            schema_getter=_get_schema,
+                            fallback_context=semantic_context,
+                        )
+                    with stage("self_correction", operation="critic_evaluation", is_leaf=True):
+                        critic_result = self._critic_service.evaluate(
+                            question=question,
+                            sql=current_sql,
+                            semantic_context=critic_context,
+                        )
+                    with stage("self_correction", operation="critic_verifier", is_leaf=True):
+                        t_ver_start = time.perf_counter()
+                        try:
+                            issues = self._finding_verifier.verify(critic_result, schema=_get_schema(), sql=current_sql)
+                        except TypeError:
+                            try:
+                                issues = self._finding_verifier.verify(critic_result, schema=_get_schema())
+                            except TypeError:
+                                issues = self._finding_verifier.verify(critic_result)
+                        ver_dur_ms = (time.perf_counter() - t_ver_start) * 1000
+                    critic_dur_ms = (time.perf_counter() - t_critic_start) * 1000
+                    trace[-1]["criticStatus"] = critic_result.status
+                    trace[-1]["criticDurationMs"] = critic_dur_ms
+                    trace[-1]["verifiedCriticIssues"] = [issue.message for issue in issues]
 
-                try:
-                    from src.observability.latency_audit import record_critic
-                    record_critic(
-                        status=critic_result.status,
-                        findings_count=len(critic_result.issues),
-                        finding_categories=[getattr(iss, "type", str(iss)) for iss in critic_result.issues],
-                        total_duration_ms=critic_dur_ms,
-                        llm_duration_ms=max(0.0, critic_dur_ms - ver_dur_ms),
-                        verifier_duration_ms=ver_dur_ms,
-                    )
-                except Exception:
-                    pass
+                    try:
+                        from src.observability.latency_audit import record_critic
+                        record_critic(
+                            status=critic_result.status,
+                            findings_count=len(critic_result.issues),
+                            finding_categories=[getattr(iss, "type", str(iss)) for iss in critic_result.issues],
+                            total_duration_ms=critic_dur_ms,
+                            llm_duration_ms=max(0.0, critic_dur_ms - ver_dur_ms),
+                            verifier_duration_ms=ver_dur_ms,
+                        )
+                    except Exception:
+                        pass
 
             if not issues:
                 logger.info("Validation passed on attempt %s", attempt)
@@ -289,52 +296,55 @@ class SelfCorrectionService:
 
             try:
                 corrections_used += 1
-                t_corr_start = time.perf_counter()
-                rls_tables = self._rls_context_tables(
-                    current_sql, _get_schema
-                )
-                try:
-                    tables_in_sql = self._schema_validator.extract_tables(
-                        current_sql, schema=_get_schema()
-                    )
-                except Exception:
-                    tables_in_sql = set()
-                bridging_tables = self._bridging_tables(
-                    tables_in_sql, schema=_get_schema()
-                )
-                extra_context_tables = rls_tables | bridging_tables
+                with stage("self_correction", operation=f"correction_attempt_{attempt + 1}", is_leaf=False):
+                    t_corr_start = time.perf_counter()
+                    with stage("self_correction", operation="correction_prep", is_leaf=True):
+                        rls_tables = self._rls_context_tables(
+                            current_sql, _get_schema
+                        )
+                        try:
+                            tables_in_sql = self._schema_validator.extract_tables(
+                                current_sql, schema=_get_schema()
+                            )
+                        except Exception:
+                            tables_in_sql = set()
+                        bridging_tables = self._bridging_tables(
+                            tables_in_sql, schema=_get_schema()
+                        )
+                        extra_context_tables = rls_tables | bridging_tables
 
-                cand_fp = compute_sql_fingerprint(current_sql)
-                if not any(compute_sql_fingerprint(cand[0]) == cand_fp for cand in rejected_candidates):
-                    rejected_candidates.append((current_sql, list(issues)))
+                        cand_fp = compute_sql_fingerprint(current_sql)
+                        if not any(compute_sql_fingerprint(cand[0]) == cand_fp for cand in rejected_candidates):
+                            rejected_candidates.append((current_sql, list(issues)))
 
-                corrected_sql = self._correction_service.correct(
-                    question=question,
-                    current_sql=current_sql,
-                    issues=issues,
-                    relevant_schema=self._relevant_schema(
-                        current_sql, _get_schema, extra_tables=extra_context_tables
-                    ),
-                    relevant_relationships=self._relevant_relationships(
-                        current_sql, _get_schema, extra_tables=extra_context_tables
-                    ),
-                    rejected_candidates=list(rejected_candidates),
-                )
-                corr_dur_ms = (time.perf_counter() - t_corr_start) * 1000
-                trace[-1]["correctionDurationMs"] = corr_dur_ms
+                    with stage("self_correction", operation="correction_llm", is_leaf=True):
+                        corrected_sql = self._correction_service.correct(
+                            question=question,
+                            current_sql=current_sql,
+                            issues=issues,
+                            relevant_schema=self._relevant_schema(
+                                current_sql, _get_schema, extra_tables=extra_context_tables
+                            ),
+                            relevant_relationships=self._relevant_relationships(
+                                current_sql, _get_schema, extra_tables=extra_context_tables
+                            ),
+                            rejected_candidates=list(rejected_candidates),
+                        )
+                    corr_dur_ms = (time.perf_counter() - t_corr_start) * 1000
+                    trace[-1]["correctionDurationMs"] = corr_dur_ms
 
-                try:
-                    from src.observability.latency_audit import record_correction_attempt
-                    record_correction_attempt(
-                        attempt=attempt + 1,
-                        trigger_reason="; ".join(issue.message for issue in issues)[:120],
-                        duration_ms=corr_dur_ms,
-                        previous_sql=current_sql,
-                        new_sql=corrected_sql,
-                        issues_count=len(issues),
-                    )
-                except Exception:
-                    pass
+                    try:
+                        from src.observability.latency_audit import record_correction_attempt
+                        record_correction_attempt(
+                            attempt=attempt + 1,
+                            trigger_reason="; ".join(issue.message for issue in issues)[:120],
+                            duration_ms=corr_dur_ms,
+                            previous_sql=current_sql,
+                            new_sql=corrected_sql,
+                            issues_count=len(issues),
+                        )
+                    except Exception:
+                        pass
             except Exception as exc:
                 logger.warning("SQL correction call failed: %s", type(exc).__name__)
                 trace[-1]["correctionError"] = type(exc).__name__
@@ -407,19 +417,21 @@ class SelfCorrectionService:
             validators.append(("rls", self._rls_validator))
 
         found_issues: list[ValidationIssue] = []
-        for name, validator in validators:
-            t_sub = time.perf_counter()
-            try:
-                if validator is self._rls_validator:
-                    result = validator.validate(sql, schema=schema, enforce_presence=enforce_rls)
-                else:
-                    result = validator.validate(sql, schema=schema)
-            except TypeError:
-                result = validator.validate(sql)
-            sub_stages[f"{name}_ms"] = round((time.perf_counter() - t_sub) * 1000.0, 2)
-            if not result.is_valid:
-                found_issues = list(result.issues)
-                break
+        with stage("self_correction", operation="deterministic_validation", is_leaf=False):
+            for name, validator in validators:
+                with stage("self_correction", operation=f"deterministic_validation_{name}", is_leaf=True):
+                    t_sub = time.perf_counter()
+                    try:
+                        if validator is self._rls_validator:
+                            result = validator.validate(sql, schema=schema, enforce_presence=enforce_rls)
+                        else:
+                            result = validator.validate(sql, schema=schema)
+                    except TypeError:
+                        result = validator.validate(sql)
+                    sub_stages[f"{name}_ms"] = round((time.perf_counter() - t_sub) * 1000.0, 2)
+                    if not result.is_valid:
+                        found_issues = list(result.issues)
+                        break
 
         tot_ms = (time.perf_counter() - t0) * 1000.0
         try:

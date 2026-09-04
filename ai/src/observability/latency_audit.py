@@ -8,7 +8,9 @@ from collections.abc import Iterator
 from typing import Any
 
 from src.observability.audit_context import (
+    AuditSpan,
     RequestAuditContext,
+    finalize_span,
     get_current_audit,
     reset_current_audit,
     set_current_audit,
@@ -30,6 +32,13 @@ def compute_hash(text: str | None) -> str:
         return ""
 
 
+def format_duration(duration_ms: float) -> str:
+    """Format duration with sub-second precision (seconds if >= 1000ms, else ms)."""
+    if duration_ms >= 1000.0:
+        return f"{duration_ms / 1000.0:.3f} s"
+    return f"{duration_ms:.2f} ms"
+
+
 @contextlib.contextmanager
 def request_lifecycle(
     request_id: str,
@@ -40,12 +49,31 @@ def request_lifecycle(
 
     Initializes the RequestAuditContext, binds it to contextvars, takes system snapshots,
     captures request start and end, and emits the final request summary event.
+    Re-uses active context if already set (e.g. by ASGI middleware).
     """
+    existing_ctx = get_current_audit()
+    if existing_ctx is not None:
+        yield existing_ctx
+        return
+
     ctx = RequestAuditContext(
         request_id=request_id,
         correlation_id=correlation_id,
         traceparent=traceparent,
     )
+    root_span = AuditSpan(
+        span_id=f"req_{ctx.start_time_ns}",
+        parent_span_id=None,
+        name="request",
+        stage="request",
+        operation="http_request",
+        start_time_ns=ctx.start_time_ns,
+        is_leaf=False,
+    )
+    ctx.root_span = root_span
+    ctx.active_spans.append(root_span)
+    ctx.all_spans.append(root_span)
+
     token = set_current_audit(ctx)
 
     try:
@@ -71,8 +99,13 @@ def request_lifecycle(
         raise
     finally:
         try:
+            end_ns = time.perf_counter_ns()
+            ctx.end_time_ns = end_ns
             ctx.end_time = time.perf_counter()
-            ctx.total_duration_ms = max(0.0, (ctx.end_time - ctx.start_time) * 1000.0)
+            ctx.total_duration_ms = max(0.0, (end_ns - ctx.start_time_ns) / 1_000_000.0)
+
+            if ctx.root_span:
+                finalize_span(ctx.root_span, end_ns, status="ok" if ctx.success else "error")
 
             end_sys = capture_system_snapshot()
             ctx.metadata["end_system_snapshot"] = end_sys
@@ -88,40 +121,79 @@ def request_lifecycle(
 @contextlib.contextmanager
 def stage(
     stage_name: str,
+    operation: str | None = None,
     is_leaf: bool = True,
     metadata: dict[str, Any] | None = None,
-) -> Iterator[None]:
-    """Time a pipeline stage or sub-stage.
+) -> Iterator[AuditSpan | None]:
+    """Time a pipeline stage or sub-stage with hierarchical span tracking.
 
     If is_leaf=True, the duration is recorded in leaf_stage_durations_ms for
-    accurate unaccounted latency calculation without nested double counting.
+    backward-compatible flat accounting without nested double counting.
     """
     ctx = get_current_audit()
+    t_start_ns = time.perf_counter_ns()
     t_start = time.perf_counter()
+    span: AuditSpan | None = None
 
     if ctx is not None:
         try:
+            parent_span = ctx.active_spans[-1] if ctx.active_spans else None
+            parent_span_id = parent_span.span_id if parent_span else None
+            op_name = operation or stage_name
+            span_id = f"{stage_name}_{t_start_ns}"
+
+            span = AuditSpan(
+                span_id=span_id,
+                parent_span_id=parent_span_id,
+                name=stage_name,
+                stage=parent_span.stage if (parent_span and parent_span.stage not in ("request", "pipeline")) else stage_name,
+                operation=op_name,
+                start_time_ns=t_start_ns,
+                is_leaf=is_leaf,
+                metadata=dict(metadata or {}),
+            )
+            if parent_span is not None:
+                parent_span.children.append(span)
+
+            ctx.active_spans.append(span)
+            ctx.all_spans.append(span)
             ctx.final_stage = stage_name
             ctx.span_stack.append((stage_name, t_start, is_leaf))
 
             write_audit_event({
                 "event": "stage_start",
                 "request_id": ctx.request_id,
+                "span_id": span_id,
+                "parent_span_id": parent_span_id,
                 "stage": stage_name,
+                "operation": op_name,
                 "is_leaf": is_leaf,
                 **(metadata or {}),
             })
         except Exception:
             pass
 
+    status = "ok"
     try:
-        yield
+        yield span
+    except Exception as exc:
+        status = "error"
+        if span is not None:
+            span.status = "error"
+            span.metadata["error_type"] = type(exc).__name__
+        raise
     finally:
-        dur_ms = max(0.0, (time.perf_counter() - t_start) * 1000.0)
+        t_end_ns = time.perf_counter_ns()
+        dur_ms = max(0.0, (t_end_ns - t_start_ns) / 1_000_000.0)
         if ctx is not None:
             try:
                 if ctx.span_stack and ctx.span_stack[-1][0] == stage_name:
                     ctx.span_stack.pop()
+
+                if span is not None:
+                    finalize_span(span, t_end_ns, status=status)
+                    if ctx.active_spans and ctx.active_spans[-1].span_id == span.span_id:
+                        ctx.active_spans.pop()
 
                 if is_leaf:
                     ctx.record_leaf_duration(stage_name, dur_ms)
@@ -129,9 +201,18 @@ def stage(
                 write_audit_event({
                     "event": "stage_end",
                     "request_id": ctx.request_id,
+                    "span_id": span.span_id if span else None,
+                    "parent_span_id": span.parent_span_id if span else None,
                     "stage": stage_name,
+                    "operation": span.operation if span else stage_name,
                     "is_leaf": is_leaf,
                     "duration_ms": round(dur_ms, 2),
+                    "inclusive_duration_ms": round(span.inclusive_duration_ms, 2) if span else round(dur_ms, 2),
+                    "exclusive_duration_ms": round(span.exclusive_duration_ms, 2) if span else round(dur_ms, 2),
+                    "child_covered_duration_ms": round(span.child_covered_duration_ms, 2) if span else 0.0,
+                    "orchestration_gaps_ms": round(span.orchestration_gaps_ms, 2) if span else 0.0,
+                    "unaccounted_ms": round(span.unaccounted_ms, 2) if span else 0.0,
+                    "status": status,
                     **(metadata or {}),
                 })
             except Exception:
@@ -233,6 +314,11 @@ def record_backend_call(
     timeout: float | None = None,
     retry_count: int = 0,
     exception: Exception | None = None,
+    client_preparation_ms: float = 0.0,
+    http_request_duration_ms: float = 0.0,
+    response_processing_ms: float = 0.0,
+    backend_request_id: str | None = None,
+    parent_request_id: str | None = None,
 ) -> None:
     """Audit an HTTP call from AI to Backend."""
     ctx = get_current_audit()
@@ -260,6 +346,11 @@ def record_backend_call(
             retry_count=retry_count,
             exception=exception,
             is_duplicate=is_dup,
+            client_preparation_ms=client_preparation_ms,
+            http_request_duration_ms=http_request_duration_ms,
+            response_processing_ms=response_processing_ms,
+            backend_request_id=backend_request_id,
+            parent_request_id=parent_request_id,
         )
         write_audit_event(event)
     except Exception:

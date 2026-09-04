@@ -21,6 +21,7 @@ from src.infrastructure.semantic_layer.retrieval.vector_index import (
 from src.infrastructure.semantic_layer.retrieval.semantic_document_builder import (
     SemanticDocumentBuilder,
 )
+from src.observability.latency_audit import stage
 
 
 class FileSemanticRepository:
@@ -109,12 +110,14 @@ class FileSemanticRepository:
             if self._indexing_pipeline is not None:
                 self._indexing_pipeline.run(layer)
 
-        query_embedding = self._embedding_service.encode_query(question)
+        with stage("context_retrieval", operation="query_embedding", is_leaf=False):
+            query_embedding = self._embedding_service.encode_query(question)
 
-        return self._vector_store.search(
-            query_embedding,
-            top_k,
-        )
+        with stage("context_retrieval", operation="vector_search", is_leaf=False):
+            return self._vector_store.search(
+                query_embedding,
+                top_k,
+            )
 
     def _keyword_retrieve(
         self,
@@ -123,39 +126,40 @@ class FileSemanticRepository:
     ) -> list[dict[str, Any]]:
         """Fallback keyword-based retrieval."""
 
-        documents = self._documents()
+        with stage("context_retrieval", operation="keyword_search", is_leaf=False):
+            documents = self._documents()
 
-        terms = [
-            term
-            for term in question.lower()
-            .replace("?", "")
-            .split()
-            if term
-        ]
+            terms = [
+                term
+                for term in question.lower()
+                .replace("?", "")
+                .split()
+                if term
+            ]
 
-        scored: list[dict[str, Any]] = []
+            scored: list[dict[str, Any]] = []
 
-        for document in documents:
-            text = document["text"].lower()
+            for document in documents:
+                text = document["text"].lower()
 
-            score = sum(
-                term in text
-                for term in terms
-            )
-
-            if score:
-                scored.append(
-                    {
-                        **document,
-                        "score": float(score),
-                    }
+                score = sum(
+                    term in text
+                    for term in terms
                 )
 
-        return sorted(
-            scored,
-            key=lambda item: item["score"],
-            reverse=True,
-        )[:top_k]
+                if score:
+                    scored.append(
+                        {
+                            **document,
+                            "score": float(score),
+                        }
+                    )
+
+            return sorted(
+                scored,
+                key=lambda item: item["score"],
+                reverse=True,
+            )[:top_k]
 
     def _documents(self) -> list[dict[str, Any]]:
         layer = self.load()

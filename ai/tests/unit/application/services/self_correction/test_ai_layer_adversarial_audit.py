@@ -785,3 +785,32 @@ def test_adversarial_flow_tracing_skipped_stage_truthfulness():
     correction.correct.assert_not_called()
     assert len(steps) == 1
     assert steps[0]["action"] == "passed"
+
+
+def test_adversarial_critic_hallucinated_top_filter_discarded():
+    """Critic claiming missing filter for top/highest branch when SQL already uses TOP and ORDER BY must be discarded."""
+    _, _, _, _, _, schema_repo = _create_harness()
+    verifier = CriticFindingVerifier(schema_repo)
+
+    hallucinated_finding = CriticResult(
+        status="FAIL",
+        issues=(
+            CriticIssue(
+                type="MISSING_REQUESTED_FILTER",
+                description="The query does not include a filter for the top branch based on the highest number of transactions.",
+                evidence="",
+            ),
+        ),
+    )
+
+    sql = (
+        "SELECT TOP 1 b.branch_name, b.manager_name, COUNT(t.transaction_id) AS transaction_count, "
+        "SUM(t.amount_usd) AS total_amount "
+        "FROM branches AS b "
+        "INNER JOIN accounts AS a ON b.branch_id = a.branch_id "
+        "INNER JOIN transactions AS t ON a.account_id = t.account_id "
+        "GROUP BY b.branch_name, b.manager_name "
+        "ORDER BY COUNT(t.transaction_id) DESC"
+    )
+    verified = verifier.verify(hallucinated_finding, schema=schema_repo.get_schema(), sql=sql)
+    assert len(verified) == 0, f"Verifier failed to filter hallucinated top filter claim: {verified}"
