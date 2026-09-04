@@ -1,116 +1,21 @@
 {
-  "status": "failed",
-  "errors": [
-    {
-      "category": "metadata",
-      "code": "missing_metadata_field",
-      "message": "Metadata field 'semantic_layer_id' is required."
-    },
-    {
-      "category": "metadata",
-      "code": "missing_metadata_field",
-      "message": "Metadata field 'revision_id' is required."
-    },
-    {
-      "category": "mapping",
-      "code": "missing_entity_mapping",
-      "message": "Entity 'Customer' requires a physical table mapping."
-    },
-    {
-      "category": "mapping",
-      "code": "missing_entity_mapping",
-      "message": "Entity 'Branch' requires a physical table mapping."
-    },
-    {
-      "category": "mapping",
-      "code": "missing_entity_mapping",
-      "message": "Entity 'Account' requires a physical table mapping."
-    },
-    {
-      "category": "mapping",
-      "code": "missing_entity_mapping",
-      "message": "Entity 'Card' requires a physical table mapping."
-    },
-    {
-      "category": "mapping",
-      "code": "missing_entity_mapping",
-      "message": "Entity 'Merchant' requires a physical table mapping."
-    },
-    {
-      "category": "mapping",
-      "code": "missing_entity_mapping",
-      "message": "Entity 'Transaction' requires a physical table mapping."
-    },
-    {
-      "category": "mapping",
-      "code": "missing_entity_mapping",
-      "message": "Entity 'Loan' requires a physical table mapping."
-    },
-    {
-      "category": "mapping",
-      "code": "missing_dimension_mapping",
-      "message": "Dimension 'Customer ID' requires a physical table.column mapping."
-    },
-    {
-      "category": "mapping",
-      "code": "missing_dimension_mapping",
-      "message": "Dimension 'Branch ID' requires a physical table.column mapping."
-    },
-    {
-      "category": "mapping",
-      "code": "missing_dimension_mapping",
-      "message": "Dimension 'Account ID' requires a physical table.column mapping."
-    },
-    {
-      "category": "mapping",
-      "code": "missing_dimension_mapping",
-      "message": "Dimension 'Card ID' requires a physical table.column mapping."
-    },
-    {
-      "category": "mapping",
-      "code": "missing_dimension_mapping",
-      "message": "Dimension 'Merchant ID' requires a physical table.column mapping."
-    },
-    {
-      "category": "mapping",
-      "code": "missing_dimension_mapping",
-      "message": "Dimension 'Transaction ID' requires a physical table.column mapping."
-    },
-    {
-      "category": "mapping",
-      "code": "missing_dimension_mapping",
-      "message": "Dimension 'Loan ID' requires a physical table.column mapping."
-    },
-    {
-      "category": "mapping",
-      "code": "missing_measure_mapping",
-      "message": "Measure 'Transaction Volume' requires a physical table.column mapping."
-    },
-    {
-      "category": "mapping",
-      "code": "missing_measure_mapping",
-      "message": "Measure 'Total Balance' requires a physical table.column mapping."
-    },
-    {
-      "category": "mapping",
-      "code": "missing_measure_mapping",
-      "message": "Measure 'Loan Exposure' requires a physical table.column mapping."
-    }
-  ],
+  "status": "passed",
+  "errors": [],
   "warnings": [],
   "checks": {
     "structure": "passed",
     "relationships": "passed",
-    "duplicates": "passed",
-    "schema_consistency": "failed"
+    "security_domains": "passed",
+    "schema_consistency": "passed"
   },
   "summary": {
     "entities_checked": 7,
     "relationships_checked": 6,
     "measures_checked": 3,
-    "dimensions_checked": 7,
-    "business_rules_checked": 3,
-    "error_count": 19,
+    "dimensions_checked": 35,
+    "business_rules_checked": 6,
+    "security_domains_checked": 1,
+    "error_count": 0,
     "warning_count": 0
   }
 }

@@ -59,29 +59,9 @@ class FullRebuildBuilder:
         """Ensure all authoritative tables from schema and all processed relationships are present."""
         result = dict(semantic_layer)
 
-        # 1. Reconcile Relationships
-        existing_rels = result.get("relationships") or []
-        if not isinstance(existing_rels, list) or len(existing_rels) == 0:
-            result["relationships"] = list(build_input.relationships or [])
-        else:
-            existing_pairs = {
-                (
-                    r.get("from_table") or r.get("fromTable"),
-                    r.get("to_table") or r.get("toTable"),
-                ): r
-                for r in existing_rels
-                if isinstance(r, dict)
-            }
-            merged_rels = list(existing_rels)
-            for auth_rel in (build_input.relationships or []):
-                key = (
-                    auth_rel.get("from_table") or auth_rel.get("fromTable"),
-                    auth_rel.get("to_table") or auth_rel.get("toTable"),
-                )
-                if key not in existing_pairs:
-                    merged_rels.append(auth_rel)
-                    existing_pairs[key] = auth_rel
-            result["relationships"] = merged_rels
+        # 1. Relationships are physical metadata, not semantic enrichment.  Never
+        # keep a relationship invented by the model or relationship engine.
+        result["relationships"] = self._provided_relationships(build_input.relationships)
 
         # 2. Reconcile Entities from Schema
         existing_entities = result.get("entities") or []
@@ -117,7 +97,6 @@ class FullRebuildBuilder:
                     else getattr(tbl_def, "columns", [])
                 )
                 pk_col = tbl_name.lower() + "_id"
-                has_branch = False
                 for c in cols:
                     c_name = (
                         c.get("name")
@@ -131,8 +110,6 @@ class FullRebuildBuilder:
                     )
                     if is_pk:
                         pk_col = c_name
-                    if c_name.lower() == "branch_id":
-                        has_branch = True
 
                 entity = {
                     "name": "".join(word.capitalize() for word in tbl_name.split("_")),
@@ -141,8 +118,11 @@ class FullRebuildBuilder:
                     "natural_grain": pk_col,
                     "grain": pk_col,
                     "primary_identifier": pk_col,
-                    "security_domain": "branch" if has_branch or tbl_name.lower() in ("accounts", "branches", "customers", "transactions", "cards", "loans") else None,
-                    "security_scope": "branch" if has_branch or tbl_name.lower() in ("accounts", "branches", "customers", "transactions", "cards", "loans") else None,
+                    # An entity may only claim a direct branch scope when the
+                    # physical table contains branch_id.  Propagated RLS belongs
+                    # exclusively in security_domains.
+                    "security_domain": "branch" if any(self._column_name(c) == "branch_id" for c in cols) else None,
+                    "security_scope": "branch" if any(self._column_name(c) == "branch_id" for c in cols) else None,
                     "description": f"Entity representing {tbl_name} table.",
                     "source": "schema",
                     "generated": True,
@@ -151,6 +131,28 @@ class FullRebuildBuilder:
                 existing_tables[tbl_name.lower()] = entity
 
         result["entities"] = merged_entities
+
+        # Do not leave a model-generated direct branch scope on tables that do
+        # not physically carry branch_id.  Their access path, when documented,
+        # is represented by the security domain instead.
+        for entity in merged_entities:
+            if not isinstance(entity, dict):
+                continue
+            table_name = str(entity.get("mapping") or entity.get("source_table") or "").lower()
+            table = schema_tables.get(table_name)
+            columns = table.get("columns", []) if isinstance(table, dict) else []
+            has_direct_branch_key = any(self._column_name(c) == "branch_id" for c in columns)
+            if not has_direct_branch_key:
+                entity["security_domain"] = None
+                entity["security_scope"] = None
+            else:
+                entity["security_domain"] = "branch"
+                entity["security_scope"] = "branch"
+            primary_key = self._primary_key(columns, table_name) if columns else entity.get("primary_identifier")
+            if primary_key:
+                entity["natural_grain"] = primary_key
+                entity["grain"] = primary_key
+                entity["primary_identifier"] = primary_key
 
         # 3. Reconcile Dimensions from Schema Columns
         existing_dimensions = result.get("dimensions") or []
@@ -178,177 +180,64 @@ class FullRebuildBuilder:
                 )
                 mapping = f"{tbl_name.lower()}.{c_name.lower()}"
                 if mapping not in existing_dim_mappings:
-                    dim_name = f"{tbl_name.capitalize()} {c_name.replace('_', ' ').title()}"
+                    dim_name = self._dimension_name(c_name)
                     dimension = {
                         "name": dim_name,
                         "mapping": mapping,
-                        "natural_grain": tbl_name.lower(),
-                        "grain": c_name.lower(),
-                        "description": f"{dim_name} attribute.",
+                        "natural_grain": self._primary_key(cols, tbl_name),
+                        "grain": self._primary_key(cols, tbl_name),
+                        "description": self._dimension_description(tbl_name, c_name),
                         "source": "schema",
                     }
+                    self._apply_dimension_governance(dimension, c_name, self._column_type(c))
                     merged_dimensions.append(dimension)
                     existing_dim_mappings[mapping] = dimension
 
+        # Canonicalize model-produced dimensions too: the schema owns their
+        # display mapping and type metadata.
+        for dimension in merged_dimensions:
+            if not isinstance(dimension, dict):
+                continue
+            table_name, _, column_name = str(dimension.get("mapping", "")).partition(".")
+            table = schema_tables.get(table_name)
+            if not table or not column_name:
+                continue
+            columns = table.get("columns", []) if isinstance(table, dict) else []
+            column = next((c for c in columns if self._column_name(c) == column_name), None)
+            if column is None:
+                continue
+            dimension["name"] = self._dimension_name(column_name)
+            dimension["natural_grain"] = self._primary_key(columns, table_name)
+            dimension["grain"] = self._primary_key(columns, table_name)
+            dimension["description"] = self._dimension_description(table_name, column_name)
+            self._apply_dimension_governance(dimension, column_name, self._column_type(column))
+
+        self._ensure_unique_dimension_names(merged_dimensions)
         result["dimensions"] = merged_dimensions
 
-        # 4. Reconcile Measures from Numerical & Count Columns
+        # 4. Keep only requested, supported measures.  Numeric columns do not
+        # themselves authorize an AVG/SUM measure.
         existing_measures = result.get("measures") or []
         if not isinstance(existing_measures, list):
             existing_measures = []
 
-        existing_measure_keys = {
-            (
-                (m.get("mapping") or "").lower(),
-                (m.get("aggregation") or m.get("aggregation_function") or "").upper(),
-            ): m
-            for m in existing_measures
-            if isinstance(m, dict)
-        }
-
-        merged_measures = list(existing_measures)
-        for tbl_name, tbl_def in schema_tables.items():
-            cols = (
-                tbl_def.get("columns", [])
-                if isinstance(tbl_def, dict)
-                else getattr(tbl_def, "columns", [])
-            )
-            for c in cols:
-                c_name = (
-                    c.get("name")
-                    if isinstance(c, dict)
-                    else getattr(c, "name", "")
-                )
-                c_type = (
-                    c.get("type", "")
-                    if isinstance(c, dict)
-                    else getattr(c, "type", "")
-                ).lower()
-                mapping = f"{tbl_name.lower()}.{c_name.lower()}"
-                is_pk = (
-                    c.get("primary_key", False)
-                    if isinstance(c, dict)
-                    else getattr(c, "primary_key", False)
-                )
-
-                if any(num_keyword in c_name.lower() for num_keyword in ["amount", "balance", "score", "rate", "price", "cost", "total", "fee", "volume"]) or any(t in c_type for t in ["decimal", "numeric", "float", "double", "money"]):
-                    sum_key = (mapping, "SUM")
-                    if sum_key not in existing_measure_keys and not any(k in c_name.lower() for k in ["rate", "score"]):
-                        measure_name = f"Total {c_name.replace('_', ' ').title()}"
-                        measure = {
-                            "name": measure_name,
-                            "mapping": mapping,
-                            "source_table": tbl_name.lower(),
-                            "source_column": c_name.lower(),
-                            "natural_grain": tbl_name.lower(),
-                            "natural_entity": "".join(w.capitalize() for w in tbl_name.split("_")),
-                            "aggregation": "SUM",
-                            "aggregation_function": "SUM",
-                            "distinct_required": False,
-                            "null_behavior": "ignore_nulls",
-                            "filter_dependencies": [],
-                            "fanout_sensitive": True,
-                            "business_definition": f"Sum of {c_name} over selected population.",
-                            "description": f"Sum of {c_name} over selected population.",
-                            "source": "schema",
-                        }
-                        merged_measures.append(measure)
-                        existing_measure_keys[sum_key] = measure
-
-                    avg_key = (mapping, "AVG")
-                    if avg_key not in existing_measure_keys:
-                        measure_name = f"Average {c_name.replace('_', ' ').title()}"
-                        measure = {
-                            "name": measure_name,
-                            "mapping": mapping,
-                            "source_table": tbl_name.lower(),
-                            "source_column": c_name.lower(),
-                            "natural_grain": tbl_name.lower(),
-                            "natural_entity": "".join(w.capitalize() for w in tbl_name.split("_")),
-                            "aggregation": "AVG",
-                            "aggregation_function": "AVG",
-                            "distinct_required": False,
-                            "null_behavior": "ignore_nulls",
-                            "filter_dependencies": [],
-                            "fanout_sensitive": True,
-                            "business_definition": f"Average {c_name} over selected population.",
-                            "description": f"Average {c_name} over selected population.",
-                            "source": "schema",
-                        }
-                        merged_measures.append(measure)
-                        existing_measure_keys[avg_key] = measure
-
-                if is_pk or c_name.lower() == f"{tbl_name.lower()}_id" or c_name.lower() == "id":
-                    count_key = (mapping, "COUNT DISTINCT")
-                    if count_key not in existing_measure_keys:
-                        measure_name = f"{''.join(w.capitalize() for w in tbl_name.split('_'))} Count"
-                        measure = {
-                            "name": measure_name,
-                            "mapping": mapping,
-                            "source_table": tbl_name.lower(),
-                            "source_column": c_name.lower(),
-                            "natural_grain": tbl_name.lower(),
-                            "natural_entity": "".join(w.capitalize() for w in tbl_name.split("_")),
-                            "aggregation": "COUNT DISTINCT",
-                            "aggregation_function": "COUNT DISTINCT",
-                            "distinct_required": True,
-                            "distinct_key": c_name.lower(),
-                            "null_behavior": "ignore_nulls",
-                            "filter_dependencies": [],
-                            "fanout_sensitive": True,
-                            "business_definition": f"Count of unique {tbl_name}.",
-                            "description": f"Count of unique {tbl_name}. Requires COUNT(DISTINCT {c_name}).",
-                            "source": "schema",
-                        }
-                        merged_measures.append(measure)
-                        existing_measure_keys[count_key] = measure
-
-        result["measures"] = merged_measures
+        glossary_measures = self._extract_glossary_measures(build_input.business_glossary)
+        result["measures"] = self._normalize_requested_measures(
+            [*existing_measures, *glossary_measures], schema_tables, glossary_measures
+        )
 
         # 5. Reconcile Business Rules & Security Domains from Documentation
-        doc_meta = self._extract_documentation_metadata(build_input.documentation)
+        doc_meta = self._extract_documentation_metadata(
+            build_input.documentation, build_input.business_glossary
+        )
 
         existing_rules = result.get("business_rules") or result.get("businessRules") or []
         if not isinstance(existing_rules, list):
             existing_rules = []
 
-        # Merge extracted documentation rules with existing
-        seen_rule_desc = {r.get("description", "").lower() for r in existing_rules if isinstance(r, dict)}
-        merged_rules = list(existing_rules)
-        for doc_rule in doc_meta.get("business_rules", []):
-            if doc_rule.get("description", "").lower() not in seen_rule_desc:
-                merged_rules.append(doc_rule)
-                seen_rule_desc.add(doc_rule.get("description", "").lower())
-
-        if len(merged_rules) == 0:
-            result["business_rules"] = [
-                {
-                    "name": "Branch Security Isolation",
-                    "description": "Every query reading protected tables (accounts, branches, customers, transactions, cards, loans) must filter by branch_id = @UserBranchId.",
-                    "rule_type": "security",
-                    "enforcement": "mandatory",
-                },
-                {
-                    "name": "Customer Loan Direct Relationship",
-                    "description": "Loans connect directly to customers through customer_id; do not join loans directly to accounts.",
-                    "rule_type": "join_guidance",
-                    "enforcement": "mandatory",
-                },
-                {
-                    "name": "Customer Transaction Join Path",
-                    "description": "Customers join to transactions via the accounts table.",
-                    "rule_type": "join_guidance",
-                    "enforcement": "mandatory",
-                },
-                {
-                    "name": "Distinct Aggregation Rule",
-                    "description": "Always use COUNT(DISTINCT entity_id) when aggregating across 1:N multi-table joins to prevent row multiplication.",
-                    "rule_type": "aggregation",
-                    "enforcement": "recommended",
-                },
-            ]
-        else:
-            result["business_rules"] = merged_rules
+        # Rules must be executable guidance sourced from documentation, never
+        # synthetic FK descriptions emitted by the model.
+        result["business_rules"] = doc_meta.get("business_rules", [])
 
         # 6. Reconcile Security Domains (RLS) from Documentation
         existing_domains = result.get("security_domains") or result.get("securityDomains") or []
@@ -367,41 +256,245 @@ class FullRebuildBuilder:
         return result
 
     @staticmethod
-    def _extract_documentation_metadata(documentation: str | None) -> dict[str, Any]:
-        """Authoritatively extract RLS security domains and business rules from documentation markdown."""
-        if not documentation or not isinstance(documentation, str):
-            return {"business_rules": [], "security_domains": []}
+    def _provided_relationships(relationships: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+        """Return only authoritative relationships, preserving their source order.
 
+        Direct backend relationship payloads may omit ``status``.  They are
+        authoritative by contract, so they are normalized to PROVIDED.  Entries
+        emitted by the inference engine always carry a non-PROVIDED status and
+        are deliberately excluded.
+        """
+        provided: list[dict[str, Any]] = []
+        for relationship in relationships or []:
+            if not isinstance(relationship, dict):
+                continue
+            status = relationship.get("status")
+            if status not in (None, "PROVIDED", "provided"):
+                continue
+            normalized = dict(relationship)
+            normalized["status"] = "PROVIDED"
+            normalized["is_executable"] = True
+            normalized["confidence"] = 1
+            provided.append(normalized)
+        return provided
+
+    @staticmethod
+    def _column_name(column: Any) -> str:
+        return str(column.get("name", "") if isinstance(column, dict) else getattr(column, "name", "")).lower()
+
+    @staticmethod
+    def _column_type(column: Any) -> str:
+        return str(column.get("type", "") if isinstance(column, dict) else getattr(column, "type", "")).lower()
+
+    @classmethod
+    def _primary_key(cls, columns: list[Any], table_name: str) -> str:
+        for column in columns:
+            is_pk = column.get("primary_key") if isinstance(column, dict) else getattr(column, "primary_key", False)
+            if is_pk:
+                return cls._column_name(column)
+        return f"{table_name.rstrip('s')}_id"
+
+    @staticmethod
+    def _dimension_name(column_name: str) -> str:
+        return column_name.replace("_", " ").title().replace(" Id", " ID")
+
+    @staticmethod
+    def _singular_table_name(table_name: str) -> str:
+        """Return a predictable display singular without mangling ``branches``."""
+        if table_name.endswith("ies"):
+            return f"{table_name[:-3]}y"
+        if table_name.endswith("ches") or table_name.endswith("shes"):
+            return table_name[:-2]
+        return table_name[:-1] if table_name.endswith("s") else table_name
+
+    @staticmethod
+    def _dimension_description(table_name: str, column_name: str) -> str:
+        descriptions = {
+            "customer_id": "Unique identifier for a customer.",
+            "account_id": "Unique identifier for a bank account.",
+            "branch_id": "Unique identifier for a banking branch.",
+            "card_id": "Unique identifier for a payment card.",
+            "merchant_id": "Unique identifier for a merchant.",
+            "transaction_id": "Unique identifier for a financial transaction.",
+            "loan_id": "Unique identifier for a loan.",
+            "email": "Email address recorded for the customer.",
+        }
+        if column_name in descriptions:
+            return descriptions[column_name]
+        return f"{column_name.replace('_', ' ').capitalize()} recorded for the {FullRebuildBuilder._singular_table_name(table_name)}."
+
+    @classmethod
+    def _ensure_unique_dimension_names(cls, dimensions: list[dict[str, Any]]) -> None:
+        """Disambiguate only colliding display names while keeping simple names elsewhere."""
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for dimension in dimensions:
+            if isinstance(dimension, dict) and dimension.get("name"):
+                grouped.setdefault(str(dimension["name"]), []).append(dimension)
+        for name, duplicates in grouped.items():
+            if len(duplicates) < 2:
+                continue
+            for dimension in duplicates:
+                table_name, _, column_name = str(dimension.get("mapping", "")).partition(".")
+                table_display = cls._singular_table_name(table_name).title()
+                column_display = cls._dimension_name(column_name)
+                # Keep the canonical owner concise: Customer ID rather than
+                # Customer Customer ID.  Foreign-key and shared attributes
+                # receive their table context to remain unambiguous.
+                if column_display.casefold().startswith(table_display.casefold()):
+                    dimension["name"] = column_display
+                else:
+                    dimension["name"] = f"{table_display} {column_display}"
+
+    @staticmethod
+    def _apply_dimension_governance(dimension: dict[str, Any], column_name: str, column_type: str) -> None:
+        if any(token in column_type for token in ("date", "time")):
+            dimension["type"] = "temporal"
+            dimension["temporal_granularities"] = ["day", "month", "quarter", "year"]
+        if column_name in {"email", "credit_score"}:
+            dimension["is_pii"] = True
+            dimension["sensitivity"] = "confidential"
+
+    @staticmethod
+    def _normalize_requested_measures(
+        measures: list[dict[str, Any]],
+        schema_tables: dict[str, Any],
+        glossary_measures: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Keep explicit business measures and normalize their safe base grain."""
+        glossary_by_mapping = {
+            str(item["mapping"]).lower(): item
+            for item in glossary_measures
+            if item.get("mapping")
+        }
+        normalized: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for measure in measures:
+            if not isinstance(measure, dict):
+                continue
+            item = dict(measure)
+            mapping = str(item.get("mapping", "")).lower()
+            aggregation = str(item.get("aggregation") or item.get("aggregation_function") or "").upper()
+            if aggregation == "AVG":
+                continue
+            if mapping not in glossary_by_mapping and aggregation not in {"COUNT", "COUNT DISTINCT"}:
+                continue
+            table_name, _, column_name = mapping.partition(".")
+            table = schema_tables.get(table_name)
+            if not table or not column_name:
+                continue
+            columns = table.get("columns", []) if isinstance(table, dict) else []
+            if not any(FullRebuildBuilder._column_name(c) == column_name for c in columns):
+                continue
+            if aggregation.startswith("COUNT") and column_name != FullRebuildBuilder._primary_key(columns, table_name):
+                continue
+            key = (mapping, "COUNT" if aggregation.startswith("COUNT") else aggregation)
+            if key in seen:
+                continue
+            seen.add(key)
+            item["source_table"] = table_name
+            item["source_column"] = column_name
+            item["natural_grain"] = FullRebuildBuilder._primary_key(columns, table_name)
+            item["natural_entity"] = FullRebuildBuilder._singular_table_name(table_name).title()
+            if mapping in glossary_by_mapping:
+                glossary_measure = glossary_by_mapping[mapping]
+                item["name"] = glossary_measure["name"]
+                item["aggregation"] = item["aggregation_function"] = glossary_measure["aggregation"]
+                item["business_definition"] = glossary_measure["business_definition"]
+                item["description"] = glossary_measure["description"]
+                item["source"] = "business_glossary"
+                item["generated"] = False
+            else:
+                item["name"] = f"{FullRebuildBuilder._singular_table_name(table_name).title()} Count"
+                item["aggregation"] = item["aggregation_function"] = "COUNT"
+                item.pop("distinct_key", None)
+            item["distinct_required"] = False
+            normalized.append(item)
+        return normalized
+
+    @staticmethod
+    def _extract_glossary_measures(business_glossary: str | None) -> list[dict[str, Any]]:
+        """Extract explicitly defined derived measures from glossary table rows."""
+        if not business_glossary:
+            return []
+        measures: list[dict[str, Any]] = []
+        row_pattern = re.compile(
+            r"^\|\s*(?P<name>[^|]+?)\s*\|\s*Derived from\s+`(?P<mapping>[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+)`\s*\|\s*(?P<meaning>[^|]+?)\s*\|$",
+            re.IGNORECASE,
+        )
+        for line in business_glossary.splitlines():
+            match = row_pattern.match(line.strip())
+            if not match:
+                continue
+            meaning = match.group("meaning").strip()
+            aggregation = "SUM" if re.search(r"\bsum\b", meaning, re.IGNORECASE) else None
+            if aggregation is None:
+                continue
+            measures.append(
+                {
+                    "name": match.group("name").strip(),
+                    "mapping": match.group("mapping").lower(),
+                    "aggregation": aggregation,
+                    "aggregation_function": aggregation,
+                    "business_definition": meaning,
+                    "description": meaning,
+                    "source": "business_glossary",
+                    "generated": False,
+                }
+            )
+        return measures
+
+    @staticmethod
+    def _extract_documentation_metadata(
+        documentation: str | None, business_glossary: str | None = None
+    ) -> dict[str, Any]:
+        """Authoritatively extract RLS security domains and business rules from documentation markdown."""
         business_rules: list[dict[str, Any]] = []
 
-        lines = documentation.splitlines()
-        in_guidance = False
-        current_section = ""
+        def append_rules(text: str | None, section_name: str, source: str) -> None:
+            if not text:
+                return
+            in_target_section = False
+            for line in text.splitlines():
+                trimmed = line.strip()
+                if trimmed.startswith("## "):
+                    in_target_section = trimmed[3:].strip().casefold() == section_name.casefold()
+                    continue
+                if not in_target_section or not trimmed.startswith(("- ", "* ")):
+                    continue
+                rule_text = re.sub(r"^[-*]\s+", "", trimmed).replace("`", "").strip()
+                if len(rule_text) < 10:
+                    continue
+                normalized = rule_text.casefold()
+                if "customer transactions" in normalized:
+                    name = "Customer Transactions"
+                elif "customer cards" in normalized:
+                    name = "Customer Cards"
+                elif "customer loans" in normalized:
+                    name = "Customer Loans"
+                elif "transaction volume" in normalized:
+                    name = "Transaction Volume Aggregation"
+                elif "total balance" in normalized:
+                    name = "Total Balance Aggregation"
+                elif "loans" in normalized and "directly to accounts" in normalized:
+                    name = "No Direct Loans-to-Accounts Join"
+                else:
+                    continue
+                business_rules.append({
+                    "name": name,
+                    "description": rule_text,
+                    "source": source,
+                    "generated": False,
+                    "rule_type": "join_guidance" if "join" in normalized else "aggregation",
+                    "enforcement": "mandatory",
+                })
 
-        for line in lines:
-            trimmed = line.strip()
-            if trimmed.startswith("## "):
-                current_section = trimmed[3:].strip()
-                in_guidance = "Guidance" in current_section or "Rules" in current_section or "Relationships" in current_section
-                continue
-
-            # Parse guidance bullet points
-            if in_guidance and (trimmed.startswith("- ") or trimmed.startswith("* ") or (len(trimmed) > 2 and trimmed[0].isdigit() and trimmed[1] in (".", ")"))):
-                rule_text = re.sub(r"^[-*\d.)\s]+", "", trimmed).strip()
-                if rule_text and len(rule_text) > 10:
-                    name = rule_text.split(".", 1)[0] if "." in rule_text else rule_text[:40]
-                    business_rules.append({
-                        "name": name.strip(),
-                        "description": rule_text,
-                        "source": "documentation",
-                        "rule_type": "join_guidance" if "join" in rule_text.lower() else "business_logic",
-                        "enforcement": "mandatory",
-                    })
-
-        security_domains = SecurityRuleExtractor.extract_security_rules(documentation)
+        append_rules(business_glossary, "Ambiguity Rules", "business_glossary")
+        append_rules(documentation, "Text-to-SQL Guidance", "documentation")
+        deduplicated_rules = list({rule["name"]: rule for rule in business_rules}.values())
+        security_domains = SecurityRuleExtractor.extract_security_rules(documentation) if documentation else []
 
         return {
-            "business_rules": business_rules,
+            "business_rules": deduplicated_rules,
             "security_domains": security_domains,
         }
 

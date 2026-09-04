@@ -58,23 +58,27 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
     )
 
 
-def main() -> None:
+def main(draft_path: Path | None = None, allow_auto_fix: bool = False) -> None:
     """Run semantic-layer validation, auto-fix, and human review."""
 
     validator = SemanticLayerValidator()
     review_manager = HumanReviewManager()
-    auto_fixer = SemanticLayerAutoFixer(OllamaClient(SEMANTIC_LAYER_CONFIG))
+    auto_fixer = (
+        SemanticLayerAutoFixer(OllamaClient(SEMANTIC_LAYER_CONFIG))
+        if allow_auto_fix
+        else None
+    )
 
     schema = _load_json(SCHEMA_PATH)
     relationships = schema.get("relationships", [])
     if not isinstance(relationships, list):
         raise ValueError("schema.relationships must be a list.")
 
-    # Use the latest working draft when available.
-    if CURRENT_DRAFT_PATH.exists():
-        draft_path = CURRENT_DRAFT_PATH
-    else:
-        draft_path = INITIAL_DRAFT_PATH
+    # A pipeline run must validate the draft it just built.  Selecting an
+    # unrelated previous current_draft here can approve and index stale data.
+    if draft_path is None:
+        draft_path = CURRENT_DRAFT_PATH if CURRENT_DRAFT_PATH.exists() else INITIAL_DRAFT_PATH
+    draft_path = Path(draft_path)
 
     max_auto_fix_attempts = 2
     auto_fix_attempt = 0
@@ -111,6 +115,11 @@ def main() -> None:
         # 2. Auto-fix validation errors
         # ---------------------------------------------------------
         if validation["status"] == "failed":
+
+            if not allow_auto_fix:
+                print("\nValidation failed; automatic LLM fixing is disabled.")
+                print("Correct the reported deterministic errors and run again.")
+                return
 
             if auto_fix_attempt >= max_auto_fix_attempts:
                 print(

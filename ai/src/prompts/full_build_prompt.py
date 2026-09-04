@@ -38,9 +38,10 @@ fabricate information that would normally come from it.
 
 Documentation is a first-class semantic evidence source.
 
-In particular, documentation may contain:
+Documentation may contain:
 
 - business rules
+- business definitions
 - security rules
 - Row-Level Security (RLS) rules
 - tenant isolation rules
@@ -64,11 +65,11 @@ Treat `schema` and `relationships` as the authoritative source of truth for
 physical database structure.
 
 For `schema` and `relationships`, reproduce the authoritative structural
-information exactly.
+information faithfully.
 
-The `relationships` section in the output MUST preserve the provided relationship
-metadata and MUST NOT be reconstructed from assumptions or inferred solely from
-table or column names.
+The `relationships` input is authoritative for DIRECT physical relationships.
+
+You MUST NOT invent or silently modify authoritative database metadata.
 
 You MUST NOT:
 
@@ -81,13 +82,16 @@ You MUST NOT:
 - change data types
 - invent primary keys or constraints
 - remove provided primary keys or constraints
-- invent relationships
-- remove relationships
-- modify relationships in a way that contradicts the source
+- invent direct physical relationships
+- remove provided relationships
+- replace provided relationships with inferred relationships
+- change relationship direction
+- change relationship cardinality
+- change relationship type
+- change join behavior
+- change fanout behavior
+- change security propagation metadata
 - reinterpret authoritative structural facts
-
-The AI may enrich the semantic representation of the database, but it is not
-allowed to modify authoritative database metadata.
 
 If required metadata is missing, inconsistent, or ambiguous:
 
@@ -100,7 +104,7 @@ If required metadata is missing, inconsistent, or ambiguous:
 3. SOURCE PRIORITY AND EVIDENCE
 ============================================================
 
-Use the following evidence rules:
+Use the following evidence rules.
 
 ### Physical database structure
 
@@ -137,24 +141,6 @@ Do NOT replace an explicitly documented join path with an inferred alternative.
 
 Do NOT change parameter names in explicitly documented predicates.
 
-For example, if documentation explicitly states:
-
-    accounts.branch_id = @UserBranchId
-
-preserve:
-
-    accounts.branch_id = @UserBranchId
-
-exactly as the canonical predicate.
-
-If documentation explicitly states:
-
-    INNER JOIN accounts
-        ON transactions.account_id = accounts.account_id
-    WHERE accounts.branch_id = @UserBranchId
-
-preserve the same security path and predicate semantics.
-
 ============================================================
 4. SEMANTIC ENRICHMENT
 ============================================================
@@ -170,16 +156,9 @@ You may derive useful semantic information such as:
 - relevant terminology
 - security domains
 - security propagation paths
+- relationship semantics
 
 All enrichment MUST be grounded in evidence provided by the input sources.
-
-Evidence may come from:
-
-- schema
-- relationships
-- documentation
-- business_glossary
-- sample_data
 
 Do not introduce unsupported database facts, entities, measures, dimensions,
 relationships, security domains, security paths, or business rules.
@@ -223,41 +202,10 @@ For measures:
 - Include the source table and column used by the measure.
 - Include the aggregation when supported by the available evidence.
 
-Examples:
+Only create a measure when its business meaning and aggregation are supported by
+the business glossary or documentation.
 
-{
-    "name": "Customer",
-    "description": "A person represented in the banking system.",
-    "mapping": "customers",
-    "source": "derived",
-    "generated": true
-}
-
-{
-    "name": "Customer ID",
-    "description": "Unique identifier for a customer.",
-    "mapping": "customers.customer_id",
-    "source": "schema",
-    "generated": false
-}
-
-{
-    "name": "Transaction Volume",
-    "description": "Sum of transaction amounts.",
-    "mapping": "transactions.amount",
-    "aggregation": "SUM",
-    "source": "derived",
-    "generated": true
-}
-
-Only create a mapping when it is supported by the provided schema, documentation,
-business glossary, relationships, or sample data.
-
-If a reliable mapping cannot be determined:
-
-- do not guess
-- leave the mapping absent
-- record the uncertainty in `validation_issues`
+Do not create SUM or AVG measures merely because a column is numeric.
 
 ============================================================
 6. SOURCE AND GENERATED INFORMATION
@@ -281,7 +229,7 @@ Valid direct evidence sources are:
 
 For AI-derived enrichment:
 
-- `source` MUST be `derived`
+- `source` MUST be `"derived"`
 - `generated` MUST be `true`
 
 For information directly represented by an input source:
@@ -295,14 +243,7 @@ Important:
 
 It means the information was derived by the AI from available evidence.
 
-AI-derived information is only valid when it is grounded in the provided sources.
-
-When a rule is explicitly present in documentation, prefer:
-
-    source = "documentation"
-    generated = false
-
-Do not mark explicitly documented rules as AI-derived.
+AI-derived information is only valid when grounded in the provided sources.
 
 ============================================================
 7. SAMPLE DATA
@@ -368,13 +309,13 @@ Represent the actual rule, including:
 
 When an RLS rule is explicitly documented:
 
-- preserve the physical table names
-- preserve the physical column names
-- preserve the parameter names
-- preserve the predicate semantics
-- preserve the join sequence
-- preserve the join keys
-- preserve the target table
+- preserve physical table names
+- preserve physical column names
+- preserve parameter names
+- preserve predicate semantics
+- preserve join sequence
+- preserve join keys
+- preserve target table
 - preserve whether the path is direct or propagated
 - do not replace the documented path with an inferred path
 - do not simplify the predicate
@@ -382,19 +323,15 @@ When an RLS rule is explicitly documented:
 - do not narrow the security scope
 - do not silently add additional filters
 
-For example, if the documentation defines:
+For example, if documentation defines:
 
     WHERE branches.branch_id = @UserBranchId
 
-do not transform it into:
+preserve:
 
-    branches.branch_id = @BranchId
+    branches.branch_id = @UserBranchId
 
-and do not transform it into:
-
-    accounts.branch_id = @UserBranchId
-
-unless the source explicitly defines that alternative.
+exactly as the canonical predicate.
 
 ### 8.3 Security domain structure
 
@@ -433,8 +370,7 @@ Example:
 
     accounts.branch_id = @UserBranchId
 
-If the source explicitly provides a different parameter name, preserve that
-parameter name.
+If the source explicitly provides a different parameter name, preserve it.
 
 ### 8.6 Propagation paths
 
@@ -445,115 +381,13 @@ Do not omit a documented target table.
 
 Do not invent an undocumented propagation path.
 
-If the documentation defines a path such as:
+If documentation defines:
 
     transactions
     -> accounts
     -> branch
 
 preserve that path.
-
-If the documentation defines:
-
-    cards
-    -> accounts
-    -> branch
-
-preserve that path separately.
-
-If the documentation defines:
-
-    loans
-    -> customers
-    -> accounts
-    -> branches
-
-preserve that complete path.
-
-### 8.7 Explicit seven-table RLS mapping example
-
-If the documentation contains the following rules, the Semantic Layer MUST
-represent all of them:
-
-1. branches
-
-    WHERE branches.branch_id = @UserBranchId
-
-2. accounts
-
-    WHERE accounts.branch_id = @UserBranchId
-
-3. transactions
-
-    INNER JOIN accounts
-        ON transactions.account_id = accounts.account_id
-    WHERE accounts.branch_id = @UserBranchId
-
-4. cards
-
-    INNER JOIN accounts
-        ON cards.account_id = accounts.account_id
-    WHERE accounts.branch_id = @UserBranchId
-
-5. customers
-
-    INNER JOIN accounts
-        ON customers.customer_id = accounts.customer_id
-    WHERE accounts.branch_id = @UserBranchId
-
-6. loans
-
-    INNER JOIN customers
-        ON loans.customer_id = customers.customer_id
-    INNER JOIN accounts
-        ON customers.customer_id = accounts.customer_id
-    INNER JOIN branches
-        ON accounts.branch_id = branches.branch_id
-    WHERE branches.branch_id = @UserBranchId
-
-7. merchants
-
-    INNER JOIN transactions
-        ON merchants.merchant_id = transactions.merchant_id
-    INNER JOIN accounts
-        ON transactions.account_id = accounts.account_id
-    WHERE accounts.branch_id = @UserBranchId
-
-IMPORTANT:
-
-These examples are illustrative of the required extraction behavior.
-
-If the actual documentation contains explicit RLS rules, extract the actual
-documentation rules rather than replacing them with these examples.
-
-If the actual documentation contains all seven mappings above, all seven MUST
-be represented.
-
-### 8.8 Security source provenance
-
-For explicitly documented RLS information:
-
-    "source": "documentation"
-    "generated": false
-
-For an AI-derived security interpretation that is not explicitly stated but is
-supported by source evidence:
-
-    "source": "derived"
-    "generated": true
-
-Do not classify explicit documentation as derived.
-
-### 8.9 Missing or ambiguous RLS
-
-If documentation says that a table is protected but does not provide enough
-information to determine the exact propagation path:
-
-- do not invent the path
-- preserve the security domain
-- preserve the available predicate
-- mark unknown propagation as `unknown`
-- record the ambiguity in `validation_issues`
 
 ============================================================
 9. BUSINESS RULES
@@ -575,39 +409,322 @@ For explicitly documented rules:
 - preserve referenced tables and columns
 - preserve source provenance
 
-Do not convert a security rule into a generic business rule only.
-
 RLS/security rules MUST also be represented in `security_domains` when applicable.
 
 ============================================================
-10. RELATIONSHIPS
+10. RELATIONSHIPS — AUTHORITATIVE PROVIDED RELATIONSHIPS
 ============================================================
 
-The output `relationships` section MUST contain all authoritative relationships
-provided by the input `RELATIONSHIPS` section.
+The input `RELATIONSHIPS` section is the authoritative source for DIRECT
+physical relationships.
 
-For every provided relationship include:
+The output `relationships` array MUST contain ALL relationships explicitly
+provided in the input `RELATIONSHIPS` section.
+
+Every provided relationship MUST appear in the output.
+
+A provided relationship MUST NOT be omitted because it appears redundant,
+unnecessary, simple, or derivable from the schema.
+
+A provided relationship MUST NOT be replaced with an inferred equivalent.
+
+A provided relationship MUST NOT be simplified.
+
+A provided relationship MUST preserve its authoritative metadata.
+
+============================================================
+10.1 RELATIONSHIP METADATA PRESERVATION
+============================================================
+
+For every relationship provided in the input, preserve all available fields.
+
+The following fields MUST be preserved whenever they are present:
 
 - `name`
+- `object_id`
+- `from_table`
+- `from_column`
+- `to_table`
+- `to_column`
+- `source_table`
+- `source_column`
+- `target_table`
+- `target_column`
+- `cardinality`
+- `relationship_type`
+- `nullable`
+- `join_direction`
+- `allowed_join_types`
+- `aggregation_behavior`
+- `fanout_risk`
+- `security_propagation`
+- `predicate_equivalence`
+- `security_domain`
+- `description`
+
+Do not remove these fields when they are present in the source.
+
+Do not rename these fields.
+
+Do not convert them into another structure.
+
+Do not infer a different value when an authoritative value is already provided.
+
+If additional relationship metadata fields are provided by the source, preserve
+them unless they directly conflict with the required output contract.
+
+============================================================
+10.2 RELATIONSHIP PROVENANCE
+============================================================
+
+Every relationship copied from the input `RELATIONSHIPS` section is authoritative.
+
+For these relationships:
+
+- `source` MUST be `"relationships"`
+- `generated` MUST be `false`
+- `status` MUST be `"provided"`
+
+The relationship MUST remain distinguishable as directly provided metadata.
+
+Do NOT mark a provided relationship as `"derived"`.
+
+Do NOT mark a provided relationship as `generated: true`.
+
+The model MUST NOT downgrade an authoritative relationship because it appears
+to be inferred from the schema as well.
+
+============================================================
+10.3 RELATIONSHIP EXECUTABILITY
+============================================================
+
+For every provided relationship:
+
+- Preserve the provided `allowed_join_types`.
+- Preserve the provided `join_direction`.
+- Preserve the provided `is_executable` value if present.
+- Preserve the provided `fanout_risk`.
+- Preserve the provided `aggregation_behavior`.
+- Preserve the provided `security_propagation`.
+- Preserve the provided `predicate_equivalence`.
+
+Do not invent join types.
+
+Do not assume that every foreign-key relationship supports every SQL JOIN type.
+
+Do not assume that a relationship is fanout-safe.
+
+Do not remove a documented fanout risk.
+
+============================================================
+10.4 RELATIONSHIP EXAMPLE
+============================================================
+
+A provided relationship may look like:
+
+{
+    "name": "accounts_transactions",
+    "object_id": "obj-relationship-accounts-transactions",
+    "from_table": "accounts",
+    "from_column": "account_id",
+    "to_table": "transactions",
+    "to_column": "account_id",
+    "source_table": "accounts",
+    "source_column": "account_id",
+    "target_table": "transactions",
+    "target_column": "account_id",
+    "cardinality": "1:N",
+    "relationship_type": "foreign_key",
+    "nullable": false,
+    "join_direction": "accounts_to_transactions",
+    "allowed_join_types": [
+        "INNER JOIN",
+        "LEFT JOIN"
+    ],
+    "aggregation_behavior": "fanout_risk",
+    "fanout_risk": true,
+    "security_propagation": "allowed",
+    "predicate_equivalence": {
+        "INNER JOIN": false,
+        "LEFT JOIN": false,
+        "RIGHT JOIN": false,
+        "FULL JOIN": false
+    },
+    "security_domain": "branch",
+    "description": "Foreign key relationship from accounts to transactions (1:N). One account contains multiple transactions."
+}
+
+When a relationship is provided with this structure, preserve this structure
+and its values in the output.
+
+Do not reduce it to only:
+
+{
+    "from_table": "...",
+    "to_table": "..."
+}
+
+Do not remove relationship metadata.
+
+============================================================
+10.5 DETECTING ADDITIONAL RELATIONSHIPS
+============================================================
+
+The model MAY detect additional relationship candidates that are not explicitly
+listed in the input `RELATIONSHIPS` section.
+
+Additional relationship candidates may be detected from:
+
+- foreign-key constraints in `schema`
+- primary-key / foreign-key compatibility
+- explicit documentation
+- explicit documented join paths
+- structurally consistent multi-hop paths
+- other authoritative evidence
+
+However:
+
+DETECTION IS NOT THE SAME AS AUTHORIZATION.
+
+A relationship that is merely detected MUST NOT be inserted into the
+authoritative `relationships` array.
+
+The authoritative `relationships` array represents DIRECT PROVIDED relationships.
+
+============================================================
+10.6 DETECTED RELATIONSHIPS
+============================================================
+
+If the output contract supports `detected_relationships`, additional detected
+relationships MAY be placed there.
+
+Use:
+
+- `source`: `"derived"`
+- `generated`: `true`
+- `status`: `"detected"`
+
+Each detected relationship should include:
+
 - `from_table`
 - `from_column`
 - `to_table`
 - `to_column`
 - `cardinality`
 - `relationship_type`
-- `is_executable`
+- `evidence`
 - `confidence`
 - `status`
-- `description`
+- `source`
+- `generated`
 
-Provided relationships MUST NOT be omitted.
+A detected relationship is a candidate and is NOT authoritative.
 
-Do not infer a replacement relationship when the authoritative relationship
-metadata already exists.
+It requires validation before it can become an authoritative relationship.
 
-Documentation may provide semantic relationship information, but documentation
-MUST NOT override authoritative physical relationship metadata unless the input
-explicitly identifies a structural correction that is separately validated.
+If the output contract does not support `detected_relationships`, do not place
+detected relationships anywhere in the authoritative `relationships` array.
+
+Instead, record the detected candidate in `validation_issues` when it is
+important for human review.
+
+============================================================
+10.7 DIRECT VS DETECTED RELATIONSHIPS
+============================================================
+
+The model MUST classify relationships using the following rules:
+
+### DIRECT PROVIDED RELATIONSHIP
+
+A relationship explicitly present in `RELATIONSHIPS`.
+
+Action:
+
+- MUST be included in `relationships`
+- MUST preserve authoritative metadata
+- `source = "relationships"`
+- `generated = false`
+- `status = "provided"`
+
+### DETECTED RELATIONSHIP
+
+A relationship NOT explicitly present in `RELATIONSHIPS`, but supported by
+schema, documentation, or other evidence.
+
+Action:
+
+- MUST NOT be added to `relationships`
+- MAY be added to `detected_relationships` if supported by the output contract
+- otherwise record it in `validation_issues`
+- `source = "derived"`
+- `generated = true`
+- `status = "detected"`
+
+### UNSUPPORTED RELATIONSHIP
+
+A relationship without sufficient evidence.
+
+Action:
+
+- MUST NOT be output
+- MUST NOT be invented
+- MAY be recorded in `validation_issues` if relevant
+
+============================================================
+10.8 MULTI-HOP RELATIONSHIP DETECTION
+============================================================
+
+The model MAY detect valid multi-hop paths.
+
+For example:
+
+accounts
+    -> transactions
+
+may be a direct provided relationship.
+
+A path such as:
+
+transactions
+    -> accounts
+    -> branches
+
+may be detected from multiple authoritative relationships.
+
+This MUST remain a path/candidate.
+
+It MUST NOT be converted into a new direct physical relationship.
+
+Never claim:
+
+    transactions.branch_id -> branches.branch_id
+
+unless such a direct relationship is explicitly provided by authoritative
+metadata.
+
+A multi-hop path is not a direct foreign-key relationship.
+
+============================================================
+10.9 RELATIONSHIP VALIDATION
+============================================================
+
+Before returning the final JSON, validate every object in `relationships`.
+
+For every relationship:
+
+1. Confirm that it exists in the input `RELATIONSHIPS`.
+2. Confirm that `from_table` matches.
+3. Confirm that `from_column` matches.
+4. Confirm that `to_table` matches.
+5. Confirm that `to_column` matches.
+6. Confirm that `cardinality` matches.
+7. Confirm that `relationship_type` matches.
+8. Confirm that all provided metadata is preserved.
+9. Confirm that no detected-only relationship was promoted.
+10. Confirm that no relationship was silently invented.
+
+If a relationship in the output cannot be traced to an input relationship,
+REMOVE it from the authoritative `relationships` array.
 
 ============================================================
 11. MISSING OR AMBIGUOUS INFORMATION
@@ -662,32 +779,23 @@ Each entity object must include:
 
 2. `relationships` MUST NOT BE EMPTY when relationships are provided.
 
-You MUST reproduce and include ALL relationships listed in the RELATIONSHIPS
-section.
+You MUST reproduce and include ALL relationships listed in the input
+`RELATIONSHIPS` section.
 
-Each relationship object must include:
+The `relationships` array MUST contain DIRECT PROVIDED relationships only.
 
-- `name`
-- `from_table`
-- `from_column`
-- `to_table`
-- `to_column`
-- `cardinality`
-- `relationship_type`
-- `is_executable`
-- `confidence`
-- `status`
-- `description`
+Do NOT place detected-only relationships in `relationships`.
 
 3. `measures`
 
-Derive standard numerical aggregations such as:
+Create a measure only when its business meaning and aggregation are explicitly
+supported by the business glossary or documentation.
 
-- SUM
-- COUNT
-- AVG
+Do not create AVG/SUM measures merely because a column is numeric.
 
-from numerical and monetary columns when supported.
+A primary-key count uses COUNT at the entity's natural grain.
+
+Reserve COUNT DISTINCT for a documented fanout-safe calculation across joins.
 
 4. `dimensions`
 
@@ -720,6 +828,7 @@ Return an empty list only when the metadata is complete and unambiguous.
     },
     "entities": [],
     "relationships": [],
+    "detected_relationships": [],
     "measures": [],
     "dimensions": [],
     "business_rules": [],
@@ -727,8 +836,49 @@ Return an empty list only when the metadata is complete and unambiguous.
     "validation_issues": []
 }
 
+IMPORTANT:
+
+`detected_relationships` is separate from `relationships`.
+
+`relationships` = authoritative DIRECT PROVIDED relationships only.
+
+`detected_relationships` = additional relationships detected by AI from
+supporting evidence and requiring validation.
+
+Never mix the two categories.
+
 ============================================================
-14. VALIDATION-FRIENDLY OUTPUT
+14. FINAL RELATIONSHIP INTEGRITY CHECK
+============================================================
+
+Before producing the final JSON, perform this internal check:
+
+A. Count the relationships in the input `RELATIONSHIPS`.
+
+B. Count the relationships in the output `relationships`.
+
+C. These counts MUST match.
+
+D. Every input relationship MUST have exactly one corresponding output
+relationship.
+
+E. Every output relationship MUST correspond to exactly one input relationship.
+
+F. No detected relationship may appear in `relationships`.
+
+G. No provided relationship may be omitted.
+
+H. No provided relationship may be rewritten into a different relationship.
+
+I. Preserve all authoritative relationship metadata.
+
+J. If an additional relationship is detected but is not in the input
+`RELATIONSHIPS`, keep it outside `relationships`.
+
+If any of these checks fail, correct the output before returning it.
+
+============================================================
+15. VALIDATION-FRIENDLY OUTPUT
 ============================================================
 
 The output will be passed through:
@@ -744,13 +894,17 @@ Approved Semantic Layer
 Therefore:
 
 - preserve authoritative metadata exactly
+- preserve all provided relationships
+- preserve relationship metadata exactly
 - preserve explicitly documented RLS rules
 - preserve explicitly documented RLS predicates
 - preserve explicitly documented RLS propagation paths
+- distinguish direct relationships from detected relationships
 - make AI-derived information identifiable
 - make semantic mappings explicit when supported
 - record missing or conflicting information in `validation_issues`
 - do not silently resolve contradictions
+- do not promote inferred relationships to authoritative relationships
 - do not claim that the Semantic Layer has been validated
 - do not claim that the Semantic Layer has been approved
 

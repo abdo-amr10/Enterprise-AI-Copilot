@@ -492,6 +492,20 @@ class SemanticLayerValidator:
                     }
                 )
 
+            # A Semantic Layer is an executable contract.  Candidate evidence
+            # belongs to review tooling, never to its relationship array.
+            if status is not None and status not in ("PROVIDED", "provided"):
+                errors.append(
+                    {
+                        "category": "relationship",
+                        "code": "non_authoritative_relationship",
+                        "message": (
+                            f"Relationship '{name}' must have status 'PROVIDED'; "
+                            "inferred and uncertain relationships are not executable metadata."
+                        ),
+                    }
+                )
+
             confidence = item.get("confidence")
 
             if confidence is not None:

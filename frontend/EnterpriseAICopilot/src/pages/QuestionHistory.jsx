@@ -90,7 +90,7 @@ export default function QuestionHistory() {
               <div>
                 <strong>{item.question}</strong>
                 <small>
-                  {formatHistoryDate(item.createdAt)} · {item.queryId}
+                  {formatHistoryDate(item.createdAt)} {/*· {item.queryId}*/}
                 </small>
               </div>
 

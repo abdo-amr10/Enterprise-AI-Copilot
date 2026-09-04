@@ -67,6 +67,7 @@ Documentation is a first-class source for:
 - join requirements
 - security predicates
 - terminology
+- semantic relationship descriptions
 
 If new or updated documentation contains explicit semantic or security
 information relevant to an explicitly affected object, extract that information
@@ -116,6 +117,7 @@ You MUST NOT:
 - fabricate security domains
 - fabricate security propagation paths
 - fabricate RLS predicates
+- fabricate unsupported relationship metadata
 - fabricate business meanings unsupported by evidence
 
 If a structural change is not supported by the updated authoritative metadata,
@@ -259,7 +261,7 @@ AI-derived information MUST be evidence-based.
 
 For AI-derived enrichment:
 
-- `source` MUST be `derived`
+- `source` MUST be `"derived"`
 - `generated` MUST be `true`
 
 For directly sourced information:
@@ -277,13 +279,13 @@ Valid direct sources are:
 
 When a rule is explicitly present in documentation, use:
 
-- `source`: `documentation`
+- `source`: `"documentation"`
 - `generated`: `false`
 
 Do not mark explicitly documented information as AI-derived.
 
 ============================================================
-9. RELATIONSHIPS
+9. RELATIONSHIPS — INCREMENTAL RELATIONSHIP CONTRACT
 ============================================================
 
 Relationships ARE valid incremental semantic objects.
@@ -294,73 +296,397 @@ The incremental builder MUST support:
 - updating an affected relationship
 - deleting an explicitly affected relationship
 
-A relationship may be added or updated when the change is supported by:
+However, relationship changes are strictly controlled by `affected_objects`.
 
-- updated authoritative relationship metadata
-- documentation when it describes a semantic relationship
-- an explicitly affected existing relationship
+A relationship MUST NOT be added, updated, or deleted merely because it appears
+in updated schema, updated documentation, or updated relationship metadata.
 
-For every generated relationship include, where applicable:
+The corresponding semantic relationship MUST be explicitly authorized by
+`affected_objects`.
 
-- `object_id`
+============================================================
+9.1 DIRECT PROVIDED RELATIONSHIPS
+============================================================
+
+The updated `RELATIONSHIPS` input is authoritative for DIRECT physical
+relationships.
+
+A relationship that exists in updated `RELATIONSHIPS` is a directly provided
+relationship.
+
+When an affected relationship is supported by updated authoritative
+`RELATIONSHIPS`, preserve its physical relationship definition exactly.
+
+A direct provided relationship is authoritative.
+
+It MUST NOT be treated as merely inferred.
+
+For directly provided relationship metadata:
+
+- `source` MUST be `"relationships"`
+- `generated` MUST be `false`
+
+============================================================
+9.2 RELATIONSHIP METADATA PRESERVATION
+============================================================
+
+For every affected relationship that is directly provided in the authoritative
+`RELATIONSHIPS` input, preserve ALL available relationship metadata.
+
+The following fields MUST be preserved whenever they are present:
+
 - `name`
+- `object_id`
 - `from_table`
 - `from_column`
 - `to_table`
 - `to_column`
+- `source_table`
+- `source_column`
+- `target_table`
+- `target_column`
 - `cardinality`
 - `relationship_type`
-- `is_executable`
-- `confidence`
-- `status`
+- `nullable`
+- `join_direction`
+- `allowed_join_types`
+- `aggregation_behavior`
+- `fanout_risk`
+- `security_propagation`
+- `predicate_equivalence`
+- `security_domain`
 - `description`
-- `source`
-- `generated`
 
-### Physical relationships
+Do not remove these fields when they are present.
 
-When a relationship is present in the updated authoritative RELATIONSHIPS
-metadata, preserve its physical definition exactly.
+Do not rename these fields.
 
-Do not infer a replacement relationship.
+Do not simplify the relationship to only its join keys.
 
-Do not change:
+Do not replace rich relationship metadata with a minimal relationship object.
 
-- table names
-- column names
-- join keys
+If additional relationship metadata is supplied by the authoritative source,
+preserve it unless it conflicts with the output contract.
+
+============================================================
+9.3 RELATIONSHIP PROVENANCE
+============================================================
+
+For a relationship directly supplied by the authoritative `RELATIONSHIPS`
+input:
+
+- `source` MUST be `"relationships"`
+- `generated` MUST be `false`
+
+Do NOT mark it as:
+
+- `source = "derived"`
+- `generated = true`
+
+even if the same relationship can also be inferred from the schema.
+
+Authoritative provenance takes precedence.
+
+============================================================
+9.4 RELATIONSHIP EXECUTABILITY
+============================================================
+
+For every affected relationship, preserve authoritative values for:
+
+- `is_executable`
+- `allowed_join_types`
+- `join_direction`
+- `fanout_risk`
+- `aggregation_behavior`
+- `security_propagation`
+- `predicate_equivalence`
+
+Do not invent allowed JOIN types.
+
+Do not assume every foreign-key relationship supports every JOIN type.
+
+Do not assume a relationship is fanout-safe.
+
+Do not remove a documented fanout risk.
+
+Do not change join behavior unless the updated authoritative relationship
+metadata explicitly changes it.
+
+============================================================
+9.5 RELATIONSHIP ADD
+============================================================
+
+For an `add` operation:
+
+The relationship MUST:
+
+1. Be explicitly listed in `affected_objects` with:
+   - `section = "relationships"`
+   - `action = "add"`
+
+2. Be supported by authoritative updated relationship metadata.
+
+3. Use the authoritative physical relationship definition.
+
+4. Preserve all available relationship metadata.
+
+5. NOT contain a generated permanent `object_id`.
+
+The system Identity Service will assign the permanent `object_id`.
+
+Example shape:
+
+{
+    "name": "accounts_transactions",
+    "from_table": "accounts",
+    "from_column": "account_id",
+    "to_table": "transactions",
+    "source_table": "accounts",
+    "source_column": "account_id",
+    "target_table": "transactions",
+    "target_column": "account_id",
+    "cardinality": "1:N",
+    "relationship_type": "foreign_key",
+    "nullable": false,
+    "join_direction": "accounts_to_transactions",
+    "allowed_join_types": [
+        "INNER JOIN",
+        "LEFT JOIN"
+    ],
+    "aggregation_behavior": "fanout_risk",
+    "fanout_risk": true,
+    "security_propagation": "allowed",
+    "predicate_equivalence": {
+        "INNER JOIN": false,
+        "LEFT JOIN": false,
+        "RIGHT JOIN": false,
+        "FULL JOIN": false
+    },
+    "security_domain": "branch",
+    "description": "Foreign key relationship from accounts to transactions (1:N). One account contains multiple transactions.",
+    "source": "relationships",
+    "generated": false
+}
+
+IMPORTANT:
+
+Do not copy the example values unless they are actually supported by the
+provided input.
+
+============================================================
+9.6 RELATIONSHIP UPDATE
+============================================================
+
+For an `update` operation:
+
+The relationship MUST:
+
+1. Be explicitly listed in `affected_objects` with:
+   - `section = "relationships"`
+   - `action = "update"`
+
+2. Preserve the exact existing `object_id`.
+
+3. Use the updated authoritative `RELATIONSHIPS` metadata as the physical
+   source of truth.
+
+4. Preserve all authoritative relationship metadata.
+
+5. Modify ONLY the affected relationship.
+
+6. Never create a replacement relationship with a new identity.
+
+If updated authoritative metadata changes:
+
+- from_table
+- from_column
+- to_table
+- to_column
 - cardinality
-- relationship direction
+- relationship_type
+- nullable
+- join_direction
+- allowed_join_types
+- aggregation_behavior
+- fanout_risk
+- security_propagation
+- predicate_equivalence
 
-unless the updated authoritative metadata explicitly changes them.
+then those changes may be applied ONLY to the explicitly affected relationship
+and ONLY when supported by the authoritative updated metadata.
 
-### Relationship additions
+============================================================
+9.7 RELATIONSHIP DELETE
+============================================================
 
-If a new relationship is introduced in updated authoritative metadata and the
-corresponding relationship is explicitly listed in `affected_objects` as an
-`add`, generate the relationship in the PATCH.
+A relationship MUST NOT be deleted merely because it is:
 
-Do not regenerate unrelated existing relationships.
+- absent from the PATCH
+- absent from documentation
+- absent from another semantic source
+- not detected
+- changed in unrelated metadata
 
-### Relationship updates
-
-If an existing relationship is explicitly listed in `affected_objects` as an
-`update`:
-
-- preserve its exact existing `object_id`
-- apply only supported changes
-- use the updated authoritative metadata as the source of truth
-- do not modify unrelated relationships
-
-### Relationship deletion
-
-A relationship MUST NOT be deleted merely because it is absent from the
-incremental PATCH.
-
-Deletion is allowed only when:
+Deletion is allowed ONLY when:
 
 1. the relationship is explicitly listed in `affected_objects`, and
 2. the action is `delete`.
+
+The merge stage is responsible for applying the deletion to the approved
+baseline.
+
+============================================================
+9.8 DETECTING ADDITIONAL RELATIONSHIPS
+============================================================
+
+The model MAY detect relationship candidates from:
+
+- updated schema
+- foreign-key constraints
+- primary-key / foreign-key compatibility
+- updated documentation
+- explicit documented join paths
+- existing authoritative relationships
+- structurally valid multi-hop paths
+
+However:
+
+DETECTION IS NOT AUTHORIZATION.
+
+A relationship detected by the model but not explicitly listed in
+`affected_objects` MUST NOT be added to the PATCH.
+
+Do NOT automatically promote detected relationships to semantic relationships.
+
+Do NOT create an `add` operation merely because a relationship appears valid.
+
+The `affected_objects` contract controls which relationship changes are allowed.
+
+============================================================
+9.9 DETECTED RELATIONSHIPS
+============================================================
+
+If the output contract supports `detected_relationships`, detected candidates
+MAY be represented separately.
+
+They MUST be distinguishable from authoritative relationships.
+
+For detected relationships:
+
+- `source` MUST be `"derived"`
+- `generated` MUST be `true`
+- `status` MUST be `"detected"`
+
+A detected relationship is a candidate only.
+
+It does NOT become part of the authoritative `relationships` PATCH.
+
+If `detected_relationships` is not supported by the application contract,
+do not add the detected relationship to `relationships`.
+
+Record an important detected candidate in `validation_issues` instead.
+
+============================================================
+9.10 DIRECT VS DETECTED RELATIONSHIPS
+============================================================
+
+The model MUST distinguish:
+
+### DIRECT PROVIDED
+
+Relationship exists in authoritative `RELATIONSHIPS`.
+
+If explicitly affected:
+
+- include in PATCH
+- preserve authoritative metadata
+- `source = "relationships"`
+- `generated = false`
+
+### DETECTED
+
+Relationship does NOT exist in authoritative `RELATIONSHIPS`, but evidence
+suggests that it may exist.
+
+If not explicitly affected:
+
+- DO NOT add it to `relationships`
+- DO NOT create an automatic add operation
+- MAY record separately as detected
+- otherwise record it in `validation_issues`
+
+### UNSUPPORTED
+
+Relationship lacks sufficient evidence.
+
+Action:
+
+- do not output it
+- do not invent it
+
+============================================================
+9.11 MULTI-HOP RELATIONSHIP DETECTION
+============================================================
+
+The model MAY detect multi-hop paths.
+
+Example:
+
+accounts
+    -> transactions
+
+may be a direct relationship.
+
+A path such as:
+
+transactions
+    -> accounts
+    -> branches
+
+may be detected from existing relationships.
+
+This is a PATH, not a new direct physical relationship.
+
+Do NOT convert:
+
+transactions
+    -> accounts
+    -> branches
+
+into:
+
+transactions.branch_id
+    -> branches.branch_id
+
+unless that direct relationship is explicitly provided by authoritative
+relationship metadata.
+
+Never invent a direct foreign-key relationship from a multi-hop path.
+
+============================================================
+9.12 RELATIONSHIP VALIDATION BEFORE OUTPUT
+============================================================
+
+Before returning the PATCH, validate every relationship object.
+
+For every relationship in the PATCH:
+
+1. Confirm it is explicitly authorized by `affected_objects`.
+2. Confirm the action is valid.
+3. Confirm the relationship can be traced to authoritative metadata.
+4. Confirm physical table names match authoritative metadata.
+5. Confirm physical column names match authoritative metadata.
+6. Confirm cardinality matches authoritative metadata.
+7. Confirm relationship type matches authoritative metadata.
+8. Confirm relationship direction matches authoritative metadata.
+9. Confirm all provided relationship metadata is preserved.
+10. Confirm no detected-only relationship was promoted.
+11. Confirm no unrelated relationship was modified.
+12. Confirm UPDATE preserves the existing `object_id`.
+13. Confirm ADD does not invent an `object_id`.
+14. Confirm DELETE does not generate a replacement object.
+
+If any relationship violates these rules, correct the PATCH before returning it.
 
 ============================================================
 10. ROW-LEVEL SECURITY AND SECURITY DOMAINS
@@ -388,39 +714,35 @@ If new or updated documentation explicitly contains an RLS rule and the related
 security domain is included in `affected_objects`, extract the documented rule
 into the PATCH.
 
-Do NOT merely write a generic description such as:
+Do NOT merely write a generic description.
 
-    "This table is protected by branch-level security."
-
-Instead, preserve the actual documented security semantics.
+Preserve the actual documented security semantics.
 
 ### 10.2 Exact preservation of documented RLS
 
 When an RLS rule is explicitly documented:
 
-- preserve the exact physical table names
-- preserve the exact physical column names
-- preserve the parameter names
-- preserve the predicate semantics
-- preserve the join sequence
-- preserve the join keys
-- preserve the target table
-- preserve the canonical root
-- preserve the canonical predicate
-- preserve the propagation path
+- preserve exact physical table names
+- preserve exact physical column names
+- preserve parameter names
+- preserve predicate semantics
+- preserve join sequence
+- preserve join keys
+- preserve target table
+- preserve canonical root
+- preserve canonical predicate
+- preserve propagation path
 - do not replace the documented path with an inferred path
 - do not simplify the predicate
 - do not broaden the security scope
 - do not narrow the security scope
-- do not silently add additional filters
+- do not silently add filters
 
 Example:
 
-If documentation says:
-
     accounts.branch_id = @UserBranchId
 
-preserve:
+must remain:
 
     accounts.branch_id = @UserBranchId
 
@@ -482,113 +804,9 @@ Do not replace the predicate with a semantically similar predicate.
 For every explicitly documented RLS propagation path included in the affected
 security domain, create a corresponding propagation path.
 
-Example:
+Do not invent undocumented paths.
 
-    transactions
-    -> accounts
-    -> branch
-
-must not be replaced with:
-
-    transactions
-    -> branch
-
-if the documentation explicitly requires the accounts path.
-
-Likewise:
-
-    cards
-    -> accounts
-    -> branch
-
-must remain that path.
-
-If documentation explicitly defines:
-
-    loans
-    -> customers
-    -> accounts
-    -> branches
-
-preserve that complete path.
-
-### 10.7 Explicit seven-table mapping
-
-If the updated documentation contains these explicit mappings and the affected
-security domain is authorized for update/addition, represent all documented
-mappings:
-
-1. branches
-
-    WHERE branches.branch_id = @UserBranchId
-
-2. accounts
-
-    WHERE accounts.branch_id = @UserBranchId
-
-3. transactions
-
-    INNER JOIN accounts
-        ON transactions.account_id = accounts.account_id
-    WHERE accounts.branch_id = @UserBranchId
-
-4. cards
-
-    INNER JOIN accounts
-        ON cards.account_id = accounts.account_id
-    WHERE accounts.branch_id = @UserBranchId
-
-5. customers
-
-    INNER JOIN accounts
-        ON customers.customer_id = accounts.customer_id
-    WHERE accounts.branch_id = @UserBranchId
-
-6. loans
-
-    INNER JOIN customers
-        ON loans.customer_id = customers.customer_id
-    INNER JOIN accounts
-        ON customers.customer_id = accounts.customer_id
-    INNER JOIN branches
-        ON accounts.branch_id = branches.branch_id
-    WHERE branches.branch_id = @UserBranchId
-
-7. merchants
-
-    INNER JOIN transactions
-        ON merchants.merchant_id = transactions.merchant_id
-    INNER JOIN accounts
-        ON transactions.account_id = accounts.account_id
-    WHERE accounts.branch_id = @UserBranchId
-
-IMPORTANT:
-
-These examples define the required extraction behavior.
-
-If the actual documentation contains explicit RLS rules, use the actual
-documentation as the source of truth.
-
-Do not invent missing mappings.
-
-Do not add an undocumented mapping.
-
-Do not modify an existing security domain unless it is explicitly affected.
-
-### 10.8 RLS provenance
-
-Explicitly documented RLS:
-
-    "source": "documentation"
-    "generated": false
-
-AI-derived RLS interpretation:
-
-    "source": "derived"
-    "generated": true
-
-Explicit documentation ALWAYS takes precedence over an AI-derived
-interpretation.
+Do not replace explicit paths with shorter inferred paths.
 
 ============================================================
 11. BUSINESS RULES
@@ -602,8 +820,8 @@ The builder MUST support:
 - updating an affected business rule
 - deleting an explicitly affected business rule
 
-When a new or updated documentation file contains a business rule and the
-corresponding semantic object is explicitly affected:
+When documentation contains a business rule and the corresponding semantic
+object is explicitly affected:
 
 - extract the rule
 - preserve its meaning
@@ -615,14 +833,12 @@ Do not fabricate business rules.
 
 RLS/security rules MUST also be represented in `security_domains` when applicable.
 
-Do not represent an RLS rule only as a generic business rule.
-
 ============================================================
 12. MAPPINGS
 ============================================================
 
-Mappings MUST reference real database objects from the authoritative updated
-source metadata.
+Mappings MUST reference real database objects from authoritative updated
+metadata.
 
 For dimensions and measures, use:
 
@@ -677,7 +893,7 @@ A semantic object may be deleted only when:
 1. its deletion is explicitly present in `affected_objects`, and
 2. the object is identified by its existing stable `object_id`.
 
-If a database object was removed from the authoritative metadata, remove only the
+If a database object was removed from authoritative metadata, remove only the
 affected semantic objects that are explicitly authorized for deletion.
 
 Do not delete unrelated semantic objects merely because their source object is
@@ -703,18 +919,27 @@ If the approved baseline, affected_objects, and updated sources conflict:
 1. Do not guess.
 2. Prefer authoritative updated structural metadata for database facts.
 3. Preserve unaffected approved content.
-4. Preserve explicit documented semantic/security rules when they are applicable
-   to an affected object.
+4. Preserve explicit documented semantic/security rules when applicable to an
+   affected object.
 5. Record the conflict in `validation_issues`.
 6. Leave the result for validation and human review.
 
-For RLS specifically:
+For relationships:
+
+If documentation suggests a relationship but authoritative relationship
+metadata does not provide it:
+
+- do not promote it to an authoritative relationship
+- do not add it unless explicitly supported and authorized
+- record the discrepancy when relevant
+
+For RLS:
 
 If documentation explicitly defines a predicate or propagation path and another
 source provides an ambiguous inferred alternative:
 
-- do not replace the explicit documentation rule with the inferred alternative
 - preserve the explicit documented rule
+- do not replace it with the inferred alternative
 - record the conflict if necessary
 
 ============================================================
@@ -770,18 +995,18 @@ If evidence is incomplete:
 - preserve available information
 - record the missing information in `validation_issues`
 
-For an affected `security_domains` object, this means:
+For an affected relationship:
 
-- extract the explicit canonical root if available
-- extract the explicit canonical predicate if available
-- extract all explicit propagation paths if available
-- preserve unknown fields as unknown where the output contract allows it
-- record missing security information in `validation_issues`
-
-For an affected `relationships` object:
-
-- preserve the authoritative relationship metadata
+- preserve authoritative relationship metadata
 - do not infer a different join
+- do not fabricate missing relationship properties
+
+For an affected security domain:
+
+- extract explicit canonical root if available
+- extract explicit canonical predicate if available
+- extract all explicit propagation paths if available
+- record missing security information in `validation_issues`
 
 ============================================================
 19. OUTPUT REQUIREMENTS
@@ -880,38 +1105,71 @@ For DELETE operations:
 21. RELATIONSHIP OUTPUT CONTRACT
 ============================================================
 
-For an affected relationship, where applicable:
+For an affected DIRECT PROVIDED relationship, preserve the following structure
+whenever the fields are available in authoritative relationship metadata:
 
 {
     "object_id": "...",
-    "name": "...",
-    "from_table": "...",
-    "from_column": "...",
-    "to_table": "...",
-    "to_column": "...",
-    "cardinality": "...",
-    "relationship_type": "...",
+    "name": "accounts_transactions",
+    "from_table": "accounts",
+    "from_column": "account_id",
+    "to_table": "transactions",
+    "to_column": "account_id",
+    "source_table": "accounts",
+    "source_column": "account_id",
+    "target_table": "transactions",
+    "target_column": "account_id",
+    "cardinality": "1:N",
+    "relationship_type": "foreign_key",
+    "nullable": false,
+    "join_direction": "accounts_to_transactions",
+    "allowed_join_types": [
+        "INNER JOIN",
+        "LEFT JOIN"
+    ],
+    "aggregation_behavior": "fanout_risk",
+    "fanout_risk": true,
+    "security_propagation": "allowed",
+    "predicate_equivalence": {
+        "INNER JOIN": false,
+        "LEFT JOIN": false,
+        "RIGHT JOIN": false,
+        "FULL JOIN": false
+    },
+    "security_domain": "branch",
+    "description": "Foreign key relationship from accounts to transactions (1:N). One account contains multiple transactions.",
+    "source": "relationships",
+    "generated": false,
     "is_executable": true,
     "confidence": 1.0,
-    "status": "PROVIDED",
-    "description": "...",
-    "source": "relationships",
-    "generated": false
+    "status": "provided"
 }
 
-For an ADD operation:
+IMPORTANT:
+
+This is an output-shape example.
+
+The model MUST use the actual values from authoritative input metadata.
+
+Do not invent missing values.
+
+For UPDATE operations:
+
+- preserve the exact existing `object_id`.
+
+For ADD operations:
 
 - omit `object_id`.
 
-For an UPDATE operation:
+For relationship metadata supplied by the authoritative source:
 
-- preserve the exact supplied `object_id`.
+- preserve it exactly.
 
 ============================================================
 22. SECURITY DOMAIN OUTPUT CONTRACT
 ============================================================
 
-For an affected security domain, where applicable:
+For an affected security domain:
 
 {
     "object_id": "...",
@@ -935,21 +1193,87 @@ For an affected security domain, where applicable:
     "generated": false
 }
 
-For an ADD operation:
+For ADD:
 
 - omit `object_id`.
 
-For an UPDATE operation:
+For UPDATE:
 
-- preserve the exact supplied `object_id`.
+- preserve exact `object_id`.
 
-The exact values MUST be based on the actual source documentation and metadata.
+The exact values MUST be based on actual source documentation and metadata.
 
-Do not blindly copy the example values unless they are actually supported by
-the input sources.
+Do not blindly copy example values.
 
 ============================================================
-23. MERGE COMPATIBILITY
+23. FINAL INCREMENTAL INTEGRITY CHECK
+============================================================
+
+Before returning the final PATCH, perform all of the following checks.
+
+### Scope check
+
+For every generated object:
+
+- it MUST correspond to an explicitly affected object.
+- it MUST use the requested action.
+- no unrelated object may be modified.
+
+### Identity check
+
+For UPDATE:
+
+- exact existing `object_id` MUST be preserved.
+
+For DELETE:
+
+- exact existing `object_id` MUST be referenced.
+
+For ADD:
+
+- no permanent `object_id` may be invented.
+
+### Relationship check
+
+For every relationship in the PATCH:
+
+- it MUST be explicitly authorized by `affected_objects`.
+- it MUST be supported by authoritative relationship metadata.
+- all available authoritative relationship metadata MUST be preserved.
+- direct relationships MUST remain direct.
+- detected relationships MUST NOT be promoted.
+- multi-hop paths MUST NOT be converted into direct relationships.
+
+### Preservation check
+
+Verify that:
+
+- unaffected objects are not regenerated.
+- unaffected relationships are not modified.
+- unaffected security domains are not modified.
+- unrelated mappings are not changed.
+- unrelated descriptions are not changed.
+
+### Provenance check
+
+Verify:
+
+- direct schema evidence -> `source = "schema"`, `generated = false`
+- direct relationship evidence -> `source = "relationships"`, `generated = false`
+- direct documentation evidence -> `source = "documentation"`, `generated = false`
+- AI-derived evidence -> `source = "derived"`, `generated = true`
+
+### Safety check
+
+If information is missing or ambiguous:
+
+- do not guess.
+- record the issue in `validation_issues`.
+
+If any check fails, correct the PATCH before returning it.
+
+============================================================
+24. MERGE COMPATIBILITY
 ============================================================
 
 The output will be passed through:
@@ -974,10 +1298,13 @@ Therefore:
 - preserve explicit RLS predicates
 - preserve explicit RLS propagation paths
 - preserve explicit relationship definitions
+- preserve relationship metadata
+- distinguish direct relationships from detected relationships
 - make mappings explicit
 - preserve provenance
 - record uncertainty in `validation_issues`
 - never silently resolve contradictions
+- never promote inferred relationships to authoritative relationships
 - never claim validation or approval
 
 The result is an initial incremental PATCH ready for merge and validation.
