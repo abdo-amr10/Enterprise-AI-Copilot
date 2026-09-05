@@ -145,5 +145,41 @@ namespace EnterpriseAiCopilot.Api.Controllers
 
             return Ok(result.Data);
         }
+
+        [HttpGet("conversations")]
+        public async Task<IActionResult> GetConversations(CancellationToken cancellationToken)
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var branchId = User.FindFirstValue("branchId");
+            if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(branchId))
+                return Unauthorized(new { status = "Failed", errorCode = "UNAUTHORIZED", message = "User ID or Branch ID claim is missing." });
+
+            var result = await _copilotService.GetConversationsAsync(userId, branchId, cancellationToken);
+            return result.IsSuccess ? Ok(result.Data) : BadRequest(new { status = "Failed", errorCode = "BUSINESS_ERROR", message = result.ErrorMessage });
+        }
+
+        [HttpGet("conversations/{conversationId}")]
+        public async Task<IActionResult> GetConversation(string conversationId, CancellationToken cancellationToken)
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var branchId = User.FindFirstValue("branchId");
+            if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(branchId))
+                return Unauthorized(new { status = "Failed", errorCode = "UNAUTHORIZED", message = "User ID or Branch ID claim is missing." });
+
+            var result = await _copilotService.GetConversationAsync(conversationId, userId, branchId, cancellationToken);
+            return result.IsSuccess ? Ok(result.Data) : NotFound(new { status = "Failed", errorCode = "NOT_FOUND", message = result.ErrorMessage });
+        }
+
+        [HttpDelete("conversations/{conversationId}")]
+        public async Task<IActionResult> ArchiveConversation(string conversationId, CancellationToken cancellationToken)
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var branchId = User.FindFirstValue("branchId");
+            if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(branchId))
+                return Unauthorized(new { status = "Failed", errorCode = "UNAUTHORIZED", message = "User ID or Branch ID claim is missing." });
+
+            var result = await _copilotService.ArchiveConversationAsync(conversationId, userId, branchId, cancellationToken);
+            return result.IsSuccess ? NoContent() : NotFound(new { status = "Failed", errorCode = "NOT_FOUND", message = result.ErrorMessage });
+        }
     }
 }

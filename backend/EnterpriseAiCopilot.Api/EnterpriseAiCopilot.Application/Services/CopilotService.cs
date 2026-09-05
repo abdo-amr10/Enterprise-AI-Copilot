@@ -70,6 +70,40 @@ namespace EnterpriseAiCopilot.Application.Services
                 return Result<AskCopilotResponse>.Failure("DATABASE_ERROR: Could not retrieve semantic layer.");
             }
 
+            Conversation? conversation = null;
+            if (!string.IsNullOrWhiteSpace(request.ConversationId))
+            {
+                if (!Guid.TryParse(request.ConversationId, out var requestedConversationId))
+                    return Result<AskCopilotResponse>.Failure("CONVERSATION_ERROR: Invalid conversation ID.");
+
+                conversation = await _context.Conversations.FirstOrDefaultAsync(
+                    c => c.Id == requestedConversationId && c.UserId == userId && c.BranchId == branchId && !c.IsArchived,
+                    cancellationToken);
+
+                if (conversation == null)
+                    return Result<AskCopilotResponse>.Failure("CONVERSATION_NOT_FOUND: Conversation was not found or is not available.");
+
+                if (conversation.SemanticLayerId != layerId)
+                    return Result<AskCopilotResponse>.Failure("CONVERSATION_SEMANTIC_LAYER_CHANGED: This conversation belongs to an older semantic layer. Start a new conversation.");
+            }
+            else
+            {
+                conversation = new Conversation
+                {
+                    UserId = userId,
+                    BranchId = branchId,
+                    SemanticLayerId = layerId,
+                    Title = request.Question.Length > 200 ? request.Question[..200] : request.Question
+                };
+                _context.Conversations.Add(conversation);
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+
+            var conversationId = conversation.Id;
+            var conversationMessages = await LoadConversationMessagesAsync(conversationId, userId, branchId, cancellationToken);
+            if (conversationMessages.Count == 0 && request.Conversation is { Count: > 0 })
+                conversationMessages = request.Conversation;
+
             int maxRetries = 3;
             int attempt = 0;
             string originalPrompt = request.Question;
@@ -86,7 +120,8 @@ namespace EnterpriseAiCopilot.Application.Services
                 var currentRequest = new AskCopilotRequest
                 {
                     Question = originalPrompt,
-                    Conversation = request.Conversation ?? new List<ConversationMessage>()
+                    ConversationId = conversationId.ToString(),
+                    Conversation = new List<ConversationMessage>(conversationMessages)
                 };
 
                 try
@@ -145,15 +180,13 @@ namespace EnterpriseAiCopilot.Application.Services
                 {
                     _logger.LogWarning($"Attempt {attempt + 1} failed. Triggering Self-Correction. Error: {finalErrorMessage}");
 
-                    currentRequest.Conversation.Add(new ConversationMessage
+                    conversationMessages.Add(new ConversationMessage
                     {
                         Role = "system",
                         Content = $"RLS_CORRECTION: The previous SQL was '{aiResponse.GeneratedSql}'. " +
                                   $"It failed with '{finalErrorMessage}'. Generate a replacement SQL query " +
                                   "that fixes this exact policy failure while preserving the original question."
                     });
-                    request.Conversation = currentRequest.Conversation;
-
                     attempt++;
                 }
                 else
@@ -170,6 +203,7 @@ namespace EnterpriseAiCopilot.Application.Services
                  originalPrompt,
                  aiResponse?.GeneratedSql,
                  layerId,
+                 conversationId,
                  status,
                  finalErrorMessage,
                  totalExecutionTimeMs,
@@ -225,10 +259,13 @@ namespace EnterpriseAiCopilot.Application.Services
             formattedReport.ExecutionTimeMs = totalExecutionTimeMs;
 
             await SaveQueryResultSafeAsync(historyId, formattedReport, cancellationToken);
+            conversation.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync(cancellationToken);
 
             var response = new AskCopilotResponse
             {
                 QueryId = historyId.ToString(),
+                ConversationId = conversationId.ToString(),
                 Status = "Completed",
                 Report = formattedReport
             };
@@ -249,6 +286,7 @@ namespace EnterpriseAiCopilot.Application.Services
                     .Select(h => new QueryHistoryItemResponse
                     {
                         QueryId = h.Id.ToString(),
+                        ConversationId = h.ConversationId.HasValue ? h.ConversationId.Value.ToString() : null,
                         Question = h.UserPrompt,
                         Status = h.Status,
                         CreatedAt = h.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ")
@@ -308,6 +346,7 @@ namespace EnterpriseAiCopilot.Application.Services
                 var response = new QueryDetailsResponse
                 {
                     QueryId = history.Id.ToString(),
+                    ConversationId = history.ConversationId.HasValue ? history.ConversationId.Value.ToString() : null,
                     Question = history.UserPrompt,
                     Status = history.Status,
                     CreatedAt = history.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ"),
@@ -337,12 +376,111 @@ namespace EnterpriseAiCopilot.Application.Services
             }
         }
 
+        public async Task<Result<List<ConversationSummaryResponse>>> GetConversationsAsync(
+            string userId, string branchId, CancellationToken cancellationToken = default)
+        {
+            var conversations = await _context.Conversations
+                .Where(c => c.UserId == userId && c.BranchId == branchId && !c.IsArchived)
+                .OrderByDescending(c => c.UpdatedAt ?? c.CreatedAt)
+                .Select(c => new ConversationSummaryResponse
+                {
+                    ConversationId = c.Id.ToString(),
+                    Title = c.Title,
+                    LastQuestion = c.QueryHistories.OrderByDescending(q => q.CreatedAt).Select(q => q.UserPrompt).FirstOrDefault(),
+                    CreatedAt = c.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                    UpdatedAt = (c.UpdatedAt ?? c.CreatedAt).ToString("yyyy-MM-ddTHH:mm:ssZ")
+                })
+                .ToListAsync(cancellationToken);
+
+            return Result<List<ConversationSummaryResponse>>.Success(conversations);
+        }
+
+        public async Task<Result<ConversationDetailsResponse>> GetConversationAsync(
+            string conversationId, string userId, string branchId, CancellationToken cancellationToken = default)
+        {
+            if (!Guid.TryParse(conversationId, out var id))
+                return Result<ConversationDetailsResponse>.Failure("Invalid Conversation ID format.");
+
+            var conversation = await _context.Conversations.FirstOrDefaultAsync(
+                c => c.Id == id && c.UserId == userId && c.BranchId == branchId && !c.IsArchived,
+                cancellationToken);
+            if (conversation == null)
+                return Result<ConversationDetailsResponse>.Failure("Conversation not found or you do not have permission to view it.");
+
+            var queries = await _context.CopilotQueryHistories
+                .Where(q => q.ConversationId == id && q.UserId == userId && q.BranchId == branchId)
+                .OrderBy(q => q.CreatedAt)
+                .ToListAsync(cancellationToken);
+
+            return Result<ConversationDetailsResponse>.Success(new ConversationDetailsResponse
+            {
+                ConversationId = conversation.Id.ToString(),
+                Title = conversation.Title,
+                CreatedAt = conversation.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                UpdatedAt = (conversation.UpdatedAt ?? conversation.CreatedAt).ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                Turns = queries.Select(q => new ConversationTurnResponse
+                {
+                    QueryId = q.Id.ToString(),
+                    Question = q.UserPrompt,
+                    GeneratedSql = q.GeneratedSql,
+                    Status = q.Status,
+                    ExecutionTimeMs = q.ExecutionTimeMs,
+                    CreatedAt = q.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                    Result = q.ResultJson == null ? null : DeserializeReport(q.ResultJson)
+                }).ToList()
+            });
+        }
+
+        public async Task<Result<bool>> ArchiveConversationAsync(
+            string conversationId, string userId, string branchId, CancellationToken cancellationToken = default)
+        {
+            if (!Guid.TryParse(conversationId, out var id))
+                return Result<bool>.Failure("Invalid Conversation ID format.");
+
+            var conversation = await _context.Conversations.FirstOrDefaultAsync(
+                c => c.Id == id && c.UserId == userId && c.BranchId == branchId && !c.IsArchived,
+                cancellationToken);
+            if (conversation == null)
+                return Result<bool>.Failure("Conversation not found or you do not have permission to modify it.");
+
+            conversation.IsArchived = true;
+            await _context.SaveChangesAsync(cancellationToken);
+            return Result<bool>.Success(true);
+        }
+
+        private async Task<List<ConversationMessage>> LoadConversationMessagesAsync(
+            Guid conversationId, string userId, string branchId, CancellationToken cancellationToken)
+        {
+            var queries = await _context.CopilotQueryHistories
+                .Where(q => q.ConversationId == conversationId && q.UserId == userId && q.BranchId == branchId)
+                .OrderByDescending(q => q.CreatedAt)
+                .Take(5)
+                .OrderBy(q => q.CreatedAt)
+                .ToListAsync(cancellationToken);
+
+            var messages = new List<ConversationMessage>();
+            foreach (var query in queries)
+            {
+                messages.Add(new ConversationMessage { Role = "user", Content = query.UserPrompt });
+                if (!string.IsNullOrWhiteSpace(query.GeneratedSql))
+                    messages.Add(new ConversationMessage { Role = "assistant", Content = $"Generated SQL: {query.GeneratedSql}" });
+            }
+            return messages;
+        }
+
+        private static CopilotReport? DeserializeReport(string json)
+        {
+            try { return JsonSerializer.Deserialize<CopilotReport>(json); }
+            catch (JsonException) { return null; }
+        }
+
         private async Task<Guid> LogQueryHistorySafeAsync(
             string userId,
             string branchId,
             string prompt,
             string? sql,
             Guid layerId,
+            Guid conversationId,
             string status,
             string? error,
             long executionTime,
@@ -357,6 +495,7 @@ namespace EnterpriseAiCopilot.Application.Services
                     UserPrompt = prompt,
                     GeneratedSql = sql,
                     SemanticLayerId = layerId,
+                    ConversationId = conversationId,
                     Status = status,
                     ErrorMessage = error,
                     ExecutionTimeMs = executionTime

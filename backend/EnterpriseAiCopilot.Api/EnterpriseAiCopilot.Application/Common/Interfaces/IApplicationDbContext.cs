@@ -13,6 +13,7 @@ namespace EnterpriseAiCopilot.Application.Common.Interfaces
         DbSet<SemanticSourceFile> SemanticSourceFiles { get; }
         DbSet<SemanticRevision> SemanticRevisions { get; }
         DbSet<CopilotQueryHistory> CopilotQueryHistories { get; }
+        DbSet<Conversation> Conversations { get; }
         DbSet<AllowedTable> AllowedTables { get; }
         DbSet<UserTablePermission> UserTablePermissions { get; }
         DbSet<AuditLog> AuditLogs { get; }
