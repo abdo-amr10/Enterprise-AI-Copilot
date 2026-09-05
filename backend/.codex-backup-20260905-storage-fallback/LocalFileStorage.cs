@@ -6,7 +6,6 @@ using Microsoft.Extensions.Hosting;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -16,13 +15,12 @@ namespace EnterpriseAiCopilot.Infrastructure.FileStorage
     public class LocalFileStorage : IFileStorage
     {
         private readonly string _baseStoragePath;
-        private readonly string[] _readStoragePaths;
 
         public LocalFileStorage(IConfiguration configuration, IHostEnvironment environment)
         {
             var configuredRoot = configuration["FileStorage:BasePath"];
             var storageRoot = string.IsNullOrWhiteSpace(configuredRoot)
-                ? Path.Combine(environment.ContentRootPath, "Storage")
+                ? Path.Combine(AppContext.BaseDirectory, "Storage")
                 : configuredRoot;
 
             if (!Path.IsPathFullyQualified(storageRoot))
@@ -30,16 +28,6 @@ namespace EnterpriseAiCopilot.Infrastructure.FileStorage
 
             _baseStoragePath = Path.GetFullPath(storageRoot)
                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-
-            var candidatePaths = new[]
-            {
-                _baseStoragePath,
-                Path.GetFullPath(Path.Combine(environment.ContentRootPath, "Storage")),
-                Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "Storage"))
-            };
-            _readStoragePaths = candidatePaths
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
 
             Directory.CreateDirectory(_baseStoragePath);
         }
@@ -77,19 +65,14 @@ namespace EnterpriseAiCopilot.Infrastructure.FileStorage
 
         public async Task<Result<byte[]>> GetFileAsync(string relativeFilePath, CancellationToken cancellationToken = default)
         {
+            var fullPath = ResolveContainedPath(relativeFilePath);
+            if (!File.Exists(fullPath))
+                return Result<byte[]>.Failure("File not found on disk.");
+
             try
             {
-                foreach (var root in _readStoragePaths)
-                {
-                    var fullPath = ResolveContainedPath(relativeFilePath, root);
-                    if (File.Exists(fullPath))
-                    {
-                        var bytes = await File.ReadAllBytesAsync(fullPath, cancellationToken);
-                        return Result<byte[]>.Success(bytes);
-                    }
-                }
-
-                return Result<byte[]>.Failure("File not found on disk.");
+                var bytes = await File.ReadAllBytesAsync(fullPath, cancellationToken);
+                return Result<byte[]>.Success(bytes);
             }
             catch (Exception ex)
             {
@@ -118,18 +101,15 @@ namespace EnterpriseAiCopilot.Infrastructure.FileStorage
         }
 
         private string ResolveContainedPath(string relativePath)
-            => ResolveContainedPath(relativePath, _baseStoragePath);
-
-        private static string ResolveContainedPath(string relativePath, string storageRoot)
         {
             if (string.IsNullOrWhiteSpace(relativePath))
                 throw new ArgumentException("Storage path cannot be empty.", nameof(relativePath));
 
-            var fullPath = Path.GetFullPath(Path.Combine(storageRoot, relativePath));
-            var rootWithSeparator = storageRoot + Path.DirectorySeparatorChar;
+            var fullPath = Path.GetFullPath(Path.Combine(_baseStoragePath, relativePath));
+            var rootWithSeparator = _baseStoragePath + Path.DirectorySeparatorChar;
 
             if (!fullPath.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(fullPath, storageRoot, StringComparison.OrdinalIgnoreCase))
+                !string.Equals(fullPath, _baseStoragePath, StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException("Storage path escapes the configured storage root.");
             }
