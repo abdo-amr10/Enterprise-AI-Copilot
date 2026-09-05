@@ -12,5 +12,8 @@ namespace EnterpriseAiCopilot.Application.Common.Interfaces
         Task<Result<QueryHistoryResponse>> GetUserHistoryAsync(string userId, string branchId, CancellationToken cancellationToken = default);
 
         Task<Result<QueryDetailsResponse>> GetQueryDetailsAsync(string queryId, string userId, string branchId, CancellationToken cancellationToken = default);
+        Task<Result<List<ConversationSummaryResponse>>> GetConversationsAsync(string userId, string branchId, CancellationToken cancellationToken = default);
+        Task<Result<ConversationDetailsResponse>> GetConversationAsync(string conversationId, string userId, string branchId, CancellationToken cancellationToken = default);
+        Task<Result<bool>> ArchiveConversationAsync(string conversationId, string userId, string branchId, CancellationToken cancellationToken = default);
     }
 }

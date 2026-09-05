@@ -16,6 +16,8 @@ namespace EnterpriseAiCopilot.Domain.Entities
 
         public Guid SemanticLayerId { get; set; }
         public virtual SemanticLayer? SemanticLayer { get; set; }
+        public Guid? ConversationId { get; set; }
+        public virtual Conversation? Conversation { get; set; }
 
         public string Status { get; set; } = string.Empty;
 

@@ -135,6 +135,9 @@ namespace EnterpriseAiCopilot.Infrastructure.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<Guid?>("ConversationId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
@@ -173,7 +176,59 @@ namespace EnterpriseAiCopilot.Infrastructure.Migrations
 
                     b.HasIndex("SemanticLayerId");
 
+                    b.HasIndex("ConversationId");
+
                     b.ToTable("CopilotQueryHistories", (string)null);
+                });
+
+            modelBuilder.Entity("EnterpriseAiCopilot.Domain.Entities.Conversation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("BranchId")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("IsArchived")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("LastModifiedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Title")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<Guid>("SemanticLayerId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+                    b.HasIndex("SemanticLayerId");
+                    b.HasIndex("UserId", "BranchId", "UpdatedAt");
+                    b.ToTable("Conversations", (string)null);
                 });
 
             modelBuilder.Entity("EnterpriseAiCopilot.Domain.Entities.SemanticLayer", b =>
@@ -471,6 +526,11 @@ namespace EnterpriseAiCopilot.Infrastructure.Migrations
 
             modelBuilder.Entity("EnterpriseAiCopilot.Domain.Entities.CopilotQueryHistory", b =>
                 {
+                    b.HasOne("EnterpriseAiCopilot.Domain.Entities.Conversation", "Conversation")
+                        .WithMany("QueryHistories")
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("EnterpriseAiCopilot.Domain.Entities.SemanticLayer", "SemanticLayer")
                         .WithMany()
                         .HasForeignKey("SemanticLayerId")
@@ -478,6 +538,21 @@ namespace EnterpriseAiCopilot.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("SemanticLayer");
+
+                    b.Navigation("Conversation");
+                });
+
+            modelBuilder.Entity("EnterpriseAiCopilot.Domain.Entities.Conversation", b =>
+                {
+                    b.HasOne("EnterpriseAiCopilot.Domain.Entities.SemanticLayer", "SemanticLayer")
+                        .WithMany()
+                        .HasForeignKey("SemanticLayerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("SemanticLayer");
+
+                    b.Navigation("QueryHistories");
                 });
 
             modelBuilder.Entity("EnterpriseAiCopilot.Domain.Entities.SemanticRevision", b =>
