@@ -154,3 +154,15 @@ export function IconPrinter(props) {
 export function IconChevronDown(props) {
   return <svg {...base} {...props}><path d="m6 9 6 6 6-6" /></svg>;
 }
+
+export function IconSearch(props) {
+  return <svg {...base} {...props}><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>;
+}
+
+export function IconTrash(props) {
+  return <svg {...base} {...props}><path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15M10 11v5M14 11v5" /></svg>;
+}
+
+export function IconExternalLink(props) {
+  return <svg {...base} {...props}><path d="M14 3h7v7M21 3l-9 9" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>;
+}

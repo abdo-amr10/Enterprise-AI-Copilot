@@ -105,25 +105,6 @@
   background: #2563eb;
   color: white;
 }
-.admin-choice {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-top: 22px;
-}
-.admin-choice button {
-  display: grid;
-  gap: 5px;
-  border: 1px solid #dbe1ee;
-  border-radius: 10px;
-  background: white;
-  padding: 17px;
-  text-align: left;
-}
-.admin-choice button.selected {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px #eef0ff;
-}
 .admin-success {
   color: #16a34a;
   font-size: 13px;
@@ -211,7 +192,6 @@
 }
 @media (max-width: 780px) {
   .admin-content-grid,
-  .admin-choice,
   .admin-fields {
     grid-template-columns: 1fr;
   }
