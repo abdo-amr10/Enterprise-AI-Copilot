@@ -47,7 +47,7 @@ class _Fixer:
     def __init__(self):
         self.calls = 0
 
-    def fix(self, draft, validation, schema, relationships):
+    def fix(self, draft, validation, schema, relationships, *args, **kwargs):
         self.calls += 1
         fixed = deepcopy(draft)
         fixed["entities"][0]["mapping"] = "customers"

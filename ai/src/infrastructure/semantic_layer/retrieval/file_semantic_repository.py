@@ -114,10 +114,20 @@ class FileSemanticRepository:
             query_embedding = self._embedding_service.encode_query(question)
 
         with stage("context_retrieval", operation="vector_search", is_leaf=False):
-            return self._vector_store.search(
+            results = self._vector_store.search(
                 query_embedding,
                 top_k,
             )
+            return [
+                {
+                    **result,
+                    "type": result.get("object_type") or result.get("type"),
+                    "object_type": result.get("object_type") or result.get("type"),
+                    "semanticLayerId": result.get("semantic_layer_id") or result.get("semanticLayerId"),
+                    "revisionId": result.get("revision_id") or result.get("revisionId"),
+                }
+                for result in results
+            ]
 
     def _keyword_retrieve(
         self,
@@ -182,9 +192,10 @@ class FileSemanticRepository:
         return [
             {
                 **document,
-                "type": document["object_type"],
-                "semanticLayerId": document["semantic_layer_id"],
-                "revisionId": document["revision_id"],
+                "type": document.get("object_type") or document.get("type"),
+                "object_type": document.get("object_type") or document.get("type"),
+                "semanticLayerId": document.get("semantic_layer_id") or document.get("semanticLayerId"),
+                "revisionId": document.get("revision_id") or document.get("revisionId"),
             }
             for document in SemanticDocumentBuilder().build(layer)
         ]

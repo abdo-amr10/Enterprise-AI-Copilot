@@ -184,9 +184,10 @@ class BackendSemanticRepository:
         return [
             {
                 **result,
-                "type": result["object_type"],
-                "semanticLayerId": result["semantic_layer_id"],
-                "revisionId": result["revision_id"],
+                "type": result.get("object_type") or result.get("type"),
+                "object_type": result.get("object_type") or result.get("type"),
+                "semanticLayerId": result.get("semantic_layer_id") or result.get("semanticLayerId"),
+                "revisionId": result.get("revision_id") or result.get("revisionId"),
             }
             for result in results
         ]

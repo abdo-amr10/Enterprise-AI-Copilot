@@ -46,7 +46,7 @@ class SemanticRetrievalPipeline:
             payload = document.get("payload", {})
             if isinstance(payload, dict):
                 self._collect_tables(payload, tables)
-            if document.get("type") == "business_rule":
+            if (document.get("object_type") or document.get("type")) == "business_rule":
                 text = payload.get("description") if isinstance(payload, dict) else None
                 if isinstance(text, str) and text.strip():
                     business_rules.append(text)
@@ -67,10 +67,10 @@ class SemanticRetrievalPipeline:
         """
         if isinstance(value, dict):
             for key, item in value.items():
-                if key in {"table", "from_table", "to_table"} and isinstance(item, str):
+                if key in {"table", "source_table", "from_table", "to_table"} and isinstance(item, str):
                     tables.add(item)
-                elif key == "mapping" and isinstance(item, str) and "." in item:
-                    tables.add(item.split(".", 1)[0])
+                elif key == "mapping" and isinstance(item, str) and item.strip():
+                    tables.add(item.split(".", 1)[0].strip())
                 else:
                     cls._collect_tables(item, tables)
         elif isinstance(value, list):

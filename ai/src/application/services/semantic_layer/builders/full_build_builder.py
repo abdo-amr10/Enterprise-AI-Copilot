@@ -59,9 +59,11 @@ class FullRebuildBuilder:
         """Ensure all authoritative tables from schema and all processed relationships are present."""
         result = dict(semantic_layer)
 
-        # 1. Relationships are physical metadata, not semantic enrichment.  Never
-        # keep a relationship invented by the model or relationship engine.
-        result["relationships"] = self._provided_relationships(build_input.relationships)
+        # 1. Reconcile relationships: physical schema is authoritative for structure,
+        # but preserve valid LLM-generated semantic metadata.
+        raw_provided = self._provided_relationships(build_input.relationships)
+        llm_relationships = result.get("relationships") or []
+        result["relationships"] = self._reconcile_relationships(raw_provided, llm_relationships)
 
         # 2. Reconcile Entities from Schema
         existing_entities = result.get("entities") or []
@@ -255,6 +257,163 @@ class FullRebuildBuilder:
 
         return result
 
+    @classmethod
+    def _reconcile_relationships(
+        cls,
+        provided: list[dict[str, Any]],
+        llm_relationships: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Merge authoritative physical foreign keys with enriched LLM semantic metadata."""
+        if not provided:
+            return []
+
+        llm_by_full_key: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+        llm_by_table_pair: dict[tuple[str, str], dict[str, Any]] = {}
+        llm_by_name: dict[str, dict[str, Any]] = {}
+
+        for rel in llm_relationships:
+            if not isinstance(rel, dict):
+                continue
+            f_tbl = str(rel.get("from_table") or rel.get("source_table") or "").lower()
+            t_tbl = str(rel.get("to_table") or rel.get("target_table") or "").lower()
+            f_col = str(rel.get("from_column") or rel.get("source_column") or "").lower()
+            t_col = str(rel.get("to_column") or rel.get("target_column") or "").lower()
+            name = str(rel.get("name") or "").lower()
+
+            if f_tbl and t_tbl and f_col and t_col:
+                llm_by_full_key[(f_tbl, f_col, t_tbl, t_col)] = rel
+            if f_tbl and t_tbl:
+                llm_by_table_pair.setdefault((f_tbl, t_tbl), rel)
+            if name:
+                llm_by_name[name] = rel
+
+        reconciled: list[dict[str, Any]] = []
+        for phys in provided:
+            f_tbl = str(phys.get("from_table") or "").lower()
+            t_tbl = str(phys.get("to_table") or "").lower()
+            f_col = str(phys.get("from_column") or "").lower()
+            t_col = str(phys.get("to_column") or "").lower()
+            phys_name = str(phys.get("name") or "").lower()
+
+            llm_match = (
+                llm_by_full_key.get((f_tbl, f_col, t_tbl, t_col))
+                or llm_by_table_pair.get((f_tbl, t_tbl))
+                or llm_by_name.get(phys_name)
+            )
+
+            rel_dict = dict(phys)
+            rel_dict["from_table"] = f_tbl
+            rel_dict["from_column"] = f_col
+            rel_dict["to_table"] = t_tbl
+            rel_dict["to_column"] = t_col
+            rel_dict["source_table"] = f_tbl
+            rel_dict["source_column"] = f_col
+            rel_dict["target_table"] = t_tbl
+            rel_dict["target_column"] = t_col
+            rel_dict["status"] = "PROVIDED"
+            rel_dict["is_executable"] = True
+            rel_dict["confidence"] = 1
+
+            card = (
+                (llm_match.get("cardinality") if llm_match else None)
+                or phys.get("cardinality")
+                or "1:N"
+            )
+            rel_dict["cardinality"] = card
+
+            rel_type = (
+                (llm_match.get("relationship_type") if llm_match else None)
+                or phys.get("relationship_type")
+                or "foreign_key"
+            )
+            rel_dict["relationship_type"] = rel_type
+
+            if llm_match and isinstance(llm_match.get("nullable"), bool):
+                rel_dict["nullable"] = llm_match["nullable"]
+            elif isinstance(phys.get("nullable"), bool):
+                rel_dict["nullable"] = phys["nullable"]
+            else:
+                rel_dict["nullable"] = False
+
+            rel_dict["name"] = (
+                phys.get("name")
+                or (llm_match.get("name") if llm_match else None)
+                or f"{f_tbl}_{t_tbl}"
+            )
+
+            if llm_match and isinstance(llm_match.get("allowed_join_types"), list):
+                rel_dict["allowed_join_types"] = llm_match["allowed_join_types"]
+            elif isinstance(phys.get("allowed_join_types"), list):
+                rel_dict["allowed_join_types"] = phys["allowed_join_types"]
+            else:
+                rel_dict["allowed_join_types"] = ["INNER JOIN", "LEFT JOIN"]
+
+            rel_dict["join_direction"] = (
+                (llm_match.get("join_direction") if llm_match else None)
+                or phys.get("join_direction")
+                or f"{f_tbl}_to_{t_tbl}"
+            )
+
+            is_1_to_n = card in ("1:N", "N:N")
+            if llm_match and isinstance(llm_match.get("fanout_risk"), bool):
+                rel_dict["fanout_risk"] = llm_match["fanout_risk"]
+            elif isinstance(phys.get("fanout_risk"), bool):
+                rel_dict["fanout_risk"] = phys["fanout_risk"]
+            else:
+                rel_dict["fanout_risk"] = is_1_to_n
+
+            rel_dict["aggregation_behavior"] = (
+                (llm_match.get("aggregation_behavior") if llm_match else None)
+                or phys.get("aggregation_behavior")
+                or ("fanout_risk" if rel_dict["fanout_risk"] else "safe")
+            )
+
+            sec_prop = (
+                (llm_match.get("security_propagation") if llm_match else None)
+                or phys.get("security_propagation")
+            )
+            if sec_prop is not None:
+                rel_dict["security_propagation"] = sec_prop
+            else:
+                rel_dict["security_propagation"] = "allowed"
+
+            pred_eq = (
+                (llm_match.get("predicate_equivalence") if llm_match else None)
+                or phys.get("predicate_equivalence")
+            )
+            if isinstance(pred_eq, dict):
+                rel_dict["predicate_equivalence"] = pred_eq
+            else:
+                rel_dict["predicate_equivalence"] = {
+                    "INNER JOIN": True,
+                    "LEFT JOIN": "conditional" if rel_dict["nullable"] else True,
+                    "RIGHT JOIN": False,
+                    "FULL JOIN": False,
+                }
+
+            sec_domain = (
+                (llm_match.get("security_domain") if llm_match else None)
+                or phys.get("security_domain")
+            )
+            if sec_domain is not None:
+                rel_dict["security_domain"] = sec_domain
+
+            desc = (
+                (llm_match.get("description") if llm_match else None)
+                or phys.get("description")
+                or f"Foreign key relationship from {f_tbl} to {t_tbl} ({card})."
+            )
+            rel_dict["description"] = desc
+
+            if llm_match and llm_match.get("object_id"):
+                rel_dict["object_id"] = llm_match["object_id"]
+            elif phys.get("object_id"):
+                rel_dict["object_id"] = phys["object_id"]
+
+            reconciled.append(rel_dict)
+
+        return reconciled
+
     @staticmethod
     def _provided_relationships(relationships: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
         """Return only authoritative relationships, preserving their source order.
@@ -374,8 +533,6 @@ class FullRebuildBuilder:
             item = dict(measure)
             mapping = str(item.get("mapping", "")).lower()
             aggregation = str(item.get("aggregation") or item.get("aggregation_function") or "").upper()
-            if aggregation == "AVG":
-                continue
             if mapping not in glossary_by_mapping and aggregation not in {"COUNT", "COUNT DISTINCT"}:
                 continue
             table_name, _, column_name = mapping.partition(".")
@@ -399,10 +556,12 @@ class FullRebuildBuilder:
                 glossary_measure = glossary_by_mapping[mapping]
                 item["name"] = glossary_measure["name"]
                 item["aggregation"] = item["aggregation_function"] = glossary_measure["aggregation"]
-                item["business_definition"] = glossary_measure["business_definition"]
-                item["description"] = glossary_measure["description"]
+                item["business_definition"] = glossary_measure.get("business_definition", "")
+                item["description"] = glossary_measure.get("description", "")
                 item["source"] = "business_glossary"
                 item["generated"] = False
+                if item["aggregation"] == "AVG":
+                    item["fanout_sensitive"] = True
             else:
                 item["name"] = f"{FullRebuildBuilder._singular_table_name(table_name).title()} Count"
                 item["aggregation"] = item["aggregation_function"] = "COUNT"
@@ -426,7 +585,18 @@ class FullRebuildBuilder:
             if not match:
                 continue
             meaning = match.group("meaning").strip()
-            aggregation = "SUM" if re.search(r"\bsum\b", meaning, re.IGNORECASE) else None
+            aggregation = None
+            if re.search(r"\bsum\b", meaning, re.IGNORECASE):
+                aggregation = "SUM"
+            elif re.search(r"\b(avg|average|mean)\b", meaning, re.IGNORECASE):
+                aggregation = "AVG"
+            elif re.search(r"\b(min|minimum)\b", meaning, re.IGNORECASE):
+                aggregation = "MIN"
+            elif re.search(r"\b(max|maximum)\b", meaning, re.IGNORECASE):
+                aggregation = "MAX"
+            elif re.search(r"\bcount\b", meaning, re.IGNORECASE):
+                aggregation = "COUNT"
+
             if aggregation is None:
                 continue
             measures.append(
@@ -465,26 +635,41 @@ class FullRebuildBuilder:
                 if len(rule_text) < 10:
                     continue
                 normalized = rule_text.casefold()
-                if "customer transactions" in normalized:
-                    name = "Customer Transactions"
-                elif "customer cards" in normalized:
-                    name = "Customer Cards"
-                elif "customer loans" in normalized:
-                    name = "Customer Loans"
-                elif "transaction volume" in normalized:
-                    name = "Transaction Volume Aggregation"
-                elif "total balance" in normalized:
-                    name = "Total Balance Aggregation"
-                elif "loans" in normalized and "directly to accounts" in normalized:
-                    name = "No Direct Loans-to-Accounts Join"
+
+                bold_matches = re.findall(r"\*\*([^*]+)\*\*", trimmed)
+                if bold_matches:
+                    name = bold_matches[0].strip().title()
                 else:
-                    continue
+                    clean_text = re.sub(
+                        r"^(when\s+(a\s+user\s+asks\s+for|querying)\s+)",
+                        "",
+                        rule_text,
+                        flags=re.IGNORECASE,
+                    )
+                    first_clause = re.split(r"[,:.]", clean_text)[0].strip()
+                    words = first_clause.split()
+                    name = " ".join(words[:5]).title() if len(words) > 5 else first_clause.title()
+
+                if "directly to accounts" in normalized and "loans" in normalized:
+                    name = "No Direct Loans-to-Accounts Join"
+
+                if any(k in normalized for k in ("join", "relationship", "path", "directly")):
+                    rule_type = "join_guidance"
+                elif any(k in normalized for k in ("aggregate", "aggregation", "volume", "balance", "total", "sum", "count", "avg", "average")):
+                    rule_type = "aggregation"
+                elif any(k in normalized for k in ("filter", "where", "status", "active")):
+                    rule_type = "filtering"
+                elif any(k in normalized for k in ("security", "rls", "tenant", "branch")):
+                    rule_type = "security"
+                else:
+                    rule_type = "business_guidance"
+
                 business_rules.append({
                     "name": name,
                     "description": rule_text,
                     "source": source,
                     "generated": False,
-                    "rule_type": "join_guidance" if "join" in normalized else "aggregation",
+                    "rule_type": rule_type,
                     "enforcement": "mandatory",
                 })
 

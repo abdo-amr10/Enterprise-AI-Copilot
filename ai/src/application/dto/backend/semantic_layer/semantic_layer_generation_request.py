@@ -17,6 +17,7 @@ _VALID_SECTIONS = {
     "measures",
     "dimensions",
     "business_rules",
+    "security_domains",
 }
 
 @dataclass(frozen=True)

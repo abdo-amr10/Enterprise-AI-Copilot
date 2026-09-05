@@ -31,6 +31,7 @@ class SemanticDocumentBuilder:
                     "id": f"{semantic_layer_id}:{revision_id}:{object_type}:{object_id}",
                     "object_id": object_id,
                     "object_type": object_type,
+                    "type": object_type,
                     "text": self._render(object_type, item),
                     "payload": item,
                     "semantic_layer_id": semantic_layer_id,
@@ -52,7 +53,7 @@ class SemanticDocumentBuilder:
                 "Entity",
                 (
                     "name", "description", "mapping", "source_table", "grain",
-                    "natural_grain", "grain_key", "primary_identifier",
+                    "natural_grain", "grain_key", "primary_identifier", "primary_key",
                     "security_domain", "security_scope", "aliases", "attributes",
                     "business_meaning", "business_definition",
                 ),
@@ -84,7 +85,7 @@ class SemanticDocumentBuilder:
                 "Dimension",
                 (
                     "name", "description", "mapping", "grain", "natural_grain",
-                    "business_meaning", "aliases",
+                    "data_type", "type", "business_meaning", "aliases",
                 ),
             ),
             "business_rule": (

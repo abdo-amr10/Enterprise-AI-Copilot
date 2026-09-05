@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Any
 
 @dataclass(frozen=True)
 class GenerationRequest:
@@ -10,6 +11,7 @@ class GenerationRequest:
     """
     prompt: str
     format: str | None = None
+    response_model: Any = None
     
     def __post_init__(self) -> None:
         """Validate the generation request."""

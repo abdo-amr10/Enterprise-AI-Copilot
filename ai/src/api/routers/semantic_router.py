@@ -23,6 +23,7 @@ from src.api.generation_validation_dependencies import (
 from src.application.dto.backend.semantic_layer.semantic_layer_generation_request import (
     AffectedObject,
     SemanticLayerGenerationRequest,
+    _VALID_SECTIONS,
 )
 from src.application.dto.backend.copilot.semantic_retrieval_request import (
     SemanticRetrievalRequest,
@@ -96,6 +97,65 @@ def _handle_contract_error(error: ValueError) -> None:
     raise HTTPException(status_code=422, detail=str(error)) from error
 
 
+def _normalize_affected_object(
+    item: dict[str, Any],
+    base_semantic_layer: dict[str, Any] | None = None,
+) -> AffectedObject:
+    """Normalize incoming external C# affected object payloads into the internal domain model."""
+    section_val = item.get("section")
+    if not isinstance(section_val, str) or not section_val.strip():
+        raise ValueError("section is required and must be a non-empty string.")
+    section = section_val.strip()
+    if section not in _VALID_SECTIONS:
+        raise ValueError(f"Invalid section '{section}'. Must be one of {sorted(_VALID_SECTIONS)}.")
+
+    action_val = item.get("action")
+    action = str(action_val).strip().lower() if action_val else "update"
+    if action not in {"add", "update", "delete"}:
+        raise ValueError("action must be add, update, or delete.")
+
+    obj_id = item.get("id")
+    if isinstance(obj_id, str):
+        obj_id = obj_id.strip() or None
+
+    name = item.get("name")
+    if isinstance(name, str):
+        name = name.strip() or None
+
+    if action in {"update", "delete"} and not obj_id:
+        raise ValueError(f"id is required for {action} operations.")
+    if action == "add" and not name:
+        if obj_id:
+            name = obj_id
+            obj_id = None
+        else:
+            raise ValueError("name is required for add operations.")
+
+    if base_semantic_layer and isinstance(base_semantic_layer, dict) and action in {"update", "delete"}:
+        section_items = base_semantic_layer.get(section, [])
+        matched = None
+        for existing in section_items:
+            if isinstance(existing, dict) and (existing.get("object_id") == obj_id or existing.get("id") == obj_id):
+                matched = existing
+                break
+        if not matched:
+            raise ValueError(f"Unknown ID '{obj_id}' in section '{section}'.")
+        if not name:
+            name = (
+                matched.get("name")
+                or matched.get("canonical_root")
+                or matched.get("mapping")
+                or str(obj_id)
+            )
+
+    return AffectedObject(
+        section=section,
+        action=action,
+        id=obj_id,
+        name=name,
+    )
+
+
 @router.post("/generate-draft")
 def generate_draft(
     request: SemanticGenerateRequest,
@@ -114,37 +174,33 @@ def generate_draft(
 
     try:
         body = request.model_dump()
+        trigger_type = _required_string(body, "triggerType")
+        base_revision_id = body.get("baseRevisionId")
+        base_semantic_layer = body.get("baseSemanticLayer")
+        if trigger_type == "Incremental" and base_semantic_layer is None:
+            if not base_revision_id:
+                raise ValueError("baseRevisionId is required for Incremental generation.")
+            base_semantic_layer = backend_client.load_revision(base_revision_id)
+        if base_semantic_layer is not None and not isinstance(
+            base_semantic_layer, dict
+        ):
+            raise ValueError("baseSemanticLayer must be an object when provided.")
+
         affected_objects = tuple(
-            AffectedObject(
-                section=_required_string(item, "section"),
-                action=item.get("action", "update"),
-                id=item.get("id"),
-                name=item.get("name"),
-            )
+            _normalize_affected_object(item, base_semantic_layer)
             for item in (body.get("affectedObjects") or [])
         )
         generation_request = SemanticLayerGenerationRequest(
-            trigger_type=_required_string(body, "triggerType"),
+            trigger_type=trigger_type,
             semantic_layer_id=_required_string(body, "semanticLayerId"),
             source_file_ids=_present_source_file_ids(body),
-            base_revision_id=body.get("baseRevisionId"),
+            base_revision_id=base_revision_id,
             affected_objects=affected_objects,
         )
         sources = backend_client.load_generation_sources(
             generation_request.source_file_ids
         )
         _validate_resolved_sources(generation_request.trigger_type, sources)
-        base_semantic_layer = body.get("baseSemanticLayer")
-        if generation_request.trigger_type == "Incremental" and base_semantic_layer is None:
-            if not generation_request.base_revision_id:
-                raise ValueError("baseRevisionId is required for Incremental generation.")
-            base_semantic_layer = backend_client.load_revision(
-                generation_request.base_revision_id
-            )
-        if base_semantic_layer is not None and not isinstance(
-            base_semantic_layer, dict
-        ):
-            raise ValueError("baseSemanticLayer must be an object when provided.")
 
         draft = pipeline.run(
             request=generation_request,

@@ -33,7 +33,7 @@ class SemanticRetrieveRequest(CopilotRequest):
 
 class AffectedObjectRequest(StrictModel):
     section: Literal["entities", "relationships", "measures", "dimensions", "business_rules", "security_domains"]
-    action: Literal["add", "update", "delete"] = "update"
+    action: Literal["add", "update", "delete"] | None = "update"
     id: str | None = None
     name: str | None = None
 

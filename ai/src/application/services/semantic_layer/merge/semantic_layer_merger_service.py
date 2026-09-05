@@ -36,6 +36,9 @@ class SemanticLayerMergeService:
                 merged_layer, incremental_layer.get(section, []),
                 affected_by_section.get(section, []), section,
             )
+        self._cascade_deleted_entities(
+            approved_layer, affected_by_section.get("entities", []), merged_layer
+        )
         return merged_layer
 
     @classmethod
@@ -222,3 +225,63 @@ class SemanticLayerMergeService:
                     raise ValueError(
                         f"{name} section '{section}' must contain only dictionaries."
                     )
+
+    @classmethod
+    def _cascade_deleted_entities(
+        cls,
+        approved_layer: dict[str, Any],
+        affected_entities: list[dict[str, Any]],
+        merged_layer: dict[str, Any],
+    ) -> None:
+        deleted_entity_ids = {
+            item["id"] for item in affected_entities if item.get("action") == "delete"
+        }
+        if not deleted_entity_ids:
+            return
+
+        deleted_tables: set[str] = set()
+        for entity in approved_layer.get("entities", []):
+            if isinstance(entity, dict) and entity.get("object_id") in deleted_entity_ids:
+                if entity.get("mapping"):
+                    deleted_tables.add(entity["mapping"])
+                if entity.get("name"):
+                    deleted_tables.add(entity["name"])
+
+        if not deleted_tables:
+            return
+
+        # Cascade from relationships
+        if "relationships" in merged_layer and isinstance(merged_layer["relationships"], list):
+            merged_layer["relationships"][:] = [
+                rel for rel in merged_layer["relationships"]
+                if isinstance(rel, dict)
+                and rel.get("from_table") not in deleted_tables
+                and rel.get("to_table") not in deleted_tables
+            ]
+
+        # Cascade from dimensions
+        if "dimensions" in merged_layer and isinstance(merged_layer["dimensions"], list):
+            merged_layer["dimensions"][:] = [
+                dim for dim in merged_layer["dimensions"]
+                if isinstance(dim, dict)
+                and not any(
+                    isinstance(dim.get("mapping"), str) and (
+                        dim["mapping"].startswith(f"{tbl}.") or dim["mapping"] == tbl
+                    )
+                    for tbl in deleted_tables
+                )
+            ]
+
+        # Cascade from measures
+        if "measures" in merged_layer and isinstance(merged_layer["measures"], list):
+            merged_layer["measures"][:] = [
+                m for m in merged_layer["measures"]
+                if isinstance(m, dict)
+                and m.get("source_table") not in deleted_tables
+                and not any(
+                    isinstance(m.get("mapping"), str) and (
+                        m["mapping"].startswith(f"{tbl}.") or m["mapping"] == tbl
+                    )
+                    for tbl in deleted_tables
+                )
+            ]

@@ -120,7 +120,23 @@
       "status": "PROVIDED",
       "is_executable": true,
       "confidence": 1,
-      "object_id": "obj-c324383f-bd7d-47e7-80bf-c74f42b622f3"
+      "object_id": "obj-c324383f-bd7d-47e7-80bf-c74f42b622f3",
+      "source_table": "customers",
+      "source_column": "customer_id",
+      "target_table": "accounts",
+      "target_column": "customer_id",
+      "nullable": false,
+      "security_propagation": "allowed",
+      "allowed_join_types": [
+        "INNER JOIN",
+        "LEFT JOIN"
+      ],
+      "fanout_risk": true,
+      "predicate_equivalence": {
+        "INNER JOIN": true,
+        "LEFT JOIN": "conditional",
+        "FULL JOIN": false
+      }
     },
     {
       "name": "branches_accounts",
@@ -133,7 +149,23 @@
       "status": "PROVIDED",
       "is_executable": true,
       "confidence": 1,
-      "object_id": "obj-5dc7998d-de63-4ad3-9a6f-737855d99988"
+      "object_id": "obj-5dc7998d-de63-4ad3-9a6f-737855d99988",
+      "source_table": "branches",
+      "source_column": "branch_id",
+      "target_table": "accounts",
+      "target_column": "branch_id",
+      "nullable": false,
+      "security_propagation": "allowed",
+      "allowed_join_types": [
+        "INNER JOIN",
+        "LEFT JOIN"
+      ],
+      "fanout_risk": true,
+      "predicate_equivalence": {
+        "INNER JOIN": true,
+        "LEFT JOIN": "conditional",
+        "FULL JOIN": false
+      }
     },
     {
       "name": "accounts_cards",
@@ -146,7 +178,23 @@
       "status": "PROVIDED",
       "is_executable": true,
       "confidence": 1,
-      "object_id": "obj-9a874044-683f-4f23-9ad9-b0e592ad8545"
+      "object_id": "obj-9a874044-683f-4f23-9ad9-b0e592ad8545",
+      "source_table": "accounts",
+      "source_column": "account_id",
+      "target_table": "cards",
+      "target_column": "account_id",
+      "nullable": false,
+      "security_propagation": "allowed",
+      "allowed_join_types": [
+        "INNER JOIN",
+        "LEFT JOIN"
+      ],
+      "fanout_risk": true,
+      "predicate_equivalence": {
+        "INNER JOIN": true,
+        "LEFT JOIN": "conditional",
+        "FULL JOIN": false
+      }
     },
     {
       "name": "accounts_transactions",
@@ -159,7 +207,23 @@
       "status": "PROVIDED",
       "is_executable": true,
       "confidence": 1,
-      "object_id": "obj-b9982733-c6d5-47bb-87df-59f6ec4f5b0b"
+      "object_id": "obj-b9982733-c6d5-47bb-87df-59f6ec4f5b0b",
+      "source_table": "accounts",
+      "source_column": "account_id",
+      "target_table": "transactions",
+      "target_column": "account_id",
+      "nullable": false,
+      "security_propagation": "allowed",
+      "allowed_join_types": [
+        "INNER JOIN",
+        "LEFT JOIN"
+      ],
+      "fanout_risk": true,
+      "predicate_equivalence": {
+        "INNER JOIN": true,
+        "LEFT JOIN": "conditional",
+        "FULL JOIN": false
+      }
     },
     {
       "name": "merchants_transactions",
@@ -172,7 +236,23 @@
       "status": "PROVIDED",
       "is_executable": true,
       "confidence": 1,
-      "object_id": "obj-6a0f6f42-162a-4cd0-9c02-20ddf04cd169"
+      "object_id": "obj-6a0f6f42-162a-4cd0-9c02-20ddf04cd169",
+      "source_table": "merchants",
+      "source_column": "merchant_id",
+      "target_table": "transactions",
+      "target_column": "merchant_id",
+      "nullable": false,
+      "security_propagation": "allowed",
+      "allowed_join_types": [
+        "INNER JOIN",
+        "LEFT JOIN"
+      ],
+      "fanout_risk": true,
+      "predicate_equivalence": {
+        "INNER JOIN": true,
+        "LEFT JOIN": "conditional",
+        "FULL JOIN": false
+      }
     },
     {
       "name": "customers_loans",
@@ -185,7 +265,23 @@
       "status": "PROVIDED",
       "is_executable": true,
       "confidence": 1,
-      "object_id": "obj-69dc6970-ae74-429a-afb4-afc8e4249066"
+      "object_id": "obj-69dc6970-ae74-429a-afb4-afc8e4249066",
+      "source_table": "customers",
+      "source_column": "customer_id",
+      "target_table": "loans",
+      "target_column": "customer_id",
+      "nullable": false,
+      "security_propagation": "allowed",
+      "allowed_join_types": [
+        "INNER JOIN",
+        "LEFT JOIN"
+      ],
+      "fanout_risk": true,
+      "predicate_equivalence": {
+        "INNER JOIN": true,
+        "LEFT JOIN": "conditional",
+        "FULL JOIN": false
+      }
     }
   ],
   "measures": [
@@ -200,10 +296,11 @@
       "generated": false,
       "source_table": "transactions",
       "source_column": "amount_usd",
-      "natural_grain": "transaction_id",
+      "natural_grain": "transaction",
       "natural_entity": "Transaction",
       "distinct_required": false,
-      "object_id": "obj-33b00c7f-f126-48b6-98a9-ac5593dc13a3"
+      "object_id": "obj-33b00c7f-f126-48b6-98a9-ac5593dc13a3",
+      "fanout_sensitive": true
     },
     {
       "name": "Total Balance",
@@ -219,7 +316,8 @@
       "natural_grain": "account_id",
       "natural_entity": "Account",
       "distinct_required": false,
-      "object_id": "obj-5c06d560-2a2c-48d4-a35c-da178b29b32f"
+      "object_id": "obj-5c06d560-2a2c-48d4-a35c-da178b29b32f",
+      "fanout_sensitive": true
     },
     {
       "name": "Loan Exposure",
@@ -235,7 +333,24 @@
       "natural_grain": "loan_id",
       "natural_entity": "Loan",
       "distinct_required": false,
-      "object_id": "obj-613ce005-8258-4879-93c1-86a45ba9e105"
+      "object_id": "obj-613ce005-8258-4879-93c1-86a45ba9e105",
+      "fanout_sensitive": true
+    },
+    {
+      "name": "Customer Count",
+      "mapping": "customers.customer_id",
+      "aggregation": "COUNT",
+      "aggregation_function": "COUNT DISTINCT",
+      "distinct_required": true,
+      "distinct_key": "customer_id",
+      "natural_entity": "Customer",
+      "natural_grain": "customer",
+      "source_table": "customers",
+      "source_column": "customer_id",
+      "fanout_sensitive": true,
+      "source": "schema",
+      "generated": true,
+      "object_id": "obj-customer-count"
     }
   ],
   "dimensions": [

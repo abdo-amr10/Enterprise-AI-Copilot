@@ -497,6 +497,8 @@ class SelfCorrectionService:
                 return []
         except Exception:
             return []
+        if self._relationship_validator is None:
+            return []
         return self._relationship_validator.relationships_for_tables(
             tables | (extra_tables or set())
         )
@@ -629,13 +631,47 @@ class SelfCorrectionService:
                         f"- {r.get('from_table')}.{r.get('from_column')} -> {r.get('to_table')}.{r.get('to_column')}"
                     )
 
-            schema = schema_getter()
-            domains = schema.get("security_domains", []) if isinstance(schema, dict) else []
+            domains = []
+            if self._context_retrieval_service is not None:
+                repo = getattr(self._context_retrieval_service, "_semantic_repository", None)
+                if repo is not None:
+                    try:
+                        layer = repo.load()
+                        if isinstance(layer, dict):
+                            domains = layer.get("security_domains", [])
+                    except Exception:
+                        pass
+            if not domains and self._rls_validator is not None:
+                loader = getattr(self._rls_validator, "_load_security_domains", None)
+                if callable(loader):
+                    try:
+                        domains = loader(schema=schema_getter())
+                    except Exception:
+                        pass
+            if not domains:
+                schema = schema_getter()
+                domains = schema.get("security_domains", []) if isinstance(schema, dict) else []
+
             if domains:
                 lines.append("\nSECURITY POLICY:")
                 for d in domains:
-                    if isinstance(d, dict) and "canonical_predicate" in d:
-                        lines.append(f"- {d.get('name', 'domain')}: {d.get('canonical_predicate')}")
+                    if not isinstance(d, dict):
+                        continue
+                    name = d.get("name", "domain")
+                    pred = d.get("canonical_predicate") or d.get("canonical_root")
+                    scope = d.get("security_scope")
+                    parts = [f"{name}: {pred}"]
+                    if scope:
+                        parts.append(f"scope: {scope}")
+                    lines.append(f"- {', '.join(parts)}")
+                    props = d.get("propagation_paths", [])
+                    if isinstance(props, list) and props:
+                        for p in props:
+                            if isinstance(p, dict):
+                                target = p.get("target_table")
+                                path = p.get("path")
+                                if target and path:
+                                    lines.append(f"  * propagation to {target}: {path}")
 
             return "\n".join(lines)
         except Exception:

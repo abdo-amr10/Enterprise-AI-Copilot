@@ -63,7 +63,7 @@ def test_generate_sends_correct_configuration_to_ollama():
             "num_ctx": 32768,
             "num_predict": 2048,
         },
-        keep_alive=-1,
+        keep_alive="15m",
     )
 
 
@@ -92,7 +92,7 @@ def test_generate_sends_format_to_ollama_when_specified():
             "num_ctx": 32768,
             "num_predict": 2048,
         },
-        keep_alive=-1,
+        keep_alive="15m",
         format="json",
     )
 
@@ -123,7 +123,7 @@ def test_parse_keep_alive_handles_integers_and_duration_strings():
     assert _parse_keep_alive(" 60 ") == 60
     assert _parse_keep_alive("5m") == "5m"
     assert _parse_keep_alive("24h") == "24h"
-    assert _parse_keep_alive("") == -1
-    assert _parse_keep_alive(None) == -1
+    assert _parse_keep_alive("") == "15m"
+    assert _parse_keep_alive(None) == "15m"
 
    

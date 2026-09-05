@@ -374,6 +374,9 @@ class ContextRetrievalService:
             mapping = entity.get("mapping")
             if mapping in tables:
                 meta_parts = []
+                pk = entity.get("primary_key") or entity.get("primary_identifier")
+                if pk:
+                    meta_parts.append(f"primary_key: {pk}")
                 grain = entity.get("natural_grain") or entity.get("grain")
                 if grain:
                     meta_parts.append(f"natural_grain: {grain}")
@@ -397,11 +400,26 @@ class ContextRetrievalService:
         if not isinstance(schema_tables, dict):
             schema_tables = {}
         for table in sorted(tables):
+            table_info = schema_tables.get(table, {})
+            pk = table_info.get("primary_key")
+            pk_suffix = f" [PK: {pk}]" if pk else ""
+
             mappings = []
+            col_types = {}
+            for col in table_info.get("columns", []):
+                if isinstance(col, dict) and col.get("name"):
+                    c_name = col["name"]
+                    c_type = col.get("data_type") or col.get("type")
+                    if c_type:
+                        col_types[c_name] = c_type
+
             for item in objects:
                 mapping = item.get("mapping") if isinstance(item, dict) else None
                 if isinstance(mapping, str) and mapping.startswith(f"{table}."):
-                    mappings.append(f"{mapping.split('.', 1)[1]} ({item['name']})")
+                    col_name = mapping.split(".", 1)[1]
+                    mappings.append(f"{col_name} ({item['name']})")
+                    if item.get("data_type") and col_name not in col_types:
+                        col_types[col_name] = item["data_type"]
             semantic_columns = {
                 mapping.split(".", 1)[1]
                 for item in objects
@@ -419,7 +437,12 @@ class ContextRetrievalService:
                 for column in sorted(physical_columns - semantic_columns)
             )
             if mappings:
-                lines.extend((f"TABLE: {table}", "COLUMNS: " + ", ".join(sorted(set(mappings))), ""))
+                table_lines = [f"TABLE: {table}{pk_suffix}", "COLUMNS: " + ", ".join(sorted(set(mappings)))]
+                if col_types:
+                    type_strs = [f"{col}: {col_types[col]}" for col in sorted(col_types)]
+                    table_lines.append("DATA TYPES: " + ", ".join(type_strs))
+                table_lines.append("")
+                lines.extend(table_lines)
 
     @staticmethod
     def _append_relationships(lines: list[str], relationships: list[dict[str, Any]]) -> None:
@@ -593,7 +616,7 @@ class ContextRetrievalService:
     def _append_retrieved_rules(lines: list[str], results: list[dict[str, Any]]) -> None:
         rules = [
             result["payload"] for result in results
-            if result.get("type") == "business_rule" and isinstance(result.get("payload"), dict)
+            if (result.get("object_type") or result.get("type")) == "business_rule" and isinstance(result.get("payload"), dict)
         ]
         if rules:
             lines.append("RETRIEVED BUSINESS RULES:")
