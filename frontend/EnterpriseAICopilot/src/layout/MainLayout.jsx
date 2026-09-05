@@ -6,6 +6,9 @@ import QuestionHistory from '../pages/QuestionHistory.jsx'
 import QuestionDetails from '../pages/QuestionDetails.jsx'
 import AdminDashboard from '../pages/AdminDashboard.jsx'
 import AdminSemanticLayer from '../pages/AdminSemanticLayer.jsx'
+import AdminSemanticLayers from '../pages/AdminSemanticLayers.jsx'
+import AdminSemanticLayerDetails from '../pages/AdminSemanticLayerDetails.jsx'
+import AdminSemanticDraftReview from '../pages/AdminSemanticDraftReview.jsx'
 import AdminUsers from '../pages/AdminUsers.jsx'
 import AdminReview from '../pages/AdminReview.jsx'
 import AdminAuditLogs from '../pages/AdminAuditLogs.jsx'
@@ -31,6 +34,11 @@ export default function MainLayout() {
           <Route element={<RoleRoute role={ROLES.ADMIN} />}>
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/admin/semantic-layer" element={<AdminSemanticLayer />} />
+            <Route path="/admin/semantic-layer/upload" element={<AdminSemanticLayer />} />
+            <Route path="/admin/semantic-layers" element={<AdminSemanticLayers />} />
+            <Route path="/admin/semantic-layers/:layerId" element={<AdminSemanticLayerDetails />} />
+            <Route path="/admin/semantic-layers/:layerId/:tab" element={<AdminSemanticLayerDetails />} />
+            <Route path="/admin/semantic-layers/:layerId/revisions/:revisionId/review" element={<AdminSemanticDraftReview />} />
             <Route path="/admin/users" element={<AdminUsers />} />
             <Route path="/admin/review" element={<AdminReview />} />
             <Route path="/admin/audit-logs" element={<AdminAuditLogs />} />

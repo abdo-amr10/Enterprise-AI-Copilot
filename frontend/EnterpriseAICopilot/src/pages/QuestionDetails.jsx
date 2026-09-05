@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import AppShell from "../components/AppShell";
 import ChatQuestion from "../components/ChatQuestion";
@@ -17,7 +17,7 @@ export default function QuestionDetails() {
 
   
 
-  const load = () => {
+  const load = useCallback(() => {
     setState("loading");
     fetchHistoryItem(queryId)
   .then((response) => {
@@ -34,12 +34,11 @@ export default function QuestionDetails() {
       .catch((err) => {
         setState(err.status === 404 ? "unavailable" : "error");
       });
-  };
+  }, [queryId]);
 
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryId]);
+    Promise.resolve().then(load);
+  }, [load]);
 
   const body =
     state === "loading" ? (

@@ -130,12 +130,23 @@
   gap: 18px;
   margin: 22px auto;
   padding: 6px;
+  
 }
+
+
 
 
 .question-details-main {
   display: block;
+  max-height: 100vh;
+  overflow-y: auto;
+  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-width: thin;
 }
+
+.question-details-main::-webkit-scrollbar { width: 6px; }
+.question-details-main::-webkit-scrollbar-thumb { border-radius: 999px; background: #cbd5e1; }
+.question-details-main::-webkit-scrollbar-track { background: transparent; }
 
 
 .chat-question-card {
@@ -355,6 +366,5 @@
     transform: translateX(260%);
   }
 }
-
 
 

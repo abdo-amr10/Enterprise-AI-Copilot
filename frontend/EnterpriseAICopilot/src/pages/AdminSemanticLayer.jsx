@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import AdminSidebar from "../components/AdminSidebar";
 import AdminTopBar from "../components/AdminTopBar";
 import {
@@ -8,15 +8,10 @@ import {
   IconDatabase,
   IconFileText,
   IconLayers,
-  IconLoader,
   IconTable,
   IconX,
 } from "../components/icons";
-import {
-  generateSemanticDraft,
-  getSemanticLayerStatus,
-  uploadSemanticSources,
-} from "../services/semanticLayerService";
+import { uploadSemanticSources } from "../services/semanticLayerService";
 import "../styles/admin.css";
 import "../styles/admin-pages.css";
 import "../styles/semantic-layer.css";
@@ -25,8 +20,8 @@ const SOURCE_FIELDS = [
   {
     key: "schema",
     label: "Schema definition",
-    type: "SQL, PDF, or JSON",
-    accept: ".sql,.pdf,.json",
+    type: "SQL or JSON",
+    accept: ".sql,.json",
     required: true,
     Icon: IconLayers,
   },
@@ -57,12 +52,6 @@ const EMPTY_FILES = {
   sampleData: null,
 };
 
-function formatTimestamp(value) {
-  const date = new Date(value);
-  return value && !Number.isNaN(date.getTime())
-    ? date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
-    : "Not available";
-}
 function sourceCount(sources) {
   return Object.values(sources || {}).filter(Boolean).length;
 }
@@ -76,8 +65,8 @@ function validateUpload({ name, description, files }) {
   else if (description.trim().length > 500)
     errors.description = "Use a description with 500 characters or fewer.";
   if (!files.schema) errors.schema = "Choose the schema file to continue.";
-  else if (!/\.(sql|pdf|json)$/i.test(files.schema.name))
-    errors.schema = "Use a SQL, PDF, or JSON schema file.";
+  else if (!/\.(sql|json)$/i.test(files.schema.name))
+    errors.schema = "Use a SQL or JSON schema file.";
   if (files.sampleData && !/\.csv$/i.test(files.sampleData.name))
     errors.sampleData = "Use a CSV file for sample data.";
   return errors;
@@ -263,257 +252,28 @@ function UploadSources({ onCancel, onUploaded }) {
   );
 }
 
-function Overview({ state, status, onUpload, onGenerate, onRetry }) {
-  if (state === "loading")
-    return (
-      <article className="admin-card semantic-state">
-        <IconLoader className="copilot-processing-loader" aria-hidden="true" />
-        <h3>Loading your semantic layer</h3>
-        <p>Checking the approved data context for Copilot.</p>
-      </article>
-    );
-  if (state === "empty")
-    return (
-      <article className="admin-card semantic-state">
-        <IconLayers aria-hidden="true" />
-        <h3>No semantic layer yet</h3>
-        <p>
-          Add an approved data source to create the business context used by
-          Copilot.
-        </p>
-        <div className="admin-actions">
-          <button className="primary" type="button" onClick={onUpload}>
-            Add data source
-          </button>
-        </div>
-      </article>
-    );
-  if (state === "error")
-    return (
-      <article className="admin-card semantic-state">
-        <h3>We couldn’t load the semantic layer</h3>
-        <p>Please try again. If this continues, contact your administrator.</p>
-        <div className="admin-actions">
-          <button type="button" onClick={onRetry}>
-            Try again
-          </button>
-        </div>
-      </article>
-    );
-  const sourceTotal = sourceCount(status?.sources);
-  return (
-    <div className="admin-content-grid">
-      <article className="admin-card semantic-status-card">
-        <div className="admin-card-title">
-          <div>
-            <small>CURRENT LAYER</small>
-            <h3>
-              {status?.version
-                ? `Semantic layer · ${status.version}`
-                : "Semantic layer"}
-            </h3>
-          </div>
-          <span className="admin-badge">{status?.status || "Available"}</span>
-        </div>
-        <p className="semantic-status-meta">
-          <strong>Last updated:</strong>{" "}
-          {formatTimestamp(status?.buildTimestamp)}
-          <br />
-          <strong>Latest update:</strong>{" "}
-          {status?.lastRegenerationType || "Not available"}
-        </p>
-        <div className="admin-key-values">
-          <span>
-            <b>{sourceTotal}</b> Sources
-          </span>
-          <span>
-            <b>{status?.revisionId ? "1" : "0"}</b> Current revision
-          </span>
-        </div>
-        <button type="button" onClick={onUpload}>
-          Update sources
-        </button>
-      </article>
-      <article className="admin-card">
-        <small>WORKFLOW</small>
-        <h3>Generate a new draft</h3>
-        <p>
-          Use the approved sources to prepare an updated semantic draft for
-          review.
-        </p>
-        <button type="button" onClick={onGenerate}>
-          Generate draft
-        </button>
-      </article>
-    </div>
-  );
-}
-
-function GenerateDraft({ source, status, onBack, onGenerated }) {
-  const [generation, setGeneration] = useState("Full");
-  const [state, setState] = useState("idle");
-  const [message, setMessage] = useState("");
-  const [result, setResult] = useState(null);
-  const semanticLayerId = source?.semanticLayerId || status?.semanticLayerId;
-  const sourceFileIds = source?.sources || status?.sources;
-  const canGenerate = Boolean(semanticLayerId && sourceCount(sourceFileIds));
-  async function submit() {
-    if (!canGenerate) {
-      setState("error");
-      setMessage("Add a schema source before generating a draft.");
-      return;
-    }
-    setState("loading");
-    setMessage("");
-    try {
-      const response = await generateSemanticDraft({
-        semanticLayerId,
-        triggerType: generation,
-        sourceFileIds,
-        baseRevisionId: status?.revisionId || null,
-      });
-      setResult(response);
-      setState("success");
-      onGenerated(response);
-    } catch (error) {
-      setState("error");
-      setMessage(error.message);
-    }
-  }
-  return (
-    <article className="admin-card admin-form">
-      <small>GENERATION</small>
-      <h3>Generate semantic draft</h3>
-      <p>
-        Create a revision from your saved sources. It will remain unavailable to
-        Copilot until approved.
-      </p>
-      <div className="admin-choice">
-        <button
-          type="button"
-          className={generation === "Full" ? "selected" : ""}
-          onClick={() => setGeneration("Full")}
-        >
-          <b>Full rebuild</b>
-          <span>Regenerate the complete business context</span>
-        </button>
-        <button
-          type="button"
-          className={generation === "Incremental" ? "selected" : ""}
-          onClick={() => setGeneration("Incremental")}
-        >
-          <b>Incremental update</b>
-          <span>Build from the current revision</span>
-        </button>
-      </div>
-      <StatusMessage message={message} />
-      {result ? (
-        <div className="admin-card semantic-draft-result">
-          <small>DRAFT READY</small>
-          <h3>Draft prepared for review</h3>
-          <p>{result.regeneratedObjectsCount || 0} items were refreshed.</p>
-          <div className="admin-actions">
-            <Link className="primary" to="/admin/review">
-              Review draft
-            </Link>
-          </div>
-        </div>
-      ) : null}
-      <div className="admin-actions">
-        <button type="button" onClick={onBack} disabled={state === "loading"}>
-          Back
-        </button>
-        <button
-          type="button"
-          className="primary"
-          disabled={state === "loading"}
-          onClick={submit}
-        >
-          {state === "loading" ? "Generating draft…" : "Generate draft"}
-        </button>
-      </div>
-    </article>
-  );
-}
-
 export default function AdminSemanticLayer() {
-  const [tab, setTab] = useState("overview");
-  const [statusState, setStatusState] = useState("loading");
-  const [status, setStatus] = useState(null);
-  const [uploadedSource, setUploadedSource] = useState(null);
-  const loadStatus = async () => {
-    setStatusState("loading");
-    try {
-      setStatus(await getSemanticLayerStatus());
-      setStatusState("ready");
-    } catch (error) {
-      setStatusState(error.status === 404 ? "empty" : "error");
-    }
-  };
-  useEffect(() => {
-    Promise.resolve().then(loadStatus);
-  }, []);
-  const activeStatus = uploadedSource || status;
+  const navigate = useNavigate();
   return (
     <main className="admin-shell">
       <AdminSidebar active="semantic" />
-      <section className="admin-main">
+      <section className="admin-main semantic-upload-main">
         <AdminTopBar
-          title="Semantic Layer"
-          description="Maintain the approved business context that powers Copilot answers."
+          title="Add data source"
+          description="Create a new business context for Copilot."
         />
-        <div className="admin-tabs">
-          <button
-            className={tab === "overview" ? "active" : ""}
-            type="button"
-            onClick={() => setTab("overview")}
-          >
-            Overview
-          </button>
-          <button
-            className={tab === "upload" ? "active" : ""}
-            type="button"
-            onClick={() => setTab("upload")}
-          >
-            Data Sources
-          </button>
-          <button
-            className={tab === "generate" ? "active" : ""}
-            type="button"
-            onClick={() => setTab("generate")}
-          >
-            Generate Draft
-          </button>
-          <Link to="/admin/review">Review drafts</Link>
-        </div>
-        {tab === "overview" ? (
-          <Overview
-            state={statusState}
-            status={activeStatus}
-            onUpload={() => setTab("upload")}
-            onGenerate={() => setTab("generate")}
-            onRetry={loadStatus}
-          />
-        ) : null}
-        {tab === "upload" ? (
-          <UploadSources
-            onCancel={() => setTab("overview")}
-            onUploaded={(response) => {
-              setUploadedSource(response);
-              setStatusState("ready");
-            }}
-          />
-        ) : null}
-        {tab === "generate" ? (
-          <GenerateDraft
-            source={uploadedSource}
-            status={status}
-            onBack={() => setTab("overview")}
-            onGenerated={(response) =>
-              setStatus((current) => ({ ...current, ...response }))
+        <UploadSources
+          onCancel={() => navigate("/admin/semantic-layers")}
+          onUploaded={(response) => {
+            const newLayerId = response?.semanticLayerId || response?.SemanticLayerId || response?.data?.semanticLayerId || response?.data?.SemanticLayerId;
+            if (newLayerId) {
+              navigate(`/admin/semantic-layers/${newLayerId}/sources`, {
+                replace: true,
+                state: { uploadedSource: response },
+              });
             }
-          />
-        ) : null}
+          }}
+        />
       </section>
     </main>
   );
