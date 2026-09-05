@@ -40,6 +40,12 @@ namespace EnterpriseAiCopilot.Infrastructure.Persistence.Configurations
             builder.Property(q => q.ResultJson)
                 .HasColumnType("nvarchar(max)");
 
+            builder.HasIndex(q => q.ConversationId);
+            builder.HasOne(q => q.Conversation)
+                .WithMany(conversation => conversation.QueryHistories)
+                .HasForeignKey(q => q.ConversationId)
+                .OnDelete(DeleteBehavior.SetNull);
+
             builder.HasOne(q => q.SemanticLayer)
                 .WithMany()
                 .HasForeignKey(q => q.SemanticLayerId)

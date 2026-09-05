@@ -24,6 +24,7 @@ namespace EnterpriseAiCopilot.Infrastructure.Persistence
         public DbSet<SemanticSourceFile> SemanticSourceFiles => Set<SemanticSourceFile>();
         public DbSet<SemanticRevision> SemanticRevisions => Set<SemanticRevision>();
         public DbSet<CopilotQueryHistory> CopilotQueryHistories => Set<CopilotQueryHistory>();
+        public DbSet<Conversation> Conversations => Set<Conversation>();
         public DbSet<AllowedTable> AllowedTables => Set<AllowedTable>();
         public DbSet<UserTablePermission> UserTablePermissions => Set<UserTablePermission>();
         public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
