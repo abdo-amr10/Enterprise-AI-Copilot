@@ -1,13 +1,25 @@
 """Build request-level audit summaries calculating leaf-stage durations and unaccounted time."""
 from __future__ import annotations
 
+import time
 from typing import Any
-from src.observability.audit_context import RequestAuditContext
+from src.observability.audit_context import RequestAuditContext, finalize_span
 
 
 def build_request_summary(ctx: RequestAuditContext) -> dict[str, Any]:
     """Compile the final request summary event from a completed RequestAuditContext."""
-    total_ms = ctx.total_duration_ms or 0.0
+    now_ns = time.perf_counter_ns()
+    if ctx.root_span and (ctx.root_span.inclusive_duration_ms <= 0.0 or ctx.root_span.end_time_ns is None):
+        finalize_span(ctx.root_span, now_ns, status="ok" if ctx.success else "error")
+
+    total_ms = ctx.total_duration_ms
+    if total_ms is None or total_ms <= 0.0:
+        if ctx.root_span and ctx.root_span.inclusive_duration_ms > 0.0:
+            total_ms = ctx.root_span.inclusive_duration_ms
+        elif ctx.start_time_ns:
+            total_ms = max(0.0, (now_ns - ctx.start_time_ns) / 1_000_000.0)
+        else:
+            total_ms = 0.0
 
     # Calculate sum of leaf-stage durations for backward compatibility
     leaf_durations = {k: round(v, 2) for k, v in ctx.leaf_stage_durations_ms.items()}
@@ -64,6 +76,7 @@ def build_request_summary(ctx: RequestAuditContext) -> dict[str, Any]:
         "child_covered_ms": round(ctx.root_span.child_covered_duration_ms, 2) if ctx.root_span else sum_leaf_ms,
         "orchestration_gaps_ms": round(ctx.root_span.orchestration_gaps_ms, 2) if ctx.root_span else 0.0,
         "exclusive_duration_ms": round(ctx.root_span.exclusive_duration_ms, 2) if ctx.root_span else 0.0,
+        "ollama_metrics": dict(ctx.metadata["ollama_metrics"]) if "ollama_metrics" in ctx.metadata else None,
     }
 
     # Include system resource delta if available

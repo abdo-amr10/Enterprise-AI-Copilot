@@ -251,46 +251,57 @@ class DebugRunner:
                         result.metrics["generation_latency_ms"] = measure_gen["duration_ms"]
                         result.local["flow"]["generation"].update(executed=True, status="passed", duration_ms=measure_gen["duration_ms"])
 
-                    in_tok = getattr(gen_response, "input_tokens", None)
-                    out_tok = getattr(gen_response, "output_tokens", None)
-                    tot_tok = getattr(gen_response, "total_tokens", None)
-                    if in_tok is not None:
-                        result.tags["input_tokens"] = str(in_tok)
-                        result.metrics["input_tokens"] = float(in_tok)
-                    if out_tok is not None:
-                        result.tags["output_tokens"] = str(out_tok)
-                        result.metrics["output_tokens"] = float(out_tok)
-                    if tot_tok is not None:
-                        result.tags["total_tokens"] = str(tot_tok)
-                        result.metrics["total_tokens"] = float(tot_tok)
+                        in_tok = getattr(gen_response, "input_tokens", None)
+                        out_tok = getattr(gen_response, "output_tokens", None)
+                        tot_tok = getattr(gen_response, "total_tokens", None)
+                        if in_tok is not None:
+                            result.tags["input_tokens"] = str(in_tok)
+                            result.metrics["input_tokens"] = float(in_tok)
+                        if out_tok is not None:
+                            result.tags["output_tokens"] = str(out_tok)
+                            result.metrics["output_tokens"] = float(out_tok)
+                        if tot_tok is not None:
+                            result.tags["total_tokens"] = str(tot_tok)
+                            result.metrics["total_tokens"] = float(tot_tok)
 
-                    try:
-                        payload = pipeline._parse_generation_response(gen_response.text)
-                    except Exception:
-                        payload = {}
-                    initial_sql = payload.get("sql", "").strip() if isinstance(payload, dict) else ""
-                    events.append({
-                        "event": "initial_generation",
-                        "sql": initial_sql,
-                        "prompt": prompt_req.prompt,
-                        "raw_response": gen_response.text,
-                        "input_tokens": in_tok,
-                        "output_tokens": out_tok,
-                        "model_name": getattr(gen_response, "model_name", None) or "qwen2.5-coder:7b",
-                        "provider": getattr(gen_response, "provider", None) or "ollama",
-                    })
+                        try:
+                            payload = pipeline._parse_generation_response(gen_response.text)
+                        except Exception:
+                            payload = {}
+                        initial_sql = payload.get("sql", "").strip() if isinstance(payload, dict) else ""
+                        events.append({
+                            "event": "initial_generation",
+                            "sql": initial_sql,
+                            "prompt": prompt_req.prompt,
+                            "raw_response": gen_response.text,
+                            "input_tokens": in_tok,
+                            "output_tokens": out_tok,
+                            "model_name": getattr(gen_response, "model_name", None) or "qwen2.5-coder:7b",
+                            "provider": getattr(gen_response, "provider", None) or "ollama",
+                        })
 
-                    # 4. Validation & Self-Correction Stage
-                    with self._observer.stage("validation") as measure_val:
-                        outcome = pipeline._self_correction_service.run(
-                            question=question,
-                            sql=initial_sql,
-                            semantic_context=semantic_context,
-                            trace_observer=events.append,
-                            enforce_rls=True,
-                        )
-                    result.metrics["validation_latency_ms"] = measure_val["duration_ms"]
-                    val_status = "passed" if outcome.is_valid else "failed"
+                        if hasattr(self._observer, "log_llm_span"):
+                            self._observer.log_llm_span(
+                                "llm_sql_generation",
+                                prompt=prompt_req.prompt,
+                                response_text=gen_response.text,
+                                model_name=getattr(gen_response, "model_name", None) or "qwen2.5-coder:7b",
+                                provider=getattr(gen_response, "provider", None) or "ollama",
+                                input_tokens=in_tok,
+                                output_tokens=out_tok,
+                            )
+
+                        # 4. Validation & Self-Correction Stage
+                        with self._observer.stage("validation") as measure_val, audit_stage("self_correction", is_leaf=False):
+                            outcome = pipeline._self_correction_service.run(
+                                question=question,
+                                sql=initial_sql,
+                                semantic_context=semantic_context,
+                                trace_observer=events.append,
+                                enforce_rls=True,
+                            )
+                        result.metrics["validation_latency_ms"] = measure_val["duration_ms"]
+                        val_status = "passed" if outcome.is_valid else "failed"
 
                     trace_events = getattr(outcome, "trace", ())
                     det_dur = sum(
@@ -598,7 +609,12 @@ class DebugRunner:
             if stg_key not in flow:
                 continue
             item = flow[stg_key]
-            matched_span = next((span_by_name[name] for name in candidate_names if name in span_by_name), None)
+            matched_span = None
+            for s in audit_ctx.all_spans:
+                if s.name in candidate_names or s.operation in candidate_names:
+                    if matched_span is None or s.inclusive_duration_ms > matched_span.inclusive_duration_ms:
+                        matched_span = s
+
             if matched_span is not None:
                 item["inclusive_duration_ms"] = round(matched_span.inclusive_duration_ms, 2)
                 item["exclusive_duration_ms"] = round(matched_span.exclusive_duration_ms, 2)
@@ -615,10 +631,21 @@ class DebugRunner:
 
     @staticmethod
     def _initial_flow(layer: str) -> dict[str, dict[str, Any]]:
+        descriptors = {
+            "request": "End-to-End Request",
+            "retrieval": "Semantic Context Retrieval",
+            "prompt": "Prompt Template Assembly",
+            "generation": "LLM SQL Generation",
+            "validation": "Deterministic SQL Validation",
+            "critic": "LLM Semantic Review",
+            "correction": "Self-Correction Repair",
+            "final": "Final Output Delivery",
+        }
         return {
             stage: {
                 "executed": False,
                 "status": "not_executed",
+                "descriptor": descriptors.get(stage, stage),
                 "duration_ms": "unavailable",
                 "inclusive_duration_ms": "unavailable",
                 "exclusive_duration_ms": "unavailable",

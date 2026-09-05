@@ -107,14 +107,13 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
           <table class="w-full text-left text-xs border-collapse">
             <thead>
               <tr class="bg-[#141720] text-zinc-400 border-b border-[#1F2430]">
-                <th class="py-2.5 px-3 font-semibold">Stage</th>
+                <th class="py-2.5 px-3 font-semibold">Stage & Operation</th>
                 <th class="py-2.5 px-3 font-semibold">Status</th>
-                <th class="py-2.5 px-3 font-semibold text-right">Inclusive</th>
-                <th class="py-2.5 px-3 font-semibold text-right">Exclusive</th>
+                <th class="py-2.5 px-3 font-semibold text-right">Total Duration</th>
               </tr>
             </thead>
             <tbody id="stageTableBody" class="divide-y divide-[#1F2430] text-zinc-300">
-              <tr><td colspan="4" class="py-3.5 px-3 text-center text-zinc-500 italic">No stages executed yet</td></tr>
+              <tr><td colspan="3" class="py-3.5 px-3 text-center text-zinc-500 italic">No stages executed yet</td></tr>
             </tbody>
           </table>
         </div>
@@ -198,12 +197,64 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
               </div>
             </div>
 
+            <!-- Detailed Latency Hierarchy Table -->
+            <div class="bg-[#12151D] border border-[#1F2430] rounded-xl p-4 flex flex-col gap-3 shadow-sm">
+              <div class="flex items-center justify-between">
+                <h3 class="text-xs font-bold uppercase tracking-wider text-zinc-300">Detailed Latency Hierarchy Table</h3>
+                <span class="text-[11px] font-sans text-zinc-500">All Operations & Sub-Steps (Inclusive vs. Exclusive)</span>
+              </div>
+              <div class="overflow-x-auto rounded-lg border border-[#1F2430]">
+                <table class="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr class="bg-[#141720] text-zinc-400 border-b border-[#1F2430]">
+                      <th class="py-2.5 px-3 font-semibold">Stage / Sub-Operation</th>
+                      <th class="py-2.5 px-3 font-semibold">Type & Notes</th>
+                      <th class="py-2.5 px-3 font-semibold text-right">Inclusive</th>
+                      <th class="py-2.5 px-3 font-semibold text-right">Exclusive (Self)</th>
+                      <th class="py-2.5 px-3 font-semibold text-right">Gaps / Overhead</th>
+                    </tr>
+                  </thead>
+                  <tbody id="detailedLatencyTableBody" class="divide-y divide-[#1F2430] font-mono text-zinc-300">
+                    <tr><td colspan="5" class="py-3 px-3 text-center text-zinc-500 italic font-sans">No execution data available</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
             <div class="bg-[#0A0C11] border border-[#1F2430] rounded-lg p-4 font-mono text-xs leading-relaxed overflow-x-auto">
               <div class="flex items-center justify-between mb-2">
-                <span class="text-zinc-400 font-sans text-xs font-semibold">Exact Latency Tree (Inclusive, Exclusive & Gaps)</span>
-                <span id="latencyAuditBadge" class="text-[11px] font-mono text-zinc-500"></span>
+                <div class="flex items-center gap-2">
+                  <span class="text-zinc-300 font-sans text-xs font-semibold">Execution Latency Tree</span>
+                  <span class="text-zinc-500 font-sans text-[11px]" id="treeModeLabel">(Concise View)</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <div class="inline-flex rounded-lg border border-[#1F2430] bg-[#12151D] p-0.5">
+                    <button id="btnTreeModeConcise" onclick="setTreeMode('concise')" class="px-2.5 py-0.5 rounded text-[11px] font-sans font-medium bg-blue-600/30 text-blue-300 border border-blue-500/40 cursor-pointer">Concise</button>
+                    <button id="btnTreeModeFull" onclick="setTreeMode('full')" class="px-2.5 py-0.5 rounded text-[11px] font-sans font-medium bg-transparent text-zinc-400 hover:text-zinc-200 cursor-pointer">Full Details</button>
+                  </div>
+                  <span id="latencyAuditBadge" class="text-[11px] font-mono text-zinc-500 ml-2"></span>
+                </div>
               </div>
               <pre id="outputLatencyTree" class="text-zinc-300 font-mono text-xs select-all whitespace-pre leading-loose">-- Run execution to display hierarchical latency tree</pre>
+            </div>
+
+            <!-- Quick Reference Legend -->
+            <div class="border border-[#1F2430] bg-[#12151D] rounded-lg p-3 text-xs flex flex-col gap-2">
+              <span class="text-[11px] font-bold uppercase tracking-wider text-zinc-400">Latency Descriptors Reference</span>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] text-zinc-400">
+                <div><span class="font-semibold text-zinc-200">End-to-End Request:</span> Full HTTP cycle</div>
+                <div><span class="font-semibold text-zinc-200">Core AI Pipeline:</span> Pure AI execution time</div>
+                <div><span class="font-semibold text-zinc-200">API Framework Overhead:</span> FastAPI routing & serialization</div>
+                <div><span class="font-semibold text-zinc-200">Semantic Context Retrieval:</span> Vector & metadata search</div>
+                <div><span class="font-semibold text-zinc-200">Prompt Template Assembly:</span> Prompt construction & rules</div>
+                <div><span class="font-semibold text-zinc-200">LLM SQL Generation:</span> Model inference & SQL build</div>
+                <div><span class="font-semibold text-zinc-200">Model VRAM Load:</span> Model load (cold vs warm)</div>
+                <div><span class="font-semibold text-zinc-200">Prompt Eval (TTFT):</span> Prompt ingestion to first token</div>
+                <div><span class="font-semibold text-zinc-200">Token Generation:</span> Autoregressive SQL token production</div>
+                <div><span class="font-semibold text-zinc-200">Deterministic SQL Validation:</span> Syntax, schema & RLS rules</div>
+                <div><span class="font-semibold text-zinc-200">LLM Semantic Review:</span> SQL Critic logic validation</div>
+                <div><span class="font-semibold text-zinc-200">Self-Correction Repair:</span> Automated iterative SQL repair</div>
+              </div>
             </div>
           </div>
 
@@ -229,13 +280,119 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
       return (num >= 1000) ? (num / 1000).toFixed(2) + 's' : num.toFixed(1) + 'ms';
     }
 
-    function renderLatencyNode(node, prefix = '', isLast = true) {
+    const NODE_DESCRIPTORS = {
+      'request_lifecycle': 'End-to-End Request',
+      'request': 'End-to-End Request',
+      'pipeline': 'Core AI Pipeline',
+      'preflight': 'Preflight Safety Checks',
+      'input_checks': 'Read-Only Safety Check',
+      'table_checks': 'Physical Table Check',
+      'context_retrieval': 'Semantic Context Retrieval',
+      'candidate_planning': 'Candidate Table Planning',
+      'retrieval': 'Semantic Retrieval Search',
+      'query_embedding': 'Vector Query Embedding',
+      'vector_search': 'Vector Embedding Search',
+      'relevance_filtering_and_planning': 'Table Relevance Pruning',
+      'context_assembly': 'Schema Context Assembly',
+      'prompt': 'Prompt Template Assembly',
+      'prompt_construction': 'Prompt Template Assembly',
+      'sql_generation': 'LLM SQL Generation',
+      'llm_inference': 'LLM Model Inference',
+      'ollama_generation': 'Ollama Engine Execution',
+      'output_parsing': 'JSON Response Parsing',
+      'deterministic_validation': 'Deterministic SQL Validation',
+      'syntax': 'SQL Syntax Parsing',
+      'schema': 'Table & Column Confirmation',
+      'relationship': 'JOIN Safety Validation',
+      'rls': 'RLS Tenant Security',
+      'deterministic_validation_syntax': 'SQL Syntax Parsing',
+      'deterministic_validation_schema': 'Table & Column Confirmation',
+      'deterministic_validation_relationship': 'JOIN Safety Validation',
+      'deterministic_validation_rls': 'RLS Tenant Security',
+      'deterministic_repair': 'Deterministic SQL Repair',
+      'self_correction': 'Self-Correction Repair',
+      'critic': 'LLM Semantic Review',
+      'critic_context': 'Review Context Assembly',
+      'critic_evaluation': 'Semantic Query Critique',
+      'critic_verifier': 'Defect Fact Verification',
+      'correction_prep': 'Error Feedback Assembly',
+      'correction_llm': 'SQL Repair Generation',
+      'correction_attempt_1': 'Correction Attempt 1',
+      'correction_attempt_2': 'Correction Attempt 2',
+      'correction_attempt_3': 'Correction Attempt 3',
+      'sql_critic': 'LLM Semantic Review',
+      'sql_correction_llm': 'SQL Repair Generation',
+    };
+
+    let currentTreeMode = 'concise';
+
+    function setTreeMode(mode) {
+      currentTreeMode = mode;
+      const btnConcise = document.getElementById('btnTreeModeConcise');
+      const btnFull = document.getElementById('btnTreeModeFull');
+      const modeLabel = document.getElementById('treeModeLabel');
+      if (btnConcise && btnFull) {
+        if (mode === 'concise') {
+          btnConcise.className = 'px-2.5 py-0.5 rounded text-[11px] font-sans font-medium bg-blue-600/30 text-blue-300 border border-blue-500/40 cursor-pointer';
+          btnFull.className = 'px-2.5 py-0.5 rounded text-[11px] font-sans font-medium bg-transparent text-zinc-400 hover:text-zinc-200 cursor-pointer';
+          if (modeLabel) modeLabel.innerText = '(Concise View)';
+        } else {
+          btnFull.className = 'px-2.5 py-0.5 rounded text-[11px] font-sans font-medium bg-blue-600/30 text-blue-300 border border-blue-500/40 cursor-pointer';
+          btnConcise.className = 'px-2.5 py-0.5 rounded text-[11px] font-sans font-medium bg-transparent text-zinc-400 hover:text-zinc-200 cursor-pointer';
+          if (modeLabel) modeLabel.innerText = '(Full Details)';
+        }
+      }
+      if (lastResponseData) {
+        const summary = (lastResponseData.local && lastResponseData.local.latency_summary) || null;
+        const hierarchy = (lastResponseData.local && lastResponseData.local.latency_hierarchy) || (summary && summary.hierarchy) || null;
+        if (hierarchy && hierarchy.name) {
+          document.getElementById('outputLatencyTree').innerText = renderLatencyNode(hierarchy, '', true, true, currentTreeMode);
+        }
+      }
+    }
+
+    function renderLatencyNode(node, prefix = '', isLast = true, isRoot = true, mode = currentTreeMode) {
       if (!node || !node.name) return '';
-      const branch = prefix ? (isLast ? '└── ' : '├── ') : '';
+      const branch = isRoot ? '' : (isLast ? '└── ' : '├── ');
       const dur = (node.inclusive_duration_ms != null) ? formatMs(node.inclusive_duration_ms) : '--';
+
+      const opKey = node.operation || node.name;
+      const descriptor = NODE_DESCRIPTORS[opKey] || NODE_DESCRIPTORS[node.name] || opKey;
+
+      if (mode === 'concise') {
+        let displayTitle = descriptor;
+        let line = `${prefix}${branch}${displayTitle} [${dur}]\n`;
+        const nextPrefix = isRoot ? '' : prefix + (isLast ? '    ' : '│   ');
+
+        // In concise mode, skip repetitive leaf micro-spans already shown in the detailed table:
+        // - deterministic_validation sub-rules (syntax, schema, relationship, rls)
+        // - duplicate llm_inference child under sql_generation
+        // - duplicate sql_critic child under critic_evaluation
+        const children = (node.children || []).filter(c => {
+          const cOp = c.operation || c.name;
+          if (cOp && cOp.startsWith('deterministic_validation_')) return false;
+          if (cOp === 'llm_inference' && (node.operation === 'sql_generation' || node.name === 'sql_generation')) return false;
+          if (cOp === 'sql_critic' && (node.operation === 'critic_evaluation' || node.name === 'critic_evaluation')) return false;
+          return true;
+        });
+
+        children.forEach((child, idx) => {
+          line += renderLatencyNode(child, nextPrefix, idx === children.length - 1, false, mode);
+        });
+        return line;
+      }
+
+      // Full mode
       const excl = (node.exclusive_duration_ms != null) ? ` (self: ${formatMs(node.exclusive_duration_ms)})` : '';
       const gaps = (node.orchestration_gaps_ms != null && node.orchestration_gaps_ms > 0) ? ` [gaps: ${formatMs(node.orchestration_gaps_ms)}]` : '';
       const unaccounted = (node.unaccounted_ms != null && node.unaccounted_ms > 0.05) ? ` [unaccounted: ${formatMs(node.unaccounted_ms)}]` : '';
+
+      let displayTitle = descriptor;
+      if (node.operation && node.operation !== node.name && node.name) {
+        displayTitle = `${descriptor} (${node.operation})`;
+      } else if (descriptor !== node.name) {
+        displayTitle = `${descriptor} (${node.name})`;
+      }
 
       let extra = '';
       if (node.metadata) {
@@ -245,19 +402,139 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
         if (node.metadata.server_duration_ms != null) {
           extra += ` [server: ${formatMs(node.metadata.server_duration_ms)}]`;
         }
-        if (node.metadata.client_overhead_ms != null) {
+        if (node.metadata.client_overhead_ms != null && node.metadata.client_overhead_ms > 0) {
           extra += ` [overhead: ${formatMs(node.metadata.client_overhead_ms)}]`;
         }
       }
 
-      let line = `${prefix}${branch}${node.name} [${dur}]${excl}${gaps}${unaccounted}${extra}\n`;
+      let line = `${prefix}${branch}${displayTitle} [${dur}]${excl}${gaps}${unaccounted}${extra}\n`;
+      const nextPrefix = isRoot ? '' : prefix + (isLast ? '    ' : '│   ');
+
+      // Render nested Ollama metrics if present on this node in full mode
+      if (node.metadata && node.metadata.eval_duration_ms != null) {
+        if (node.metadata.load_duration_ms != null && node.metadata.load_duration_ms > 0) {
+          const loadType = node.metadata.model_load_type ? ` [${node.metadata.model_load_type}]` : '';
+          line += `${nextPrefix}├── Model VRAM Load [${formatMs(node.metadata.load_duration_ms)}]${loadType}\n`;
+        }
+        if (node.metadata.prompt_eval_duration_ms != null) {
+          const tps = node.metadata.prompt_tps ? ` (${node.metadata.prompt_tps} tps)` : '';
+          line += `${nextPrefix}├── Prompt Eval (TTFT) [${formatMs(node.metadata.prompt_eval_duration_ms)}]${tps}\n`;
+        }
+        if (node.metadata.eval_duration_ms != null) {
+          const tps = node.metadata.generation_tps ? ` (${node.metadata.generation_tps} tps)` : '';
+          line += `${nextPrefix}├── Token Generation [${formatMs(node.metadata.eval_duration_ms)}]${tps}\n`;
+        }
+        if (node.metadata.client_overhead_ms != null && node.metadata.client_overhead_ms > 0) {
+          line += `${nextPrefix}└── Client HTTP Overhead [${formatMs(node.metadata.client_overhead_ms)}]\n`;
+        }
+      }
 
       const children = node.children || [];
-      const childPrefix = prefix + (prefix ? (isLast ? '    ' : '│   ') : '');
       children.forEach((child, idx) => {
-        line += renderLatencyNode(child, childPrefix, idx === children.length - 1);
+        line += renderLatencyNode(child, nextPrefix, idx === children.length - 1, false, mode);
       });
       return line;
+    }
+
+    function renderLatencyTableRows(node, depth = 0) {
+      if (!node || !node.name) return [];
+      const rows = [];
+      const indent = depth > 0 ? '&nbsp;'.repeat(depth * 3) + '↳ ' : '';
+      const opKey = node.operation || node.name;
+      const descriptor = NODE_DESCRIPTORS[opKey] || NODE_DESCRIPTORS[node.name] || opKey;
+      const nameLabel = (node.name && node.operation && node.name !== node.operation)
+        ? `${descriptor} <span class="text-zinc-500 font-normal">(${node.operation})</span>`
+        : (descriptor !== node.name ? `${descriptor} <span class="text-zinc-500 font-normal">(${node.name})</span>` : descriptor);
+
+      const incStr = (node.inclusive_duration_ms != null) ? formatMs(node.inclusive_duration_ms) : '--';
+      const exclStr = (node.exclusive_duration_ms != null) ? formatMs(node.exclusive_duration_ms) : '--';
+      
+      let gapsNotes = '--';
+      if (node.orchestration_gaps_ms != null && node.orchestration_gaps_ms > 0) {
+        gapsNotes = `gaps: ${formatMs(node.orchestration_gaps_ms)}`;
+      } else if (node.unaccounted_ms != null && node.unaccounted_ms > 0.05) {
+        gapsNotes = `unacc: ${formatMs(node.unaccounted_ms)}`;
+      }
+
+      let typeNotes = '<span class="text-zinc-500 font-sans text-[11px]">stage</span>';
+      if (node.is_leaf) {
+        typeNotes = '<span class="text-blue-400 font-sans text-[11px]">leaf operation</span>';
+      }
+      if (node.metadata) {
+        if (node.metadata.model_load_type) {
+          typeNotes = `<span class="text-amber-400 font-mono text-[11px]">${node.metadata.model_load_type} load</span>`;
+        }
+      }
+
+      const bgClass = depth === 0 ? 'bg-[#151923] font-bold text-zinc-100' : (depth === 1 ? 'bg-[#10141D] font-semibold text-zinc-200' : 'text-zinc-300 hover:bg-[#151922]/50');
+
+      rows.push(`
+        <tr class="${bgClass} border-b border-[#1A1F2C]">
+          <td class="py-2 px-3 font-sans">${indent}<span class="font-mono text-xs">${nameLabel}</span></td>
+          <td class="py-2 px-3 font-mono text-[11px]">${typeNotes}</td>
+          <td class="py-2 px-3 text-right mono text-emerald-400 font-medium">${incStr}</td>
+          <td class="py-2 px-3 text-right mono text-zinc-400">${exclStr}</td>
+          <td class="py-2 px-3 text-right mono text-zinc-500 text-[11px]">${gapsNotes}</td>
+        </tr>
+      `);
+
+      // If node has Ollama breakdown in metadata:
+      if (node.metadata && node.metadata.eval_duration_ms != null) {
+        const subIndent = '&nbsp;'.repeat((depth + 1) * 3) + '↳ ';
+        if (node.metadata.load_duration_ms != null && node.metadata.load_duration_ms > 0) {
+          const loadType = node.metadata.model_load_type ? `${node.metadata.model_load_type} load` : 'vram load';
+          rows.push(`
+            <tr class="bg-[#0B0D13]/60 text-xs border-b border-[#1A1F2C]">
+              <td class="py-1.5 px-3 font-sans">${subIndent}<span class="text-zinc-300 font-medium font-mono">Model VRAM Load</span></td>
+              <td class="py-1.5 px-3 font-mono text-[11px] text-amber-400">${loadType}</td>
+              <td class="py-1.5 px-3 text-right mono text-amber-400">${formatMs(node.metadata.load_duration_ms)}</td>
+              <td class="py-1.5 px-3 text-right mono text-zinc-600">--</td>
+              <td class="py-1.5 px-3 text-right mono text-zinc-600">--</td>
+            </tr>
+          `);
+        }
+        if (node.metadata.prompt_eval_duration_ms != null) {
+          const tps = node.metadata.prompt_tps ? `${node.metadata.prompt_tps} tps` : 'TTFT';
+          rows.push(`
+            <tr class="bg-[#0B0D13]/60 text-xs border-b border-[#1A1F2C]">
+              <td class="py-1.5 px-3 font-sans">${subIndent}<span class="text-zinc-300 font-medium font-mono">Prompt Eval (TTFT)</span></td>
+              <td class="py-1.5 px-3 font-mono text-[11px] text-zinc-400">${tps}</td>
+              <td class="py-1.5 px-3 text-right mono text-blue-400">${formatMs(node.metadata.prompt_eval_duration_ms)}</td>
+              <td class="py-1.5 px-3 text-right mono text-zinc-600">--</td>
+              <td class="py-1.5 px-3 text-right mono text-zinc-600">--</td>
+            </tr>
+          `);
+        }
+        if (node.metadata.eval_duration_ms != null) {
+          const tps = node.metadata.generation_tps ? `${node.metadata.generation_tps} tps` : 'Tokens';
+          rows.push(`
+            <tr class="bg-[#0B0D13]/60 text-xs border-b border-[#1A1F2C]">
+              <td class="py-1.5 px-3 font-sans">${subIndent}<span class="text-zinc-300 font-medium font-mono">Token Generation</span></td>
+              <td class="py-1.5 px-3 font-mono text-[11px] text-zinc-400">${tps}</td>
+              <td class="py-1.5 px-3 text-right mono text-purple-400">${formatMs(node.metadata.eval_duration_ms)}</td>
+              <td class="py-1.5 px-3 text-right mono text-zinc-600">--</td>
+              <td class="py-1.5 px-3 text-right mono text-zinc-600">--</td>
+            </tr>
+          `);
+        }
+        if (node.metadata.client_overhead_ms != null && node.metadata.client_overhead_ms > 0) {
+          rows.push(`
+            <tr class="bg-[#0B0D13]/60 text-xs border-b border-[#1A1F2C]">
+              <td class="py-1.5 px-3 font-sans">${subIndent}<span class="text-zinc-400 font-medium font-mono">Client HTTP Overhead</span></td>
+              <td class="py-1.5 px-3 font-mono text-[11px] text-zinc-500">network</td>
+              <td class="py-1.5 px-3 text-right mono text-zinc-400">${formatMs(node.metadata.client_overhead_ms)}</td>
+              <td class="py-1.5 px-3 text-right mono text-zinc-600">--</td>
+              <td class="py-1.5 px-3 text-right mono text-zinc-600">--</td>
+            </tr>
+          `);
+        }
+      }
+
+      const children = node.children || [];
+      children.forEach(child => {
+        rows.push(...renderLatencyTableRows(child, depth + 1));
+      });
+      return rows;
     }
 
     function setPreset(question) {
@@ -389,14 +666,9 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
           if (!item) return;
           const tr = document.createElement('tr');
           const incVal = (item.inclusive_duration_ms != null && item.inclusive_duration_ms !== 'unavailable') ? item.inclusive_duration_ms : item.duration_ms;
-          const exclVal = (item.exclusive_duration_ms != null && item.exclusive_duration_ms !== 'unavailable') ? item.exclusive_duration_ms : null;
-          let incDur = '--';
+          let durStr = '--';
           if (incVal != null && incVal !== 'unavailable') {
-            incDur = (incVal >= 1000) ? (incVal / 1000).toFixed(2) + 's' : Number(incVal).toFixed(1) + 'ms';
-          }
-          let exclDur = '--';
-          if (exclVal != null && exclVal !== 'unavailable') {
-            exclDur = (exclVal >= 1000) ? (exclVal / 1000).toFixed(2) + 's' : Number(exclVal).toFixed(1) + 'ms';
+            durStr = (incVal >= 1000) ? (incVal / 1000).toFixed(2) + 's' : Number(incVal).toFixed(1) + 'ms';
           }
 
           let stColor = 'text-zinc-500';
@@ -414,25 +686,45 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
           }
 
           let stageLabel = stg.toUpperCase();
-          if (stg === 'retrieval') stageLabel = '1. Semantic Retrieval';
-          else if (stg === 'prompt') stageLabel = '2. Prompt Assembly';
-          else if (stg === 'generation') stageLabel = '3. LLM SQL Generation';
-          else if (stg === 'validation') stageLabel = '4. Deterministic Validation';
-          else if (stg === 'critic') stageLabel = '5. LLM Critic Check';
-          else if (stg === 'correction') stageLabel = '6. SQL Self-Correction';
-          else if (stg === 'request') stageLabel = 'Total Request';
-          else if (stg === 'final') stageLabel = 'Final Output';
+          let descriptor = item.descriptor || '';
+          if (stg === 'retrieval') {
+            stageLabel = '1. Semantic Retrieval';
+            descriptor = descriptor || 'Semantic Context Retrieval';
+          } else if (stg === 'prompt') {
+            stageLabel = '2. Prompt Assembly';
+            descriptor = descriptor || 'Prompt Template Assembly';
+          } else if (stg === 'generation') {
+            stageLabel = '3. LLM SQL Generation';
+            descriptor = descriptor || 'LLM SQL Generation';
+          } else if (stg === 'validation') {
+            stageLabel = '4. Deterministic Validation';
+            descriptor = descriptor || 'Deterministic SQL Validation';
+          } else if (stg === 'critic') {
+            stageLabel = '5. LLM Critic Check';
+            descriptor = descriptor || 'LLM Semantic Review';
+          } else if (stg === 'correction') {
+            stageLabel = '6. SQL Self-Correction';
+            descriptor = descriptor || 'Self-Correction Repair';
+          } else if (stg === 'request') {
+            stageLabel = 'Total Request';
+            descriptor = descriptor || 'End-to-End Request';
+          } else if (stg === 'final') {
+            stageLabel = 'Final Output';
+            descriptor = descriptor || 'Final Output Delivery';
+          }
 
           tr.innerHTML = `
-            <td class="py-2.5 px-3 font-medium text-zinc-200">${stageLabel}</td>
+            <td class="py-2.5 px-3">
+              <div class="font-semibold text-zinc-100">${stageLabel}</div>
+              <div class="text-[11px] text-zinc-400 font-normal">${descriptor}</div>
+            </td>
             <td class="py-2.5 px-3 font-medium ${stColor}">${statusText}</td>
-            <td class="py-2.5 px-3 text-right mono font-medium text-zinc-200">${incDur}</td>
-            <td class="py-2.5 px-3 text-right mono font-medium text-zinc-400">${exclDur}</td>
+            <td class="py-2.5 px-3 text-right mono font-medium text-zinc-200">${durStr}</td>
           `;
           stageBody.appendChild(tr);
         });
       } else {
-        stageBody.innerHTML = '<tr><td colspan="4" class="py-3.5 px-3 text-center text-zinc-500 italic">No stage timing available</td></tr>';
+        stageBody.innerHTML = '<tr><td colspan="3" class="py-3.5 px-3 text-center text-zinc-500 italic">No stage timing available</td></tr>';
       }
 
       // Latency Hierarchy Tab
@@ -453,6 +745,16 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
         document.getElementById('latencyPipeline').innerText = '--';
         document.getElementById('latencyOverhead').innerText = '--';
         document.getElementById('latencyGaps').innerText = '--';
+      }
+
+      const detailedTableBody = document.getElementById('detailedLatencyTableBody');
+      if (detailedTableBody) {
+        if (hierarchy && hierarchy.name) {
+          const rows = renderLatencyTableRows(hierarchy, 0);
+          detailedTableBody.innerHTML = rows.join('');
+        } else {
+          detailedTableBody.innerHTML = '<tr><td colspan="5" class="py-3 px-3 text-center text-zinc-500 italic font-sans">No hierarchical span trace recorded for this layer execution.</td></tr>';
+        }
       }
 
       if (hierarchy && hierarchy.name) {

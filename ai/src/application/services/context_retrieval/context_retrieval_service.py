@@ -44,10 +44,10 @@ class ContextRetrievalService:
         Returns:
             List of semantic document dictionaries matched by vector similarity.
         """
-        with stage("context_retrieval", operation="candidate_planning", is_leaf=False):
+        with stage("candidate_planning", operation="candidate_planning", is_leaf=False):
             limit = top_k if top_k is not None else self._candidate_limit(question)
 
-        with stage("context_retrieval", operation="retrieval", is_leaf=False):
+        with stage("retrieval", operation="retrieval", is_leaf=False):
             return self._semantic_repository.retrieve(question, limit)
 
     def build_llm_context(self, question: str, top_k: int | None = None) -> str:
@@ -61,71 +61,72 @@ class ContextRetrievalService:
             Formatted plain-text block detailing approved entities, columns, relationships,
             query scope guidance, and business rules.
         """
-        results = self.retrieve(question, top_k)
+        with stage("context_retrieval", operation="context_retrieval", is_leaf=False):
+            results = self.retrieve(question, top_k)
 
-        with stage("context_retrieval", operation="relevance_filtering_and_planning", is_leaf=False):
-            layer = self._semantic_repository.load()
-            requested_tables = self._planned_tables(question, layer)
-            # For a multi-entity question, table coverage is more important than
-            # allowing a few high-scoring attribute documents to introduce
-            # unrelated tables.  The vector search above is deliberately wider;
-            # this is the compact, approved-schema projection passed to the LLM.
-            seed_tables = requested_tables | self._seed_tables(results)
-            physical_schema = self._physical_schema()
-            valid_relationships = self._merge_relationships(
-                self._valid_relationships(layer.get("relationships", [])),
-                self._valid_relationships(physical_schema.get("relationships", [])),
-            )
-            rls_tables = self._rls_required_tables(seed_tables, layer)
-            relationships = self._connecting_relationships(
-                seed_tables | rls_tables, valid_relationships
-            )
-            tables = seed_tables | {
-                table
-                for relationship in relationships
-                for table in (relationship["from_table"], relationship["to_table"])
-            }
+            with stage("relevance_filtering_and_planning", operation="relevance_filtering_and_planning", is_leaf=False):
+                layer = self._semantic_repository.load()
+                requested_tables = self._planned_tables(question, layer)
+                # For a multi-entity question, table coverage is more important than
+                # allowing a few high-scoring attribute documents to introduce
+                # unrelated tables.  The vector search above is deliberately wider;
+                # this is the compact, approved-schema projection passed to the LLM.
+                seed_tables = requested_tables | self._seed_tables(results)
+                physical_schema = self._physical_schema()
+                valid_relationships = self._merge_relationships(
+                    self._valid_relationships(layer.get("relationships", [])),
+                    self._valid_relationships(physical_schema.get("relationships", [])),
+                )
+                rls_tables = self._rls_required_tables(seed_tables, layer)
+                relationships = self._connecting_relationships(
+                    seed_tables | rls_tables, valid_relationships
+                )
+                tables = seed_tables | {
+                    table
+                    for relationship in relationships
+                    for table in (relationship["from_table"], relationship["to_table"])
+                }
 
-        with stage("context_retrieval", operation="context_assembly", is_leaf=False):
-            lines = [
-                "SEMANTIC CONTEXT",
-                "This is a join-complete subgraph from the approved Semantic Layer.",
-                "Use only the supplied tables, columns, and relationships.",
-                "",
-            ]
-            self._append_entities(lines, layer.get("entities", []), tables)
-            self._append_columns(lines, layer, tables, physical_schema)
-            self._append_relationships(lines, relationships)
-            self._append_measures(lines, layer.get("measures", []), tables)
-            self._append_security_domain(lines, layer, tables)
-            self._append_query_scope(lines, seed_tables, relationships)
-            self._append_retrieved_rules(lines, results)
-            assembled_context = "\n".join(lines)
+            with stage("context_assembly", operation="context_assembly", is_leaf=False):
+                lines = [
+                    "SEMANTIC CONTEXT",
+                    "This is a join-complete subgraph from the approved Semantic Layer.",
+                    "Use only the supplied tables, columns, and relationships.",
+                    "",
+                ]
+                self._append_entities(lines, layer.get("entities", []), tables)
+                self._append_columns(lines, layer, tables, physical_schema)
+                self._append_relationships(lines, relationships)
+                self._append_measures(lines, layer.get("measures", []), tables)
+                self._append_security_domain(lines, layer, tables)
+                self._append_query_scope(lines, seed_tables, relationships)
+                self._append_retrieved_rules(lines, results)
+                assembled_context = "\n".join(lines)
 
-        try:
-            from src.observability.audit_context import get_current_audit
-            from src.observability.audit_logger import write_audit_event
+            try:
+                from src.observability.audit_context import get_current_audit
+                from src.observability.audit_logger import write_audit_event
 
-            ctx = get_current_audit()
-            if ctx:
-                ctx.increment_count("retrieval_calls")
-                est_toks = max(1, len(assembled_context.split()) * 4 // 3)
-                write_audit_event({
-                    "event": "retrieval_complete",
-                    "request_id": ctx.request_id,
-                    "stage": "context_retrieval",
-                    "tables_count": len(tables),
-                    "seed_tables_count": len(seed_tables),
-                    "relationships_count": len(relationships),
-                    "rls_tables_count": len(rls_tables),
-                    "context_chars": len(assembled_context),
-                    "estimated_context_tokens": est_toks,
-                    "results_count": len(results),
-                })
-        except Exception:
-            pass
+                ctx = get_current_audit()
+                if ctx:
+                    ctx.increment_count("retrieval_calls")
+                    est_toks = max(1, len(assembled_context.split()) * 4 // 3)
+                    write_audit_event({
+                        "event": "retrieval_complete",
+                        "request_id": ctx.request_id,
+                        "stage": "context_retrieval",
+                        "tables_count": len(tables),
+                        "seed_tables_count": len(seed_tables),
+                        "relationships_count": len(relationships),
+                        "rls_tables_count": len(rls_tables),
+                        "context_chars": len(assembled_context),
+                        "estimated_context_tokens": est_toks,
+                        "results_count": len(results),
+                    })
+            except Exception:
+                pass
 
-        return assembled_context
+            return assembled_context
 
     def _candidate_limit(self, question: str) -> int:
         """Return a wider retrieval candidate set for multi-table questions.
@@ -309,7 +310,7 @@ class ContextRetrievalService:
                 isinstance(relationship.get(field), str) and relationship[field]
                 for field in required
             )
-            and relationship.get("is_executable", True) is not False
+            and relationship.get("is_executable", False) is True
             and relationship.get("status") not in ("UNCERTAIN", "NO_SUPPORTED_RELATIONSHIP", "uncertain", "rejected")
         ]
 

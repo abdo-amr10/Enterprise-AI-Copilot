@@ -110,10 +110,10 @@ class FileSemanticRepository:
             if self._indexing_pipeline is not None:
                 self._indexing_pipeline.run(layer)
 
-        with stage("context_retrieval", operation="query_embedding", is_leaf=False):
+        with stage("query_embedding", operation="query_embedding", is_leaf=True):
             query_embedding = self._embedding_service.encode_query(question)
 
-        with stage("context_retrieval", operation="vector_search", is_leaf=False):
+        with stage("vector_search", operation="vector_search", is_leaf=False):
             results = self._vector_store.search(
                 query_embedding,
                 top_k,

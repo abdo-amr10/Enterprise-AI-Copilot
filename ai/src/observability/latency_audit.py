@@ -286,8 +286,12 @@ def record_llm_call(
             client_duration_ms=client_duration_ms,
         )
 
-        if ctx and ollama_data.get("is_cold_load"):
-            ctx.increment_count("cold_loads")
+        if ctx:
+            if ollama_data.get("is_cold_load"):
+                ctx.increment_count("cold_loads")
+            ctx.metadata["ollama_metrics"] = dict(ollama_data)
+            if ctx.active_spans:
+                ctx.active_spans[-1].metadata.update(ollama_data)
 
         write_audit_event({
             "event": "llm_complete",

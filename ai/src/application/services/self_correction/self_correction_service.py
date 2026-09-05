@@ -225,21 +225,21 @@ class SelfCorrectionService:
             })
 
             if not issues:
-                with stage("self_correction", operation="critic", is_leaf=False):
+                with stage("critic", operation="critic", is_leaf=False):
                     t_critic_start = time.perf_counter()
-                    with stage("self_correction", operation="critic_context", is_leaf=True):
+                    with stage("critic_context", operation="critic_context", is_leaf=True):
                         critic_context = self._build_critic_context(
                             sql=current_sql,
                             schema_getter=_get_schema,
                             fallback_context=semantic_context,
                         )
-                    with stage("self_correction", operation="critic_evaluation", is_leaf=True):
+                    with stage("critic_evaluation", operation="critic_evaluation", is_leaf=False):
                         critic_result = self._critic_service.evaluate(
                             question=question,
                             sql=current_sql,
                             semantic_context=critic_context,
                         )
-                    with stage("self_correction", operation="critic_verifier", is_leaf=True):
+                    with stage("critic_verifier", operation="critic_verifier", is_leaf=True):
                         t_ver_start = time.perf_counter()
                         try:
                             issues = self._finding_verifier.verify(critic_result, schema=_get_schema(), sql=current_sql)
@@ -296,9 +296,9 @@ class SelfCorrectionService:
 
             try:
                 corrections_used += 1
-                with stage("self_correction", operation=f"correction_attempt_{attempt + 1}", is_leaf=False):
+                with stage(f"correction_attempt_{attempt + 1}", operation=f"correction_attempt_{attempt + 1}", is_leaf=False):
                     t_corr_start = time.perf_counter()
-                    with stage("self_correction", operation="correction_prep", is_leaf=True):
+                    with stage("correction_prep", operation="correction_prep", is_leaf=True):
                         rls_tables = self._rls_context_tables(
                             current_sql, _get_schema
                         )
@@ -317,7 +317,7 @@ class SelfCorrectionService:
                         if not any(compute_sql_fingerprint(cand[0]) == cand_fp for cand in rejected_candidates):
                             rejected_candidates.append((current_sql, list(issues)))
 
-                    with stage("self_correction", operation="correction_llm", is_leaf=True):
+                    with stage("correction_llm", operation="correction_llm", is_leaf=True):
                         corrected_sql = self._correction_service.correct(
                             question=question,
                             current_sql=current_sql,
@@ -417,9 +417,9 @@ class SelfCorrectionService:
             validators.append(("rls", self._rls_validator))
 
         found_issues: list[ValidationIssue] = []
-        with stage("self_correction", operation="deterministic_validation", is_leaf=False):
+        with stage("deterministic_validation", operation="deterministic_validation", is_leaf=False):
             for name, validator in validators:
-                with stage("self_correction", operation=f"deterministic_validation_{name}", is_leaf=True):
+                with stage(name, operation=f"deterministic_validation_{name}", is_leaf=True):
                     t_sub = time.perf_counter()
                     try:
                         if validator is self._rls_validator:
