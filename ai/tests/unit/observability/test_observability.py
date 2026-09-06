@@ -1,4 +1,5 @@
 import builtins
+import json
 from types import SimpleNamespace
 
 from src.observability.debug_runner import DebugRunner
@@ -165,4 +166,91 @@ def test_validation_passed_metric_only_present_when_validation_reached() -> None
     result_retrieval = runner(repo, context).run("q", "retrieval")
     assert "validation_passed" not in result_retrieval.metrics
     assert "self_correction_attempts_used" not in result_retrieval.metrics
+
+
+def test_full_layer_needs_clarification_halts_before_validation() -> None:
+    repo, context = Repository(), Context(Repository())
+    validation_called = []
+    
+    prompt_service = SimpleNamespace(build_request=lambda *args: SimpleNamespace(prompt="Test prompt"))
+    gen_text = json.dumps({
+        "status": "needs_clarification",
+        "sql": None,
+        "warnings": ["Cannot create records automatically in read-only mode."]
+    })
+    generation_service = SimpleNamespace(
+        _llm_client=SimpleNamespace(_config=None),
+        generate=lambda req: SimpleNamespace(text=gen_text, input_tokens=10, output_tokens=10, total_tokens=20),
+    )
+    text_pipeline = SimpleNamespace(
+        build_context=lambda q: "context",
+        _prompt_service=prompt_service,
+        _sql_generation_service=generation_service,
+    )
+    self_correction = SimpleNamespace(
+        run=lambda **kwargs: validation_called.append(True) or SimpleNamespace(is_valid=False, issues=["Should not run"]),
+    )
+    production = SimpleNamespace(
+        _text_to_sql_pipeline=text_pipeline,
+        _self_correction_service=self_correction,
+        _parse_generation_response=lambda text: json.loads(text),
+        _FORBIDDEN_SQL=SimpleNamespace(search=lambda s: None),
+    )
+
+    result = runner(repo, context, pipeline=lambda: production).run(
+        "Create a customer and report", "full"
+    )
+
+    assert result.status == "failed"
+    assert result.tags["error_type"] == "NEEDS_CLARIFICATION"
+    assert result.local["failure_reason"] == "Cannot create records automatically in read-only mode."
+    assert result.local["flow"]["validation"]["executed"] is False
+    assert len(validation_called) == 0
+    assert result.metrics["validation_passed"] == 0.0
+
+
+def test_full_layer_validation_failure_distinguished_from_pre_validation() -> None:
+    repo, context = Repository(), Context(Repository())
+    validation_called = []
+
+    prompt_service = SimpleNamespace(build_request=lambda *args: SimpleNamespace(prompt="Test prompt"))
+    gen_text = json.dumps({
+        "status": "success",
+        "sql": "SELECT customer_id FROM customers",
+        "is_read_only": True,
+        "warnings": []
+    })
+    generation_service = SimpleNamespace(
+        _llm_client=SimpleNamespace(_config=None),
+        generate=lambda req: SimpleNamespace(text=gen_text, input_tokens=10, output_tokens=10, total_tokens=20),
+    )
+    text_pipeline = SimpleNamespace(
+        build_context=lambda q: "context",
+        _prompt_service=prompt_service,
+        _sql_generation_service=generation_service,
+    )
+    self_correction = SimpleNamespace(
+        run=lambda **kwargs: validation_called.append(True) or SimpleNamespace(
+            is_valid=False,
+            sql="SELECT customer_id FROM customers",
+            issues=["Column 'credit_rating' does not exist."],
+            attempts_used=1,
+            trace=[],
+        ),
+    )
+    production = SimpleNamespace(
+        _text_to_sql_pipeline=text_pipeline,
+        _self_correction_service=self_correction,
+        _parse_generation_response=lambda text: json.loads(text),
+        _FORBIDDEN_SQL=SimpleNamespace(search=lambda s: None),
+    )
+
+    result = runner(repo, context, pipeline=lambda: production).run("Show customers", "full")
+
+    assert result.status == "failed"
+    assert result.tags["error_type"] == "VALIDATION_FAILED"
+    assert "Validation failed: Column 'credit_rating' does not exist." in result.local["failure_reason"]
+    assert result.local["flow"]["validation"]["executed"] is True
+    assert len(validation_called) == 1
+
 

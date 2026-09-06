@@ -81,9 +81,24 @@ async def lifespan(app: FastAPI):
         except Exception as err:
             logger.debug("Ollama warmup skipped: %s", err)
 
-    if not lightweight_startup and _environment_flag("AI_PREWARM_LLM", True):
-        loop.run_in_executor(None, _warmup_llm)
-    elif lightweight_startup:
+    def _warmup_semantic() -> None:
+        try:
+            repo = get_semantic_repository()
+            if hasattr(repo, "ensure_initialized"):
+                repo.ensure_initialized()
+            schema_provider = get_schema_provider()
+            if hasattr(schema_provider, "get_schema"):
+                schema_provider.get_schema()
+            logger.info("Semantic state and schema pre-warmed into memory.")
+        except Exception as err:
+            logger.debug("Semantic warmup deferred: %s", err)
+
+    if not lightweight_startup:
+        if _environment_flag("AI_PREWARM_LLM", True):
+            loop.run_in_executor(None, _warmup_llm)
+        if _environment_flag("AI_PREWARM_SEMANTIC", True):
+            loop.run_in_executor(None, _warmup_semantic)
+    else:
         logger.info("Lightweight startup enabled: semantic sync and LLM warmup are deferred until requested.")
 
     yield

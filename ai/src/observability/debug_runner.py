@@ -182,17 +182,34 @@ class DebugRunner:
                         result.metrics["total_tokens"] = float(tot_tok)
 
                     clean_gen_sql = generation.text
+                    gen_failure_reason: str | None = None
                     try:
                         cleaned = generation.text.strip()
                         if cleaned.startswith("```") and cleaned.endswith("```"):
                             cleaned = "\n".join(cleaned.splitlines()[1:-1]).strip()
                         parsed = json.loads(cleaned)
-                        if isinstance(parsed, dict) and "sql" in parsed:
-                            clean_gen_sql = parsed["sql"]
+                        if isinstance(parsed, dict):
+                            raw_parsed_sql = parsed.get("sql")
+                            if isinstance(raw_parsed_sql, str) and raw_parsed_sql.strip():
+                                clean_gen_sql = raw_parsed_sql.strip()
+                            else:
+                                clean_gen_sql = ""
+                                warnings = parsed.get("warnings") or []
+                                warning_list = [str(w) for w in warnings] if isinstance(warnings, list) else []
+                                if warning_list:
+                                    gen_failure_reason = "; ".join(warning_list)
+                                elif parsed.get("status") == "needs_clarification":
+                                    gen_failure_reason = "The model requested clarification for this request."
+                                else:
+                                    gen_failure_reason = "The model did not produce an executable SQL query."
                     except Exception:
                         pass
                     result.local["generation"] = clean_gen_sql
                     result.stopping_point = "generation"
+                    if gen_failure_reason:
+                        result.status = "failed"
+                        result.local["failure_reason"] = gen_failure_reason
+                        result.local["issues"] = [gen_failure_reason]
                     tables_used = _extract_tables(clean_gen_sql)
                     result.tags["tables"] = ", ".join(tables_used) if tables_used else "none"
                     result.tags["tables_count"] = len(tables_used)
@@ -227,6 +244,8 @@ class DebugRunner:
                 )
 
                 if can_run_granular:
+                    final_sql: str | None = None
+                    outcome: Any = None
                     with audit_stage("pipeline", is_leaf=False):
                         # 1. Semantic Retrieval Stage
                         with self._observer.stage("retrieval") as measure_ret:
@@ -264,11 +283,43 @@ class DebugRunner:
                             result.tags["total_tokens"] = str(tot_tok)
                             result.metrics["total_tokens"] = float(tot_tok)
 
+                        payload = None
                         try:
                             payload = pipeline._parse_generation_response(gen_response.text)
                         except Exception:
-                            payload = {}
-                        initial_sql = payload.get("sql", "").strip() if isinstance(payload, dict) else ""
+                            try:
+                                cleaned = gen_response.text.strip()
+                                if cleaned.startswith("```"):
+                                    cleaned = "\n".join(cleaned.splitlines()[1:-1]).strip()
+                                payload = json.loads(cleaned)
+                            except Exception:
+                                payload = None
+
+                        model_status = str(payload.get("status", "")).strip().lower() if isinstance(payload, dict) else ""
+                        warnings = payload.get("warnings") if isinstance(payload, dict) else []
+                        warning_list = [str(w) for w in warnings] if isinstance(warnings, list) else []
+                        raw_sql = payload.get("sql") if isinstance(payload, dict) else None
+                        initial_sql = raw_sql.strip() if isinstance(raw_sql, str) and raw_sql.strip() else ""
+
+                        pre_validation_error: str | None = None
+                        pre_validation_code: str | None = None
+
+                        if payload is None:
+                            pre_validation_code = "INVALID_MODEL_OUTPUT"
+                            pre_validation_error = "The model response was not a valid structured JSON response."
+                        elif model_status == "needs_clarification":
+                            pre_validation_code = "NEEDS_CLARIFICATION"
+                            pre_validation_error = "; ".join(warning_list) if warning_list else "The model requested clarification for this request."
+                        elif model_status == "unsafe_request":
+                            pre_validation_code = "UNSAFE_REQUEST"
+                            pre_validation_error = "; ".join(warning_list) if warning_list else "The requested operation is not allowed."
+                        elif not initial_sql:
+                            pre_validation_code = "NO_SQL_PRODUCED"
+                            pre_validation_error = "; ".join(warning_list) if warning_list else "The model did not produce an executable SQL query."
+                        elif payload.get("is_read_only") is not True or (hasattr(pipeline, "_FORBIDDEN_SQL") and pipeline._FORBIDDEN_SQL.search(initial_sql)):
+                            pre_validation_code = "SQL_VALIDATION_FAILED"
+                            pre_validation_error = "The generated SQL contains forbidden non-read-only operations."
+
                         events.append({
                             "event": "initial_generation",
                             "sql": initial_sql,
@@ -278,6 +329,8 @@ class DebugRunner:
                             "output_tokens": out_tok,
                             "model_name": getattr(gen_response, "model_name", None) or "qwen2.5-coder:7b",
                             "provider": getattr(gen_response, "provider", None) or "ollama",
+                            "status": "failed" if pre_validation_error else "passed",
+                            "issues": [pre_validation_error] if pre_validation_error else [],
                         })
 
                         if hasattr(self._observer, "log_llm_span"):
@@ -291,110 +344,151 @@ class DebugRunner:
                                 output_tokens=out_tok,
                             )
 
-                        # 4. Validation & Self-Correction Stage
-                        with self._observer.stage("validation") as measure_val, audit_stage("self_correction", is_leaf=False):
-                            outcome = pipeline._self_correction_service.run(
-                                question=question,
-                                sql=initial_sql,
-                                semantic_context=semantic_context,
-                                trace_observer=events.append,
-                                enforce_rls=True,
+                        if pre_validation_error:
+                            result.status = "failed"
+                            result.tags["error_type"] = pre_validation_code
+                            result.local["failure_reason"] = pre_validation_error
+                            result.local["issues"] = warning_list if warning_list else [pre_validation_error]
+                            result.local["final_sql"] = None
+                            result.stopping_point = f"generation ({pre_validation_code.lower()})"
+
+                            result.local["flow"]["validation"].update(
+                                executed=False,
+                                status="not_executed",
+                                reason="No valid candidate SQL to validate",
                             )
-                        result.metrics["validation_latency_ms"] = measure_val["duration_ms"]
-                        val_status = "passed" if outcome.is_valid else "failed"
+                            result.local["flow"]["critic"].update(
+                                executed=False,
+                                status="not_executed",
+                                reason="No valid candidate SQL to review",
+                            )
+                            result.local["flow"]["correction"].update(
+                                executed=False,
+                                status="not_executed",
+                                reason="No valid candidate SQL to correct",
+                            )
+                            result.local["flow"]["final"].update(
+                                executed=True,
+                                status="failed",
+                                duration_ms=0.0,
+                            )
+                            request_total_dur = measure_ret["duration_ms"] + measure_prompt["duration_ms"] + measure_gen["duration_ms"]
+                            result.metrics.update(
+                                request_latency_ms=request_total_dur,
+                                validation_passed=0.0,
+                            )
+                            result.local["flow"]["request"].update(
+                                executed=True,
+                                status="Failed",
+                                duration_ms=request_total_dur,
+                            )
+                            result.local.update(production_trace_events=events, final_sql=None)
+                        else:
+                            # 4. Validation & Self-Correction Stage
+                            with self._observer.stage("validation") as measure_val, audit_stage("self_correction", is_leaf=False):
+                                outcome = pipeline._self_correction_service.run(
+                                    question=question,
+                                    sql=initial_sql,
+                                    semantic_context=semantic_context,
+                                    trace_observer=events.append,
+                                    enforce_rls=True,
+                                )
+                            result.metrics["validation_latency_ms"] = measure_val["duration_ms"]
+                            val_status = "passed" if outcome.is_valid else "failed"
 
-                    trace_events = getattr(outcome, "trace", ())
-                    det_dur = sum(
-                        float(step.get("deterministicDurationMs", 0.0))
-                        for step in trace_events
-                        if isinstance(step, dict) and "deterministicDurationMs" in step
-                    )
-                    critic_dur = sum(
-                        float(step.get("criticDurationMs", 0.0))
-                        for step in trace_events
-                        if isinstance(step, dict) and "criticDurationMs" in step
-                    )
-                    corr_dur = sum(
-                        float(step.get("correctionDurationMs", 0.0))
-                        for step in trace_events
-                        if isinstance(step, dict) and "correctionDurationMs" in step
-                    )
-                    critic_ran = any(
-                        step.get("criticExecuted") or "criticStatus" in step
-                        for step in trace_events
-                        if isinstance(step, dict)
-                    )
+                            trace_events = getattr(outcome, "trace", ())
+                            det_dur = sum(
+                                float(step.get("deterministicDurationMs", 0.0))
+                                for step in trace_events
+                                if isinstance(step, dict) and "deterministicDurationMs" in step
+                            )
+                            critic_dur = sum(
+                                float(step.get("criticDurationMs", 0.0))
+                                for step in trace_events
+                                if isinstance(step, dict) and "criticDurationMs" in step
+                            )
+                            corr_dur = sum(
+                                float(step.get("correctionDurationMs", 0.0))
+                                for step in trace_events
+                                if isinstance(step, dict) and "correctionDurationMs" in step
+                            )
+                            critic_ran = any(
+                                step.get("criticExecuted") or "criticStatus" in step
+                                for step in trace_events
+                                if isinstance(step, dict)
+                            )
 
-                    result.metrics["deterministic_validation_latency_ms"] = det_dur
-                    if critic_ran:
-                        result.metrics["critic_latency_ms"] = critic_dur
-                    if corr_dur > 0:
-                        result.metrics["correction_latency_ms"] = corr_dur
+                            result.metrics["deterministic_validation_latency_ms"] = det_dur
+                            if critic_ran:
+                                result.metrics["critic_latency_ms"] = critic_dur
+                            if corr_dur > 0:
+                                result.metrics["correction_latency_ms"] = corr_dur
 
-                    # 4. Deterministic Validation Stage
-                    result.local["flow"]["validation"].update(
-                        executed=True,
-                        status="passed" if val_status == "passed" else "failed",
-                        duration_ms=det_dur if det_dur > 0 else (measure_val["duration_ms"] if not critic_ran else 0.0),
-                    )
+                            # 4. Deterministic Validation Stage
+                            result.local["flow"]["validation"].update(
+                                executed=True,
+                                status="passed" if val_status == "passed" else "failed",
+                                duration_ms=det_dur if det_dur > 0 else (measure_val["duration_ms"] if not critic_ran else 0.0),
+                            )
 
-                    # 5. LLM Critic Check Stage
-                    attempts_used = getattr(outcome, "attempts_used", 0)
-                    if critic_ran:
-                        result.local["flow"]["critic"].update(
-                            executed=True,
-                            status="passed",
-                            duration_ms=critic_dur,
-                        )
-                    else:
-                        result.local["flow"]["critic"].update(
-                            executed=False,
-                            status="skipped (deterministic issues)",
-                            duration_ms=0.0,
-                        )
+                            # 5. LLM Critic Check Stage
+                            attempts_used = getattr(outcome, "attempts_used", 0)
+                            if critic_ran:
+                                result.local["flow"]["critic"].update(
+                                    executed=True,
+                                    status="passed",
+                                    duration_ms=critic_dur,
+                                )
+                            else:
+                                result.local["flow"]["critic"].update(
+                                    executed=False,
+                                    status="skipped (deterministic issues)",
+                                    duration_ms=0.0,
+                                )
 
-                    # 6. SQL Self-Correction Stage
-                    if attempts_used > 0:
-                        result.local["flow"]["correction"].update(
-                            executed=True,
-                            status=f"corrected ({attempts_used} attempts)",
-                            duration_ms=corr_dur,
-                        )
-                    else:
-                        result.local["flow"]["correction"].update(
-                            executed=False,
-                            status="skipped (valid initial SQL)",
-                            duration_ms=0.0,
-                        )
+                            # 6. SQL Self-Correction Stage
+                            if attempts_used > 0:
+                                result.local["flow"]["correction"].update(
+                                    executed=True,
+                                    status=f"corrected ({attempts_used} attempts)",
+                                    duration_ms=corr_dur,
+                                )
+                            else:
+                                result.local["flow"]["correction"].update(
+                                    executed=False,
+                                    status="skipped (valid initial SQL)",
+                                    duration_ms=0.0,
+                                )
 
-                    final_sql = outcome.sql if outcome.is_valid else initial_sql
-                    events.append({
-                        "event": "final_result",
-                        "sql": final_sql if outcome.is_valid else None,
-                        "attemptsUsed": attempts_used,
-                        "status": "passed" if outcome.is_valid else "failed"
-                    })
+                            final_sql = outcome.sql if outcome.is_valid else initial_sql
+                            events.append({
+                                "event": "final_result",
+                                "sql": final_sql if outcome.is_valid else None,
+                                "attemptsUsed": attempts_used,
+                                "status": "passed" if outcome.is_valid else "failed"
+                            })
 
-                    result.local["flow"]["final"].update(
-                        executed=True,
-                        status="passed" if outcome.is_valid else "failed",
-                        duration_ms=0.0,
-                    )
+                            result.local["flow"]["final"].update(
+                                executed=True,
+                                status="passed" if outcome.is_valid else "failed",
+                                duration_ms=0.0,
+                            )
 
-                    request_total_dur = measure_ret["duration_ms"] + measure_prompt["duration_ms"] + measure_gen["duration_ms"] + measure_val["duration_ms"]
-                    result.metrics.update(
-                        request_latency_ms=request_total_dur,
-                        validation_passed=float(outcome.is_valid),
-                        self_correction_attempts_used=float(attempts_used)
-                    )
-                    result.local["flow"]["request"].update(executed=True, status="Success" if outcome.is_valid else "Failed", duration_ms=request_total_dur)
-                    result.local.update(production_trace_events=events, final_sql=final_sql)
-                    result.stopping_point = "production validated-SQL boundary"
-                    if not outcome.is_valid:
-                        result.status = "failed"
-                        result.local["final_sql"] = None
-                        result.local["failure_reason"] = "; ".join(outcome.issues) if outcome.issues else "Query failed validation and correction attempts."
-                        result.local["issues"] = list(outcome.issues)
+                            request_total_dur = measure_ret["duration_ms"] + measure_prompt["duration_ms"] + measure_gen["duration_ms"] + measure_val["duration_ms"]
+                            result.metrics.update(
+                                request_latency_ms=request_total_dur,
+                                validation_passed=float(outcome.is_valid),
+                                self_correction_attempts_used=float(attempts_used)
+                            )
+                            result.local["flow"]["request"].update(executed=True, status="Success" if outcome.is_valid else "Failed", duration_ms=request_total_dur)
+                            result.local.update(production_trace_events=events, final_sql=final_sql)
+                            result.stopping_point = "production validated-SQL boundary"
+                            if not outcome.is_valid:
+                                result.status = "failed"
+                                result.tags["error_type"] = "VALIDATION_FAILED"
+                                result.local["final_sql"] = None
+                                result.local["failure_reason"] = "Validation failed: " + ("; ".join(outcome.issues) if outcome.issues else "Query failed validation and correction attempts.")
+                                result.local["issues"] = list(outcome.issues)
                 else:
                     with self._observer.stage("request") as measure_request:
                         outcome = pipeline.run(
@@ -430,6 +524,16 @@ class DebugRunner:
                     result.stopping_point = "production validated-SQL boundary"
                     if not succeeded:
                         result.status = "failed"
+                        fail_reason = (
+                            getattr(outcome, "failure_reason", None)
+                            or getattr(outcome, "message", None)
+                            or getattr(outcome, "error_code", None)
+                        )
+                        if fail_reason:
+                            result.local["failure_reason"] = fail_reason
+                            result.local["issues"] = [fail_reason]
+                        if getattr(outcome, "error_code", None):
+                            result.tags["error_type"] = outcome.error_code
 
                 # Extract Tables
                 tables_used = _extract_tables(final_sql)
@@ -438,7 +542,11 @@ class DebugRunner:
                 result.local["tables_used"] = tables_used
                 result.local["tables_count"] = len(tables_used)
 
-                val_passed = getattr(outcome, "is_valid", False) if hasattr(outcome, "is_valid") else str(getattr(outcome, "status", "")).casefold() == "success"
+                val_passed = (
+                    getattr(outcome, "is_valid", False)
+                    if (outcome is not None and hasattr(outcome, "is_valid"))
+                    else (str(getattr(outcome, "status", "")).casefold() == "success" if outcome is not None else False)
+                )
                 sql_history_lines = [
                     "-- ====================================================================",
                     f"-- QUESTION: {question}",
@@ -469,7 +577,7 @@ class DebugRunner:
                             "-- --------------------------------------------------------------------",
                             "-- [STEP 1] INITIAL LLM GENERATION (Attempt 0)",
                             "-- --------------------------------------------------------------------",
-                            init_sql.strip(),
+                            (init_sql or "").strip(),
                             ""
                         ])
                     elif "attempt" in ev and "sql" in ev:
@@ -497,7 +605,7 @@ class DebugRunner:
                                 sql_history_lines.append(f"--   * {issue}")
                         sql_history_lines.extend([
                             "-- --------------------------------------------------------------------",
-                            attempt_sql.strip(),
+                            (attempt_sql or "").strip(),
                             ""
                         ])
                     elif ev_type == "after_correction":
@@ -512,7 +620,7 @@ class DebugRunner:
                             "-- --------------------------------------------------------------------",
                             f"-- [STEP 3.{attempt_num + 1}] SELF-CORRECTION OUTPUT (Attempt {attempt_num + 1})",
                             "-- --------------------------------------------------------------------",
-                            corr_sql.strip(),
+                            (corr_sql or "").strip(),
                             ""
                         ])
                 if final_sql:
@@ -520,7 +628,7 @@ class DebugRunner:
                         "-- ====================================================================",
                         "-- FINAL ACCEPTED SQL QUERY:",
                         "-- ====================================================================",
-                        final_sql.strip(),
+                        (final_sql or "").strip(),
                         ""
                     ])
                 val_history_text = "\n".join(sql_history_lines)

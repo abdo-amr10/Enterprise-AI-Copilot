@@ -48,7 +48,10 @@ class ContextRetrievalService:
             limit = top_k if top_k is not None else self._candidate_limit(question)
 
         with stage("retrieval", operation="retrieval", is_leaf=False):
-            return self._semantic_repository.retrieve(question, limit)
+            try:
+                return self._semantic_repository.retrieve(question, limit, allow_cold_start=False)
+            except TypeError:
+                return self._semantic_repository.retrieve(question, limit)
 
     def build_llm_context(self, question: str, top_k: int | None = None) -> str:
         """Construct a join-complete, formatted semantic context string for LLM prompts.
@@ -65,7 +68,10 @@ class ContextRetrievalService:
             results = self.retrieve(question, top_k)
 
             with stage("relevance_filtering_and_planning", operation="relevance_filtering_and_planning", is_leaf=False):
-                layer = self._semantic_repository.load()
+                try:
+                    layer = self._semantic_repository.load(allow_cold_start=False)
+                except TypeError:
+                    layer = self._semantic_repository.load()
                 requested_tables = self._planned_tables(question, layer)
                 # For a multi-entity question, table coverage is more important than
                 # allowing a few high-scoring attribute documents to introduce
@@ -138,7 +144,10 @@ class ContextRetrievalService:
         context remains restricted to the requested join-complete subgraph.
         """
 
-        layer = self._semantic_repository.load()
+        try:
+            layer = self._semantic_repository.load(allow_cold_start=False)
+        except TypeError:
+            layer = self._semantic_repository.load()
         table_count = len(self._planned_tables(question, layer))
         if table_count < 3:
             return self._default_top_k
@@ -184,6 +193,9 @@ class ContextRetrievalService:
         if self._schema_provider is None:
             return {}
         try:
+            schema = self._schema_provider.get_schema(allow_cold_start=False)
+            return schema if isinstance(schema, dict) else {}
+        except TypeError:
             schema = self._schema_provider.get_schema()
             return schema if isinstance(schema, dict) else {}
         except Exception:

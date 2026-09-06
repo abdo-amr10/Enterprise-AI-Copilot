@@ -35,12 +35,13 @@ def test_schema_provider_caches_in_memory_by_schema_file_id():
     assert client.get_status.call_count == 1
     assert client._get.call_count == 1
 
-    # Second call: uses cached schema in memory without re-fetching file!
-    schema2 = provider.get_schema()
-    assert schema2 is schema1
-    assert client._get.call_count == 1  # File was NOT downloaded again!
+    # Subsequent get_schema calls reuse cache in memory with zero HTTP calls
+    schema3 = provider.get_schema()
+    assert schema3 is schema1
+    assert client.get_status.call_count == 1
+    assert client._get.call_count == 1
 
-    # When schemaFileId changes (new file uploaded in Backend):
+    # When Backend schema changes, get_schema still returns memory cache (0 HTTP):
     client.get_status.return_value = {
         "status": "Approved",
         "sources": {"schemaFileId": "file-schema-102"},
@@ -53,12 +54,14 @@ def test_schema_provider_caches_in_memory_by_schema_file_id():
             }
         }
     }
+    assert provider.get_schema() is schema1
+    assert client.get_status.call_count == 1
 
-    # Automatically invalidates and fetches the new version
-    schema3 = provider.get_schema()
+    # Explicit synchronization via sync_schema refreshes the in-memory cache:
+    schema_synced = provider.sync_schema()
     assert provider.cached_schema_file_id == "file-schema-102"
-    assert "orders" in schema3.get("tables", {})
-    assert client._get.call_count == 2  # Fetched the new schema version
+    assert "orders" in schema_synced.get("tables", {})
+    assert client._get.call_count == 2
 
 
 def test_schema_provider_invalidate_clears_cache():
@@ -112,12 +115,12 @@ def test_schema_provider_caches_in_memory_by_active_revision_id():
     assert "accounts" in schema1.get("tables", {})
     assert client.get_active_revision_schema.call_count == 1
 
-    # Second call: uses cached schema in memory without re-calling client
-    schema2 = provider.get_schema()
-    assert schema2 is schema1
+    # Subsequent get_schema calls reuse in-memory cache without calling client
+    schema3 = provider.get_schema()
+    assert schema3 is schema1
     assert client.get_active_revision_schema.call_count == 1
 
-    # When revisionId changes:
+    # When Backend revision changes, get_schema continues to serve from RAM (0 HTTP):
     client.get_status.return_value = {
         "status": "Approved",
         "revisionId": "rev-102",
@@ -133,10 +136,13 @@ def test_schema_provider_caches_in_memory_by_active_revision_id():
             },
         },
     }
+    assert provider.get_schema() is schema1
+    assert client.get_active_revision_schema.call_count == 1
 
-    schema3 = provider.get_schema()
+    # Explicit synchronization via sync_schema updates the cached revision
+    schema4 = provider.sync_schema()
     assert provider.cached_revision_id == "rev-102"
-    assert "transactions" in schema3.get("tables", {})
+    assert "transactions" in schema4.get("tables", {})
     assert client.get_active_revision_schema.call_count == 2
 
 

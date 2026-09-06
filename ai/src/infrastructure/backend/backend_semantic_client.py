@@ -228,6 +228,92 @@ class BackendSemanticClient:
         self._cached_status_time = now
         return status
 
+    def download_index_artifact(self, revision_id: str) -> bytes | None:
+        """Download the compiled semantic index artifact bundle ZIP from Backend.
+
+        Args:
+            revision_id: The semantic revision UUID.
+
+        Returns:
+            ZIP archive bytes if found (200), or None if explicitly not found (404).
+
+        Raises:
+            RuntimeError: If the Backend request fails with a non-404 error.
+        """
+        if not revision_id or not str(revision_id).strip():
+            raise ValueError("revision_id cannot be empty.")
+        path = f"/api/v1/semantic-layer/internal/revisions/{revision_id}/index-artifact"
+        try:
+            return self._http_client.get_file(path, accept="application/zip")
+        except requests.HTTPError as error:
+            if error.response is not None and error.response.status_code == 404:
+                return None
+            status_code = error.response.status_code if error.response is not None else "unknown"
+            detail = ""
+            if error.response is not None:
+                try:
+                    detail = error.response.text.strip()
+                except Exception:
+                    pass
+            suffix = f" Details: {detail[:500]}" if detail else ""
+            raise RuntimeError(
+                f"Backend artifact download failed with HTTP {status_code}.{suffix}"
+            ) from error
+        except (requests.RequestException, ValueError) as error:
+            raise RuntimeError("Backend artifact download request failed.") from error
+
+    def upload_index_artifact(
+        self,
+        revision_id: str,
+        faiss_bytes: bytes,
+        index_metadata_json: str,
+        document_metadata_json: str,
+    ) -> bool:
+        """Upload the compiled semantic index artifact bundle to the Backend.
+
+        Args:
+            revision_id: The semantic revision UUID.
+            faiss_bytes: Raw binary FAISS index bytes.
+            index_metadata_json: Serialized index_metadata.json string.
+            document_metadata_json: Serialized document_metadata.json string.
+
+        Returns:
+            True if uploaded successfully (200) or already published (409 Conflict).
+
+        Raises:
+            RuntimeError: If upload fails with any error other than 409 Conflict.
+        """
+        if not revision_id or not str(revision_id).strip():
+            raise ValueError("revision_id cannot be empty.")
+        path = f"/api/v1/semantic-layer/internal/revisions/{revision_id}/index-artifact"
+        files = {
+            "faissIndex": ("semantic_index.faiss", faiss_bytes, "application/octet-stream"),
+        }
+        data = {
+            "indexMetadata": index_metadata_json,
+            "documentMetadata": document_metadata_json,
+        }
+        try:
+            self._http_client.put_multipart(path, data=data, files=files)
+            return True
+        except requests.HTTPError as error:
+            if error.response is not None and error.response.status_code == 409:
+                # 409 Conflict: Another worker or process already published the immutable artifact.
+                return True
+            status_code = error.response.status_code if error.response is not None else "unknown"
+            detail = ""
+            if error.response is not None:
+                try:
+                    detail = error.response.text.strip()
+                except Exception:
+                    pass
+            suffix = f" Details: {detail[:500]}" if detail else ""
+            raise RuntimeError(
+                f"Backend artifact upload failed with HTTP {status_code}.{suffix}"
+            ) from error
+        except (requests.RequestException, ValueError) as error:
+            raise RuntimeError("Backend artifact upload request failed.") from error
+
     def _get(self, path: str) -> dict[str, Any]:
         try:
             return self._http_client.get(path)

@@ -371,11 +371,64 @@ class BackendHttpClient:
 
         return self._execute_with_auth_retry(_do_multipart, method="POST", endpoint=endpoint, timing_info=timing_info)
 
-    def get_file(self, endpoint: str) -> bytes:
+    def put_multipart(
+        self,
+        endpoint: str,
+        data: dict[str, str] | None = None,
+        files: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Send authenticated multipart form data via HTTP PUT."""
+        if not endpoint.strip():
+            raise ValueError("endpoint cannot be empty.")
+
+        timing_info: dict[str, Any] = {
+            "client_preparation_ms": 0.0,
+            "http_request_duration_ms": 0.0,
+            "response_processing_ms": 0.0,
+            "status_code": None,
+            "request_bytes": 0,
+            "response_bytes": 0,
+            "backend_request_id": None,
+        }
+
+        def _do_put_multipart():
+            t_prep = time.perf_counter_ns()
+            url = self._build_url(endpoint)
+            req_headers = {"Authorization": f"Bearer {self._token}", "Accept": "application/json"}
+            if headers:
+                req_headers.update(headers)
+            tls_opts = self._tls_options()
+            timing_info["client_preparation_ms"] = (time.perf_counter_ns() - t_prep) / 1_000_000.0
+
+            t_http = time.perf_counter_ns()
+            response = requests.put(
+                url,
+                headers=req_headers,
+                data=data,
+                files=files,
+                timeout=self._timeout,
+                **tls_opts,
+            )
+            timing_info["http_request_duration_ms"] = (time.perf_counter_ns() - t_http) / 1_000_000.0
+
+            t_proc = time.perf_counter_ns()
+            _safe_record_resp_meta(response, timing_info)
+            response.raise_for_status()
+            payload = response.json() if response.content else {}
+            if not isinstance(payload, dict):
+                raise ValueError("Backend response must be a JSON object.")
+            timing_info["response_processing_ms"] = (time.perf_counter_ns() - t_proc) / 1_000_000.0
+            return payload
+
+        return self._execute_with_auth_retry(_do_put_multipart, method="PUT", endpoint=endpoint, timing_info=timing_info)
+
+    def get_file(self, endpoint: str, accept: str | None = None) -> bytes:
         """Retrieve raw file content from the Backend.
 
         Args:
             endpoint: File endpoint relative to the Backend base URL.
+            accept: Optional Accept header value (defaults to application/octet-stream).
 
         Returns:
             Raw file content.
@@ -402,7 +455,7 @@ class BackendHttpClient:
             url = self._build_url(endpoint)
             headers = {
                 "Authorization": f"Bearer {self._token}",
-                "Accept": "application/octet-stream",
+                "Accept": accept or "application/octet-stream",
             }
             tls_opts = self._tls_options()
             timing_info["client_preparation_ms"] = (time.perf_counter_ns() - t_prep) / 1_000_000.0

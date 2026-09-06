@@ -766,7 +766,9 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
       // 3. Generated SQL Tab
       let finalSql = (data.local && data.local.final_sql) || '';
       if (!finalSql || data.status === 'failed') {
-        const reason = (data.local && (data.local.failure_reason || (data.local.issues && data.local.issues.join('; ')))) || 'Validation failed: No valid SQL produced.';
+        const reason = (data.local && (data.local.failure_reason || (data.local.issues && data.local.issues.join('; '))))
+          || (data.local && data.local.local_error)
+          || (data.tags && data.tags.error_type ? `Execution halted: ${data.tags.error_type}` : 'No executable SQL produced.');
         finalSql = `-- ❌ FAILED: No executable SQL produced\n-- Reason: ${reason}`;
       }
       document.getElementById('outputSqlCode').innerText = finalSql;
@@ -789,7 +791,11 @@ _DEBUG_UI_HTML = r"""<!DOCTYPE html>
 
           if (step.event === 'initial_generation') {
             title = 'Step 1: Initial LLM Candidate Generation';
-            badge = '<span class="text-blue-400 bg-blue-950/40 px-2.5 py-0.5 rounded border border-blue-800/40 font-semibold text-xs">Initial Candidate</span>';
+            if (step.status === 'failed' || allIssues.length > 0 || !sql) {
+              badge = '<span class="text-amber-400 bg-amber-950/40 px-2.5 py-0.5 rounded border border-amber-800/40 font-semibold text-xs">Clarification / Refusal</span>';
+            } else {
+              badge = '<span class="text-blue-400 bg-blue-950/40 px-2.5 py-0.5 rounded border border-blue-800/40 font-semibold text-xs">Initial Candidate</span>';
+            }
           } else if (step.event === 'final_result') {
             title = 'Final Step: Production Execution SQL';
             badge = step.status === 'passed' 

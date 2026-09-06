@@ -76,11 +76,20 @@ def test_backend_repository_uses_vector_index_and_rebuilds_only_for_new_revision
     assert index.build_calls == 1
     assert client.revision_calls == 1
 
+    # When revision changes in Backend, retrieve() continues to use memory index (0 HTTP calls)
     client.revision_id = "REV-2"
-    repository.retrieve("customers", 1)
+    third = repository.retrieve("customers", 1)
+    assert index.build_calls == 1
+    assert client.revision_calls == 1
+    assert third[0]["revisionId"] == "REV-1"
 
+    # Explicit sync triggers update to new revision:
+    synced = repository.sync_active_index()
+    assert synced is True
+    fourth = repository.retrieve("customers", 1)
     assert index.build_calls == 2
     assert client.revision_calls == 2
+    assert fourth[0]["revisionId"] == "REV-2"
 
 
 def test_sync_active_index_builds_and_caches_in_memory():
