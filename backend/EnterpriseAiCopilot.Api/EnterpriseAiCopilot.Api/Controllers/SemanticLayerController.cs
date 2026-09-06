@@ -338,5 +338,41 @@ namespace EnterpriseAiCopilot.Api.Controllers
 
             return Ok(new { Message = "Semantic Layer activated successfully." });
         }
+
+        [HttpPut("internal/revisions/{revisionId}/index-artifact")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadIndexArtifact(Guid revisionId, [FromForm] UploadIndexArtifactRequest request, CancellationToken cancellationToken)
+        {
+            var result = await _semanticLayerService.UploadIndexArtifactAsync(revisionId, request, cancellationToken);
+            if (result.IsSuccess) return Ok(result.Data);
+            var message = result.ErrorMessage ?? "Failed to upload index artifact.";
+            var notFound = message.StartsWith("Revision not found", StringComparison.OrdinalIgnoreCase);
+            var conflict = message.StartsWith("ALREADY_EXISTS:", StringComparison.OrdinalIgnoreCase) || message.StartsWith("CONCURRENT_OPERATION:", StringComparison.OrdinalIgnoreCase);
+            return StatusCode(conflict ? StatusCodes.Status409Conflict : notFound ? StatusCodes.Status404NotFound : StatusCodes.Status400BadRequest, new { status = "Failed", errorCode = conflict ? "CONFLICT" : notFound ? "NOT_FOUND" : "VALIDATION_ERROR", message });
+        }
+
+        [HttpGet("internal/revisions/{revisionId}/index-artifact")]
+        public async Task<IActionResult> GetIndexArtifact(Guid revisionId, CancellationToken cancellationToken)
+        {
+            var result = await _semanticLayerService.GetIndexArtifactZipAsync(revisionId, cancellationToken);
+            if (!result.IsSuccess)
+            {
+                var notFound = result.ErrorMessage?.Contains("not found", StringComparison.OrdinalIgnoreCase) == true;
+                return StatusCode(notFound ? StatusCodes.Status404NotFound : StatusCodes.Status400BadRequest, new { status = "Failed", errorCode = notFound ? "NOT_FOUND" : "BUSINESS_ERROR", message = result.ErrorMessage });
+            }
+            return File(result.Data!, "application/zip", $"semantic_index_rev_{revisionId}.zip");
+        }
+
+        [HttpDelete("revisions/{revisionId}")]
+        public async Task<IActionResult> DeleteRevision(Guid revisionId, CancellationToken cancellationToken)
+        {
+            var result = await _semanticLayerService.DeleteRevisionAsync(revisionId, cancellationToken);
+            if (!result.IsSuccess)
+            {
+                var notFound = result.ErrorMessage?.StartsWith("Revision not found", StringComparison.OrdinalIgnoreCase) == true;
+                return StatusCode(notFound ? StatusCodes.Status404NotFound : StatusCodes.Status400BadRequest, new { status = "Failed", errorCode = notFound ? "NOT_FOUND" : "BUSINESS_ERROR", message = result.ErrorMessage });
+            }
+            return NoContent();
+        }
     }
 }

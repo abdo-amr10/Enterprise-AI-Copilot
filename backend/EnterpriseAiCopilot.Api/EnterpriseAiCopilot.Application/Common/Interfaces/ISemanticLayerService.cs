@@ -27,5 +27,8 @@ namespace EnterpriseAiCopilot.Application.Common.Interfaces
         Task<Result<SemanticLayerTablesResponse>> GetLayerTablesAsync(Guid layerId, CancellationToken cancellationToken = default);
         Task<Result<TablePermissionsResponse>> GetTablePermissionsAsync(Guid layerId, CancellationToken cancellationToken = default);
         Task<Result<bool>> ActivateSemanticLayerAsync(Guid layerId, CancellationToken cancellationToken = default);
+        Task<Result<UploadIndexArtifactResponse>> UploadIndexArtifactAsync(Guid revisionId, UploadIndexArtifactRequest request, CancellationToken cancellationToken = default);
+        Task<Result<byte[]>> GetIndexArtifactZipAsync(Guid revisionId, CancellationToken cancellationToken = default);
+        Task<Result<bool>> DeleteRevisionAsync(Guid revisionId, CancellationToken cancellationToken = default);
     }
 }
