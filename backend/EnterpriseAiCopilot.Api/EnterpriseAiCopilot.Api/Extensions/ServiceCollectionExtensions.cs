@@ -24,6 +24,7 @@ namespace EnterpriseAiCopilot.Api.Extensions
             services.AddScoped<ICurrentUserService, CurrentUserService>();
             services.AddScoped<IAuthService, AuthService>();
             services.AddScoped<IFileStorage, LocalFileStorage>();
+            services.AddScoped<ISemanticIndexStorage, LocalSemanticIndexStorage>();
             services.AddScoped<ISemanticLayerService, SemanticLayerService>();
             services.AddScoped<ICopilotService, CopilotService>();
             services.AddScoped<IDynamicSqlExecutor, DynamicSqlExecutor>();

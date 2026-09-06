@@ -27,6 +27,7 @@ namespace EnterpriseAiCopilot.Application.Services
         private readonly IMemoryCache _cache;
         private readonly ILogger<SemanticLayerService> _logger;
         private readonly IAuditService _auditService;
+        private readonly ISemanticIndexStorage _semanticIndexStorage;
 
         public SemanticLayerService(
             IApplicationDbContext context,
@@ -35,7 +36,8 @@ namespace EnterpriseAiCopilot.Application.Services
             IAiSemanticClient aiSemanticClient,
             IMemoryCache cache,
             ILogger<SemanticLayerService> logger,
-            IAuditService auditService)
+            IAuditService auditService,
+            ISemanticIndexStorage semanticIndexStorage)
         {
             _context = context;
             _fileStorage = fileStorage;
@@ -44,6 +46,7 @@ namespace EnterpriseAiCopilot.Application.Services
             _cache = cache;
             _logger = logger;
             _auditService = auditService;
+            _semanticIndexStorage = semanticIndexStorage;
         }
 
         private static string AllowedTablesCacheKey(Guid layerId) => $"AllowedTables_{layerId}";
@@ -838,6 +841,42 @@ namespace EnterpriseAiCopilot.Application.Services
             return file.FileName.Contains(value, StringComparison.OrdinalIgnoreCase);
         }
 
+        public async Task<Result<UploadIndexArtifactResponse>> UploadIndexArtifactAsync(Guid revisionId, UploadIndexArtifactRequest request, CancellationToken cancellationToken = default)
+        {
+            var revision = await _context.SemanticRevisions.AsNoTracking().FirstOrDefaultAsync(r => r.Id == revisionId, cancellationToken);
+            if (revision == null) return Result<UploadIndexArtifactResponse>.Failure("Revision not found.");
+            if (request.FaissIndex == null || request.FaissIndex.Length == 0) return Result<UploadIndexArtifactResponse>.Failure("faissIndex is required and cannot be empty.");
+            var indexMetadata = await request.ReadIndexMetadataJsonAsync(cancellationToken);
+            var documentMetadata = await request.ReadDocumentMetadataJsonAsync(cancellationToken);
+            if (string.IsNullOrWhiteSpace(indexMetadata) || string.IsNullOrWhiteSpace(documentMetadata)) return Result<UploadIndexArtifactResponse>.Failure("indexMetadata and documentMetadata are required.");
+            try { using var i = JsonDocument.Parse(indexMetadata); using var d = JsonDocument.Parse(documentMetadata); }
+            catch (JsonException) { return Result<UploadIndexArtifactResponse>.Failure("indexMetadata and documentMetadata must be valid JSON."); }
+            if (await _semanticIndexStorage.ArtifactExistsAsync(revision.SemanticLayerId, revisionId, cancellationToken)) return Result<UploadIndexArtifactResponse>.Failure("ALREADY_EXISTS: An index artifact already exists for this revision.");
+            await using var faissStream = request.FaissIndex.OpenReadStream();
+            var save = await _semanticIndexStorage.SaveArtifactBundleAsync(revision.SemanticLayerId, revisionId, faissStream, indexMetadata, documentMetadata, cancellationToken);
+            if (!save.IsSuccess) return Result<UploadIndexArtifactResponse>.Failure(save.ErrorMessage ?? "Failed to save index artifact.");
+            return Result<UploadIndexArtifactResponse>.Success(new UploadIndexArtifactResponse { SemanticLayerId = revision.SemanticLayerId.ToString(), RevisionId = revisionId.ToString(), Status = "READY", ArtifactReady = true, UpdatedAt = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") });
+        }
+
+        public async Task<Result<byte[]>> GetIndexArtifactZipAsync(Guid revisionId, CancellationToken cancellationToken = default)
+        {
+            var revision = await _context.SemanticRevisions.AsNoTracking().FirstOrDefaultAsync(r => r.Id == revisionId, cancellationToken);
+            if (revision == null) return Result<byte[]>.Failure("Revision not found.");
+            return await _semanticIndexStorage.GetArtifactBundleZipAsync(revision.SemanticLayerId, revisionId, cancellationToken);
+        }
+
+        public async Task<Result<bool>> DeleteRevisionAsync(Guid revisionId, CancellationToken cancellationToken = default)
+        {
+            var revision = await _context.SemanticRevisions.FirstOrDefaultAsync(r => r.Id == revisionId, cancellationToken);
+            if (revision == null) return Result<bool>.Failure("Revision not found.");
+            var layerId = revision.SemanticLayerId;
+            try { _context.SemanticRevisions.Remove(revision); await _context.SaveChangesAsync(cancellationToken); }
+            catch (DbUpdateException ex) { _logger.LogWarning(ex, "Revision {RevisionId} could not be deleted.", revisionId); return Result<bool>.Failure("Revision cannot be deleted because it is referenced by existing records."); }
+            var cleanup = await _semanticIndexStorage.DeleteRevisionArtifactAsync(layerId, revisionId, cancellationToken);
+            if (!cleanup.IsSuccess) _logger.LogWarning("Index artifact cleanup failed for revision {RevisionId}: {Error}", revisionId, cleanup.ErrorMessage);
+            return Result<bool>.Success(true);
+        }
+
         public async Task<Result<bool>> DeleteSemanticLayerAsync(Guid layerId, CancellationToken cancellationToken = default)
         {
             var semanticLayer = await _context.SemanticLayers
@@ -868,6 +907,9 @@ namespace EnterpriseAiCopilot.Application.Services
                     _logger.LogWarning("Physical source file cleanup failed for {StoragePath} after layer {LayerId} deletion.", path, layerId);
                 }
             }
+
+            var indexCleanup = await _semanticIndexStorage.DeleteLayerArtifactsAsync(layerId, cancellationToken);
+            if (!indexCleanup.IsSuccess) _logger.LogWarning("Semantic index artifact cleanup failed for layer {LayerId}: {Error}", layerId, indexCleanup.ErrorMessage);
 
             _cache.Remove(AllowedTablesCacheKey(layerId));
 
