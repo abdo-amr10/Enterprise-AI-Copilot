@@ -11,5 +11,7 @@ namespace EnterpriseAiCopilot.Application.DTOs.Copilot
         public string? TextSummary { get; set; }
         public string PresentationType { get; set; } = "DataTable";
         public string? ErrorMessage { get; set; }
+        public string? Route { get; set; }
+        public string? DirectAnswer { get; set; }
     }
 }
