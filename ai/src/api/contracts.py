@@ -13,8 +13,15 @@ class StrictModel(BaseModel):
 class CopilotRequest(StrictModel):
     question: str = Field(min_length=1)
     conversation: list[dict[str, Any]] | None = Field(default_factory=list)
-    correlation_id: str | None = Field(default=None)
+    conversation_id: str | None = Field(default=None, alias="conversationId")
+    tenant_id: str | None = Field(default=None, alias="tenantId")
+    user_id: str | None = Field(default=None, alias="userId")
+    branch_id: str | None = Field(default=None, alias="branchId")
+    semantic_revision_id: str | None = Field(default=None, alias="semanticRevisionId")
+    schema_version: str | None = Field(default=None, alias="schemaVersion")
+    correlation_id: str | None = Field(default=None, alias="correlationId")
     traceparent: str | None = Field(default=None)
+    last_result_metadata: dict[str, Any] | None = Field(default=None, alias="lastResultMetadata")
 
 
 class CopilotResponse(StrictModel):
@@ -25,6 +32,8 @@ class CopilotResponse(StrictModel):
     textSummary: str | None = None
     presentationType: str = "DataTable"
     errorMessage: str | None = None
+    route: str | None = None
+    directAnswer: str | None = None
 
 
 class SemanticRetrieveRequest(CopilotRequest):

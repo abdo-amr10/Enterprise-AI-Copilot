@@ -10,9 +10,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from src.api.dependencies import get_copilot_pipeline
+from src.api.dependencies import get_conversation_router, get_copilot_pipeline
 from src.api.post_query_dependencies import get_post_query_response_formatter
 from src.application.dto.backend.copilot.execution_result import BackendExecutionResult
+from src.application.services.conversation.router.conversation_router import (
+    ConversationRouter,
+)
 from src.application.services.post_query_response.post_query_response_formatter import (
     PostQueryResponseFormatter,
 )
@@ -76,7 +79,8 @@ def _normalize_execution_result(
 def text_to_sql(
     request: CopilotRequest,
     pipeline: CopilotRuntimePipeline = Depends(get_copilot_pipeline),
-)-> CopilotResponse:
+    conversation_router: ConversationRouter = Depends(get_conversation_router),
+) -> CopilotResponse:
     try:
         ask_request = CopilotAskRequest(
             question=request.question,
@@ -87,16 +91,28 @@ def text_to_sql(
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
-    result = pipeline.run(ask_request)
+    decision = conversation_router.route(
+        question=ask_request.question,
+        raw_conversation=ask_request.conversation,
+        correlation_id=ask_request.correlation_id,
+        conversation_id=request.conversation_id,
+        tenant_id=request.tenant_id,
+        user_id=request.user_id,
+        branch_id=request.branch_id,
+        semantic_revision_id=request.semantic_revision_id,
+        schema_version=request.schema_version,
+        last_result_metadata=request.last_result_metadata,
+        executor=pipeline.run,
+    )
 
     return CopilotResponse(
-        isSuccess=result.status == "Success",
-        generatedSql=result.sql,
-        errorMessage=(
-            None
-            if result.status == "Success"
-            else result.failure_reason or result.message or result.error_code
-        ),
+        isSuccess=decision.is_success,
+        generatedSql=decision.generated_sql,
+        textSummary=decision.text_summary,
+        presentationType=decision.presentation_type,
+        errorMessage=decision.error_message,
+        route=decision.route.value if hasattr(decision.route, "value") else str(decision.route),
+        directAnswer=decision.direct_answer,
     )
 
 

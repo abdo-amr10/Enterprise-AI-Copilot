@@ -213,4 +213,17 @@ def get_semantic_retrieval_pipeline() -> SemanticRetrievalPipeline:
     return SemanticRetrievalPipeline(retrieval_service=get_context_service())
 
 
+_conversation_router: Any = None
+
+
+def get_conversation_router():
+    global _conversation_router
+    if _conversation_router is None:
+        from src.application.services.conversation.router.conversation_router import (
+            ConversationRouter,
+        )
+        _conversation_router = ConversationRouter()
+    return _conversation_router
+
+
 # End of local-state composition root.
