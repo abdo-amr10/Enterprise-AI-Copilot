@@ -59,7 +59,14 @@ namespace EnterpriseAiCopilot.Infrastructure.ExternalServices
                 var payload = new
                 {
                     question = request.Question,
-                    conversation = request.Conversation
+                    conversation = request.Conversation,
+                    conversationId = request.ConversationId,
+                    tenantId = request.TenantId,
+                    userId = request.UserId,
+                    branchId = request.BranchId,
+                    semanticRevisionId = request.SemanticRevisionId,
+                    schemaVersion = request.SchemaVersion,
+                    lastResultMetadata = request.LastResultMetadata
                 };
 
                 var response = await _httpClient.PostAsJsonAsync(endpoint, payload, cancellationToken);

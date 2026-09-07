@@ -112,6 +112,8 @@ namespace EnterpriseAiCopilot.Application.Services
 
             AiRuntimeResponse? aiResponse = null;
             Result<object>? executionResult = null;
+            CopilotReport? directReport = null;
+            bool aiHandledWithoutSql = false;
             string? finalErrorMessage = null;
 
             while (attempt < maxRetries)
@@ -121,6 +123,17 @@ namespace EnterpriseAiCopilot.Application.Services
                 {
                     Question = originalPrompt,
                     ConversationId = conversationId.ToString(),
+                    // These values are authoritative server-side context. Do not trust
+                    // equivalent values supplied by the client request body.
+                    UserId = userId,
+                    BranchId = branchId,
+                    SemanticRevisionId = layerId.ToString(),
+                    SchemaVersion = "1.0",
+                    LastResultMetadata = await LoadLastResultMetadataAsync(
+                        conversationId,
+                        userId,
+                        branchId,
+                        cancellationToken),
                     Conversation = new List<ConversationMessage>(conversationMessages)
                 };
 
@@ -139,9 +152,35 @@ namespace EnterpriseAiCopilot.Application.Services
                     break;
                 }
 
-                if (!aiResponse.IsSuccess || string.IsNullOrWhiteSpace(aiResponse.GeneratedSql))
+                if (!aiResponse.IsSuccess)
                 {
-                    finalErrorMessage = aiResponse.ErrorMessage ?? "SQL_GENERATION_FAILED";
+                    finalErrorMessage = aiResponse.ErrorMessage ?? "AI_PROCESSING_FAILED";
+                    break;
+                }
+
+                var route = aiResponse.Route?.Trim();
+                if (string.Equals(route, "DirectAnswer", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(route, "SafeRejection", StringComparison.OrdinalIgnoreCase))
+                {
+                    stopwatch.Stop();
+                    totalExecutionTimeMs += stopwatch.ElapsedMilliseconds;
+                    directReport = new CopilotReport
+                    {
+                        TextSummary = aiResponse.DirectAnswer ?? aiResponse.TextSummary ?? "The request was answered directly.",
+                        PresentationType = string.Equals(route, "SafeRejection", StringComparison.OrdinalIgnoreCase)
+                            ? "SafeRejection"
+                            : "DirectAnswer",
+                        Data = null,
+                        ExecutionTimeMs = totalExecutionTimeMs
+                    };
+                    aiHandledWithoutSql = true;
+                    finalErrorMessage = null;
+                    break;
+                }
+
+                if (string.IsNullOrWhiteSpace(aiResponse.GeneratedSql))
+                {
+                    finalErrorMessage = aiResponse.ErrorMessage ?? "SQL_GENERATION_FAILED: No query was generated.";
                     break;
                 }
 
@@ -195,7 +234,9 @@ namespace EnterpriseAiCopilot.Application.Services
                 }
             }
 
-            var status = (executionResult != null && executionResult.IsSuccess) ? "Completed" : "Failed";
+            var status = (aiHandledWithoutSql || (executionResult != null && executionResult.IsSuccess))
+                ? "Completed"
+                : "Failed";
 
             var historyId = await LogQueryHistorySafeAsync(
                  userId,
@@ -234,6 +275,21 @@ namespace EnterpriseAiCopilot.Application.Services
                 resourceId: historyId.ToString(),
                 cancellationToken: cancellationToken
             );
+
+            if (aiHandledWithoutSql)
+            {
+                await SaveQueryResultSafeAsync(historyId, directReport!, cancellationToken);
+                conversation.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync(cancellationToken);
+
+                return Result<AskCopilotResponse>.Success(new AskCopilotResponse
+                {
+                    QueryId = historyId.ToString(),
+                    ConversationId = conversationId.ToString(),
+                    Status = "Completed",
+                    Report = directReport!
+                });
+            }
 
             CopilotReport formattedReport;
             try
@@ -466,6 +522,43 @@ namespace EnterpriseAiCopilot.Application.Services
                     messages.Add(new ConversationMessage { Role = "assistant", Content = $"Generated SQL: {query.GeneratedSql}" });
             }
             return messages;
+        }
+
+        private async Task<object?> LoadLastResultMetadataAsync(
+            Guid conversationId,
+            string userId,
+            string branchId,
+            CancellationToken cancellationToken)
+        {
+            var latestCompletedQuery = await _context.CopilotQueryHistories
+                .AsNoTracking()
+                .Where(q => q.ConversationId == conversationId &&
+                            q.UserId == userId &&
+                            q.BranchId == branchId &&
+                            q.Status == "Completed" &&
+                            q.ResultJson != null)
+                .OrderByDescending(q => q.CreatedAt)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (latestCompletedQuery == null || string.IsNullOrWhiteSpace(latestCompletedQuery.ResultJson))
+                return null;
+
+            try
+            {
+                using var resultDocument = JsonDocument.Parse(latestCompletedQuery.ResultJson);
+                return new
+                {
+                    queryId = latestCompletedQuery.Id.ToString(),
+                    question = latestCompletedQuery.UserPrompt,
+                    generatedSql = latestCompletedQuery.GeneratedSql,
+                    result = resultDocument.RootElement.Clone()
+                };
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Could not build last result metadata for conversation {ConversationId}", conversationId);
+                return null;
+            }
         }
 
         private static CopilotReport? DeserializeReport(string json)
