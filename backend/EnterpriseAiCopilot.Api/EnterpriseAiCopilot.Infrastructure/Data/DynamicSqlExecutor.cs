@@ -129,8 +129,13 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
                     cancellationToken: cancellationToken
                 );
 
-                var result = await connection.QueryAsync<dynamic>(command);
-                return Result<object>.Success(result.ToList());
+                var result = await connection.QueryAsync(command);
+                var rows = result
+                    .Select(row => (IDictionary<string, object>)row)
+                    .Select(row => new Dictionary<string, object>(row, StringComparer.OrdinalIgnoreCase))
+                    .ToList();
+
+                return Result<object>.Success(rows);
             }
             catch (OperationCanceledException) { throw; }
             catch (SqlException ex)

@@ -509,17 +509,29 @@ namespace EnterpriseAiCopilot.Application.Services
         {
             var queries = await _context.CopilotQueryHistories
                 .Where(q => q.ConversationId == conversationId && q.UserId == userId && q.BranchId == branchId)
-                .OrderByDescending(q => q.CreatedAt)
-                .Take(5)
                 .OrderBy(q => q.CreatedAt)
                 .ToListAsync(cancellationToken);
 
             var messages = new List<ConversationMessage>();
             foreach (var query in queries)
             {
-                messages.Add(new ConversationMessage { Role = "user", Content = query.UserPrompt });
-                if (!string.IsNullOrWhiteSpace(query.GeneratedSql))
-                    messages.Add(new ConversationMessage { Role = "assistant", Content = $"Generated SQL: {query.GeneratedSql}" });
+                string? executionResultSummary = null;
+                if (!string.IsNullOrWhiteSpace(query.ResultJson))
+                {
+                    var report = DeserializeReport(query.ResultJson);
+                    executionResultSummary = report?.TextSummary;
+                }
+
+                messages.Add(new ConversationMessage
+                {
+                    Role = "turn",
+                    TurnId = $"turn_{query.Id}",
+                    UserQuestion = query.UserPrompt,
+                    GeneratedSql = query.GeneratedSql,
+                    ExecutionResultSummary = executionResultSummary,
+                    ExecutionStatus = query.Status,
+                    Timestamp = query.CreatedAt.ToUniversalTime().ToString("O")
+                });
             }
             return messages;
         }
