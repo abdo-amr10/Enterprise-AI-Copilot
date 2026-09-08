@@ -3,6 +3,7 @@ using EnterpriseAiCopilot.Application.DTOs.Users;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
 namespace EnterpriseAiCopilot.Api.Controllers;
 
@@ -16,6 +17,50 @@ public sealed class UsersController : ControllerBase
     public UsersController(IApplicationDbContext context)
     {
         _context = context;
+    }
+
+    [HttpGet("me")]
+    [Authorize]
+    public async Task<IActionResult> GetCurrentUser(CancellationToken cancellationToken)
+    {
+        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized(new
+            {
+                status = "Failed",
+                errorCode = "UNAUTHORIZED",
+                message = "User ID claim is missing or invalid."
+            });
+        }
+
+        var user = await _context.Users
+            .AsNoTracking()
+            .Where(item => item.Id == userId)
+            .Select(item => new PublicUserResponse
+            {
+                UserId = item.Id.ToString(),
+                FirstName = item.FirstName,
+                LastName = item.LastName,
+                Email = item.Email,
+                Role = item.Role,
+                BranchId = item.BranchId,
+                CreatedAt = item.CreatedAt,
+                LastModifiedAt = item.LastModifiedAt
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (user is null)
+        {
+            return NotFound(new
+            {
+                status = "Failed",
+                errorCode = "NOT_FOUND",
+                message = "Current user was not found."
+            });
+        }
+
+        return Ok(user);
     }
 
     [HttpGet]
