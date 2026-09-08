@@ -15,6 +15,18 @@ public sealed class UserDetailsResponse
     public List<UserTablePermissionResponse> TablePermissions { get; set; } = new();
 }
 
+public sealed class PublicUserResponse
+{
+    public string UserId { get; set; } = string.Empty;
+    public string FirstName { get; set; } = string.Empty;
+    public string LastName { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string Role { get; set; } = string.Empty;
+    public string? BranchId { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? LastModifiedAt { get; set; }
+}
+
 public sealed class UserTablePermissionResponse
 {
     public string SemanticLayerId { get; set; } = string.Empty;
