@@ -9,7 +9,7 @@ namespace EnterpriseAiCopilot.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/users")]
-[Authorize(Roles = "admin")]
+[Authorize]
 public sealed class UsersController : ControllerBase
 {
     private readonly IApplicationDbContext _context;
@@ -64,6 +64,7 @@ public sealed class UsersController : ControllerBase
     }
 
     [HttpGet]
+    [Authorize(Roles = "admin")]
     public async Task<IActionResult> GetUsers([FromQuery] Guid? id, CancellationToken cancellationToken)
     {
         if (id.HasValue)
