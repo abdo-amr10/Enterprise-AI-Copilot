@@ -266,6 +266,44 @@ class ConversationRouter:
             )
 
             if continuation.is_resolved and executor:
+                # A related request still needs a fresh database execution,
+                # but when its fully resolved intent has been seen before we
+                # can safely reuse its validated SQL and skip Text-to-SQL.
+                # The replay key includes the conversation, user, tenant,
+                # semantic revision, and schema version.
+                resolved_replay = self._replay_manager.lookup(
+                    continuation.resolved_question,
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    semantic_revision_id=semantic_revision_id,
+                    schema_version=schema_version,
+                    conversation_id=conv_id,
+                )
+                if resolved_replay.is_valid and resolved_replay.entry is not None:
+                    cached_sql = resolved_replay.entry.sql
+                    if cached_sql:
+                        self._state_manager.record_successful_execution(
+                            conv_id,
+                            sql=cached_sql,
+                            question=continuation.resolved_question,
+                            query_state=continuation.updated_semantic_state,
+                            fingerprint=(
+                                resolved_replay.fingerprint.fingerprint_hash
+                                if resolved_replay.fingerprint else None
+                            ),
+                        )
+                        return RoutingDecision(
+                            route=ConversationRoute.FOLLOW_UP_QUERY,
+                            is_success=True,
+                            generated_sql=cached_sql,
+                            resolved_question=continuation.resolved_question,
+                            cache_hit=True,
+                            cache_type="RESOLVED_FOLLOW_UP_REPLAY",
+                            state_loaded=True,
+                            followup_detected=True,
+                            followup_confidence=followup.confidence_level.value,
+                        )
+
                 exec_req = CopilotAskRequest(
                     question=continuation.resolved_question,
                     conversation=raw_conversation,
@@ -281,6 +319,7 @@ class ConversationRouter:
                     self._state_manager.record_successful_execution(
                         conv_id,
                         sql=runtime_resp.sql,
+                        question=continuation.resolved_question or question,
                         query_state=continuation.updated_semantic_state,
                         fingerprint=replay.fingerprint.fingerprint_hash if replay.fingerprint else None,
                     )
@@ -293,6 +332,19 @@ class ConversationRouter:
                         schema_version=schema_version,
                         conversation_id=conv_id,
                     )
+                    # Keep a second exact key for the canonical resolved
+                    # question, allowing equivalent follow-up wording to
+                    # skip the Text-to-SQL model on later turns.
+                    if continuation.resolved_question != question:
+                        self._replay_manager.record_success(
+                            continuation.resolved_question,
+                            runtime_resp.sql,
+                            tenant_id=tenant_id,
+                            user_id=user_id,
+                            semantic_revision_id=semantic_revision_id,
+                            schema_version=schema_version,
+                            conversation_id=conv_id,
+                        )
                     return RoutingDecision(
                         route=ConversationRoute.FOLLOW_UP_QUERY,
                         is_success=True,
@@ -372,6 +424,7 @@ class ConversationRouter:
                 self._state_manager.record_successful_execution(
                     conv_id,
                     sql=runtime_resp.sql,
+                    question=question,
                     fingerprint=replay.fingerprint.fingerprint_hash if replay.fingerprint else None,
                 )
                 self._replay_manager.record_success(
