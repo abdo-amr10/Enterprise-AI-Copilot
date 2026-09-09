@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import Logo from '../assets/Logo.png'
 import AdminSidebar from '../components/AdminSidebar'
 import AdminTopBar from '../components/AdminTopBar'
+import { getDashboardMetrics } from '../services/dashboardService'
 import { getSemanticLayers } from '../services/semanticLayerService'
 import { fetchAuditLogs } from '../services/auditService'
 import '../styles/admin.css'
@@ -17,17 +18,19 @@ export default function AdminDashboard() {
   const [state, setState] = useState('loading')
   const [layer, setLayer] = useState(null)
   const [activity, setActivity] = useState([])
+  const [metrics, setMetrics] = useState(null)
 
   useEffect(() => {
     let cancelled = false
-    Promise.allSettled([getSemanticLayers(), fetchAuditLogs()]).then(([layersResult, auditResult]) => {
+    Promise.allSettled([getSemanticLayers(), fetchAuditLogs(), getDashboardMetrics()]).then(([layersResult, auditResult, metricsResult]) => {
       if (cancelled) return
       if (layersResult.status === 'fulfilled') setLayer(layersResult.value.find((item) => item.isActive) || layersResult.value[0] || null)
       if (auditResult.status === 'fulfilled') {
         const logs = auditResult.value?.items || auditResult.value?.data || (Array.isArray(auditResult.value) ? auditResult.value : [])
         setActivity(logs.slice(0, 3))
       }
-      setState(layersResult.status === 'rejected' && auditResult.status === 'rejected' ? 'error' : 'ready')
+      if (metricsResult.status === 'fulfilled') setMetrics(metricsResult.value)
+      setState(layersResult.status === 'rejected' && auditResult.status === 'rejected' && metricsResult.status === 'rejected' ? 'error' : 'ready')
     })
     return () => { cancelled = true }
   }, [])
@@ -41,8 +44,8 @@ export default function AdminDashboard() {
         {state === 'error' ? <p className="admin-error" role="alert">We couldn’t load the dashboard right now. Please try again later.</p> : null}
         <section className="admin-stats">
           <article><small>SEMANTIC LAYER</small><strong>{layer?.hasApprovedRevision ? 'Approved' : layer ? 'Pending' : '—'}</strong><span>{layer?.name || 'No layer available'}</span></article>
-          <article><small>ACTIVE USERS</small><strong>—</strong><span>Live metric not available</span></article>
-          <article><small>QUESTIONS TODAY</small><strong>—</strong><span>Live metric not available</span></article>
+          <article><small>ACTIVE USERS</small><strong>{metrics?.activeUsers ?? '—'}</strong><span>Users active in the workspace</span></article>
+          <article><small>QUESTIONS TODAY</small><strong>{metrics?.questionsToday ?? '—'}</strong><span>Questions asked today</span></article>
         </section>
         <section className="admin-grid">
           <article className="admin-card"><div className="admin-card-title"><div><small>SEMANTIC LAYER</small><h3>{layer?.name || 'No semantic layer available'}</h3></div><span className="admin-badge">{layer?.hasApprovedRevision ? 'Approved' : layer ? 'Pending' : 'Unavailable'}</span></div><p>{layer ? `Database: ${layer.databaseName || 'Not specified'}` : 'Create a semantic layer to connect your business context.'}</p><Link to="/admin/semantic-layers">View semantic layers</Link></article>

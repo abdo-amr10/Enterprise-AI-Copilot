@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import AdminSidebar from '../components/AdminSidebar'
 import AdminTopBar from '../components/AdminTopBar'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { IconArrowLeft, IconCheck, IconDatabase, IconDownload, IconFileText, IconLayers, IconLoader, IconTable } from '../components/icons'
-import { deleteSemanticSourceFile, generateSemanticDraft, getSemanticLayerById, getSemanticLayerStatus, getSemanticLayerTablePermissions, getSemanticLayerTables, getSemanticSourceFile, getSemanticSourceFileContent, setSemanticLayerTableAccess, setUserTableAccess, upsertSemanticSourceFile } from '../services/semanticLayerService'
+import { fetchUsers } from '../services/adminUsersService'
+import { deleteSemanticSourceFile, generateSemanticDraft, getSemanticLayerById, getSemanticLayerStatus, getSemanticLayerTablePermissions, getSemanticLayerTables, getSemanticSourceFile, getSemanticSourceFileContent, normalizeSemanticSources, setSemanticLayerTableAccess, setUserTableAccess, upsertSemanticSourceFile } from '../services/semanticLayerService'
 import '../styles/admin.css'
 import '../styles/admin-pages.css'
 import '../styles/semantic-layer-details.css'
@@ -57,8 +58,11 @@ function OverviewTab({ layer, status }) {
   return <section className="semantic-details-workspace"><span className="semantic-details-kicker">Layer overview</span><h2>Business context at a glance</h2><p>This layer provides the approved context that helps Copilot understand your organization’s data.</p><div className="semantic-overview-grid"><div><small>LAYER STATUS</small><strong>{layer.isActive ? 'Active' : 'Inactive'}</strong></div><div><small>LATEST REVISION</small><strong>{status?.version || 'No revision yet'}</strong></div><div><small>REVISION STATUS</small><strong>{status?.status || 'Not available'}</strong></div><div><small>DATA SOURCES</small><strong>{status ? `${sourceCount} connected` : 'Not available'}</strong></div><div><small>LAST UPDATED</small><strong>{formatTimestamp(status?.buildTimestamp)}</strong></div><div><small>LAST GENERATION</small><strong>{status?.lastRegenerationType || 'Not available'}</strong></div></div>{!layer.isActive ? <p className="semantic-details-note">Revision details become available here when this layer is active.</p> : null}</section>
 }
 
-function SourcesTab({ status, sourceFiles, sourceState, actionKey, onDownload, onUpload, onDelete }) {
-  const sourceIds = status?.sources || {}
+function SourcesTab({ layer, status, sourceFiles, sourceState, actionKey, onDownload, onUpload, onDelete }) {
+  // Status is the canonical source of persisted file IDs when a revision exists.
+  // Keep the layer/upload values as secondary data so a metadata request cannot
+  // make an already persisted source disappear from the UI.
+  const sourceIds = { ...(layer?.sources || {}), ...(status?.sources || {}) }
   const sources = SOURCE_TYPES.map((type) => ({ ...type, fileId: sourceIds[type.sourceKey] || sourceFiles[type.key]?.fileId || '', ...sourceFiles[type.key] }))
   return <section className="semantic-details-workspace semantic-sources-workspace"><div className="semantic-sources-intro"><div><span className="semantic-details-kicker">Data sources</span><h2>Files that shape this layer</h2></div><span>{sources.filter((source) => source.fileId).length} / {sources.length} available</span></div><div className="semantic-sources-grid">{sources.map((source) => <SourceCard key={source.key} source={source} isLoading={sourceState === 'loading' && Boolean(source.fileId)} isBusy={actionKey === source.key || actionKey === `download:${source.key}`} actionLabel={actionKey === `download:${source.key}` ? 'Preparing…' : 'Saving…'} onDownload={onDownload} onUpload={onUpload} onDelete={onDelete} />)}</div></section>
 }
@@ -173,48 +177,59 @@ function TablesTab({ layer }) {
 }
 
 function PermissionsTab({ layer }) {
-  const { tableState, tables, loadTables } = useLayerTables(layer)
   const semanticLayerId = layer?.id
-  const [email, setEmail] = useState('')
-  const [tableName, setTableName] = useState('')
-  const [isAllowed, setIsAllowed] = useState(true)
-  const [state, setState] = useState('idle')
-  const [notice, setNotice] = useState(null)
-  const [permissions, setPermissions] = useState([])
+  const requestSequence = useRef(0)
+  const [users, setUsers] = useState([])
+  const [usersState, setUsersState] = useState('loading')
+  const [userQuery, setUserQuery] = useState('')
+  const [selectedUserId, setSelectedUserId] = useState('')
+  const [tables, setTables] = useState([])
+  const [tablesState, setTablesState] = useState('loading')
+  const [permissionUsers, setPermissionUsers] = useState([])
   const [permissionsState, setPermissionsState] = useState('loading')
-  const selectedTableName = tableName || tables[0]?.name || ''
+  const [draft, setDraft] = useState({})
+  const [savedDraft, setSavedDraft] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [notice, setNotice] = useState(null)
 
-  const loadPermissions = useCallback(async () => {
+  const loadData = useCallback(async () => {
     if (!semanticLayerId) return
-    setPermissionsState('loading')
-    try {
-      setPermissions(await getSemanticLayerTablePermissions(semanticLayerId))
-      setPermissionsState('ready')
-    } catch {
-      setPermissionsState('error')
-    }
+    const sequence = ++requestSequence.current
+    setUsers([]); setSelectedUserId(''); setTables([]); setPermissionUsers([]); setDraft({}); setSavedDraft({}); setUsersState('loading'); setPermissionsState('loading'); setTablesState('loading'); setNotice(null)
+    const [usersResult, permissionsResult, tablesResult] = await Promise.allSettled([fetchUsers(), getSemanticLayerTablePermissions(semanticLayerId), getSemanticLayerTables(semanticLayerId)])
+    if (sequence !== requestSequence.current) return
+    if (usersResult.status === 'fulfilled') {
+      const payload = usersResult.value?.data ?? usersResult.value
+      const nextUsers = (Array.isArray(payload) ? payload : payload?.items || payload?.users || []).map((user) => ({ userId: user.userId ?? user.UserId, email: user.email ?? user.Email, name: `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || user.fullName || user.email || user.Email })).filter((user) => user.userId && user.email)
+      setUsers(nextUsers); setUsersState(nextUsers.length ? 'ready' : 'empty'); if (nextUsers.length) setSelectedUserId(nextUsers[0].userId)
+    } else setUsersState('error')
+    if (permissionsResult.status === 'fulfilled') { setPermissionUsers(permissionsResult.value.users || []); setPermissionsState('ready') } else setPermissionsState('error')
+    if (tablesResult.status === 'fulfilled') { setTables(tablesResult.value || []); setTablesState('ready') } else setTablesState('error')
   }, [semanticLayerId])
 
-  useEffect(() => { Promise.resolve().then(loadPermissions) }, [loadPermissions])
+  useEffect(() => { Promise.resolve().then(loadData) }, [loadData])
+  const selectedUser = users.find((user) => String(user.userId).toLowerCase() === String(selectedUserId).toLowerCase())
+  const selectedPermissionUser = permissionUsers.find((user) => String(user.userId).toLowerCase() === String(selectedUserId).toLowerCase())
+  const baseline = Object.keys(savedDraft).length ? savedDraft : (selectedPermissionUser?.tables || {})
+  const tableRows = tables.map((table) => ({ ...table, isAllowed: draft[table.name] ?? selectedPermissionUser?.tables?.[table.name] ?? false }))
+  const allowedCount = tableRows.filter((table) => table.isAllowed).length
+  const hasUnsavedChanges = tableRows.some((table) => Boolean(table.isAllowed) !== Boolean(baseline[table.name]))
+  const visibleUsers = users.filter((user) => `${user.name} ${user.email}`.toLowerCase().includes(userQuery.trim().toLowerCase()))
 
-  async function savePermission(event) {
-    event.preventDefault()
-    if (!/^\S+@\S+\.\S+$/.test(email) || !selectedTableName) {
-      setNotice({ type: 'error', text: 'Enter a valid work email and choose a table.' })
-      return
-    }
-    setState('saving'); setNotice(null)
+  function selectUser(userId) { setSelectedUserId(userId); const next = permissionUsers.find((user) => String(user.userId).toLowerCase() === String(userId).toLowerCase()); setDraft(next?.tables || {}); setSavedDraft(next?.tables || {}); setNotice(null) }
+  function toggleTable(tableName) { setDraft((current) => ({ ...current, [tableName]: !(current[tableName] ?? selectedPermissionUser?.tables?.[tableName] ?? false) })) }
+  async function saveChanges() {
+    if (!selectedUser || saving || !hasUnsavedChanges) return
+    setSaving(true); setNotice(null)
     try {
-      await setUserTableAccess({ layerId: layer.id, email, tableName: selectedTableName, isAllowed })
-      const normalizedEmail = email.trim().toLowerCase()
-      setPermissions((current) => {
-        const next = current.filter((permission) => !(permission.email.toLowerCase() === normalizedEmail && permission.tableName === selectedTableName))
-        return [...next, { email: email.trim(), tableName: selectedTableName, isAllowed }]
-      })
-      setNotice({ type: 'success', text: `Access for ${email.trim()} was updated.` })
-    } catch (error) { setNotice({ type: 'error', text: error.message || 'We couldn’t update this access setting.' }) } finally { setState('idle') }
+      const changes = tableRows.filter((table) => Boolean(table.isAllowed) !== Boolean(baseline[table.name]))
+      await Promise.all(changes.map((table) => setUserTableAccess({ layerId: semanticLayerId, email: selectedUser.email, tableName: table.name, isAllowed: Boolean(table.isAllowed) })))
+      const nextTables = Object.fromEntries(tableRows.map((table) => [table.name, Boolean(table.isAllowed)]))
+      setSavedDraft(nextTables); setDraft(nextTables); setPermissionUsers((current) => current.map((user) => String(user.userId).toLowerCase() === String(selectedUserId).toLowerCase() ? { ...user, tables: nextTables } : user)); setNotice({ type: 'success', text: 'Table access changes were saved.' })
+    } catch (error) { setNotice({ type: 'error', text: error.message || 'We couldn’t save these access changes.' }) } finally { setSaving(false) }
   }
-  return <section className="semantic-details-workspace semantic-permissions-workspace"><div className="semantic-management-heading"><div><span className="semantic-details-kicker">Table permissions</span><h2>Manage access to business tables</h2><p>Set and review user access for this semantic layer.</p></div></div>{tableState === 'loading' ? <div className="semantic-management-state"><IconLoader className="copilot-processing-loader" aria-hidden="true" />Loading available tables</div> : null}{tableState === 'error' ? <div className="semantic-management-state is-error"><span>We couldn’t load the available tables.</span><button type="button" onClick={loadTables}>Try again</button></div> : null}{tableState === 'empty' ? <div className="semantic-management-state"><span>No tables are available for permissions yet.</span></div> : null}{tableState === 'ready' ? <><p className="semantic-details-note">Enter the user’s work email, select a table, then save the access setting.</p><form className="semantic-permission-form" onSubmit={savePermission} noValidate><label>Work email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@company.com" /></label><label>Business table<select value={selectedTableName} onChange={(event) => setTableName(event.target.value)}>{tables.map((table) => <option key={table.name} value={table.name}>{table.name}</option>)}</select></label><label className="semantic-permission-choice"><input type="checkbox" checked={isAllowed} onChange={(event) => setIsAllowed(event.target.checked)} /><span><strong>{isAllowed ? 'Allow access' : 'Remove access'}</strong><small>{isAllowed ? 'The user can use this table in Copilot answers.' : 'The user cannot use this table in Copilot answers.'}</small></span></label><button type="submit" className="primary" disabled={state === 'saving'}>{state === 'saving' ? 'Saving…' : 'Save access'}</button></form>{notice ? <p className={`semantic-details-notice ${notice.type === 'error' ? 'is-error' : ''}`} role="status">{notice.text}</p> : null}<section className="semantic-permissions-current"><div><h3>Current access settings</h3><button type="button" onClick={loadPermissions} disabled={permissionsState === 'loading'}>{permissionsState === 'loading' ? 'Loading…' : 'Refresh'}</button></div>{permissionsState === 'loading' ? <p>Loading saved access settings.</p> : null}{permissionsState === 'error' ? <p>We couldn’t load saved access settings right now.</p> : null}{permissionsState === 'ready' && permissions.length === 0 ? <p>No individual table access settings have been added yet.</p> : null}{permissionsState === 'ready' && permissions.length ? <div>{permissions.map((permission) => <article key={`${permission.email}-${permission.tableName}`}><span>{permission.email}</span><strong>{permission.tableName}</strong><b className={permission.isAllowed ? 'is-allowed' : 'is-blocked'}>{permission.isAllowed ? 'Allowed' : 'Not allowed'}</b></article>)}</div> : null}</section></> : null}</section>
+
+  return <section className="semantic-details-workspace semantic-permissions-workspace"><div className="semantic-management-heading"><div><span className="semantic-details-kicker">Table permissions</span><h2>Manage access to business tables</h2></div></div>{usersState === 'loading' || permissionsState === 'loading' || tablesState === 'loading' ? <div className="semantic-permission-loading"><IconLoader className="copilot-processing-loader" aria-hidden="true" />Loading users and permissions</div> : null}{usersState === 'error' ? <div className="semantic-management-state is-error"><span>We couldn’t load users.</span><button type="button" onClick={loadData}>Try again</button></div> : null}{usersState === 'empty' ? <div className="semantic-management-state"><span>No users are available to manage.</span></div> : null}{permissionsState === 'error' ? <div className="semantic-management-state is-error"><span>We couldn’t load permissions for this layer.</span><button type="button" onClick={loadData}>Try again</button></div> : null}{tablesState === 'error' ? <div className="semantic-management-state is-error"><span>We couldn’t load business tables for this layer.</span><button type="button" onClick={loadData}>Try again</button></div> : null}{usersState === 'ready' && permissionsState === 'ready' && tablesState === 'ready' ? <><div className="semantic-permission-user-picker"><label htmlFor="permission-user-search">User</label><input id="permission-user-search" value={userQuery} onChange={(event) => setUserQuery(event.target.value)} placeholder="Search by name or email" /><div className="semantic-permission-user-list">{visibleUsers.map((user) => <button type="button" key={user.userId} className={String(user.userId).toLowerCase() === String(selectedUserId).toLowerCase() ? 'selected' : ''} onClick={() => selectUser(user.userId)}><strong>{user.name}</strong><span>{user.email}</span></button>)}</div>{visibleUsers.length === 0 ? <small>No matching users.</small> : null}</div>{selectedUser ? <><div className="semantic-permission-selected"><div><strong>{selectedUser.name}</strong><span>{selectedUser.email}</span></div><b>{allowedCount} of {tables.length} tables allowed</b></div>{tables.length === 0 ? <div className="semantic-management-state"><span>No business tables are available for this layer.</span></div> : <><div className="semantic-permission-table-list">{tableRows.map((table) => <article key={table.name}><div><strong>{table.name}</strong><span>{table.description || (table.columnCount ? `${table.columnCount} columns` : 'Business table in this layer')}</span></div><label><input type="checkbox" checked={Boolean(table.isAllowed)} onChange={() => toggleTable(table.name)} /><span aria-hidden="true" />{table.isAllowed ? 'Allowed' : 'Denied'}</label></article>)}</div><div className="semantic-permission-savebar"><span>{hasUnsavedChanges ? 'You have unsaved changes.' : 'All changes are saved.'}</span><button type="button" className="primary" disabled={saving || !hasUnsavedChanges} onClick={saveChanges}>{saving ? 'Saving…' : 'Save changes'}</button></div></>}</> : null}</> : null}{notice ? <p className={`semantic-details-notice ${notice.type === 'error' ? 'is-error' : ''}`} role="status">{notice.text}</p> : null}</section>
 }
 
 function LayerBadges({ layer }) {
@@ -238,7 +253,7 @@ export default function AdminSemanticLayerDetails() {
   const [pendingDelete, setPendingDelete] = useState(null)
   const navigate = useNavigate()
   const tab = TABS.some((item) => item.key === routeTab) ? routeTab : 'overview'
-  const uploadedFiles = useMemo(() => uploadedSourceFiles(location.state?.uploadedSource?.sources), [location.state])
+  const uploadedFiles = useMemo(() => uploadedSourceFiles(normalizeSemanticSources(location.state?.uploadedSource)), [location.state])
 
   const loadLayer = useCallback(async () => {
     setState('loading')
@@ -264,7 +279,8 @@ export default function AdminSemanticLayerDetails() {
         nextStatus = null
       }
       setStatus(nextStatus)
-      setSourceFiles(uploadedFiles)
+      const persistedFiles = uploadedSourceFiles(normalizeSemanticSources(nextStatus || nextLayer))
+      setSourceFiles((current) => ({ ...current, ...persistedFiles, ...uploadedFiles }))
       setState(nextLayer ? 'ready' : 'not-found')
     } catch {
       setState('error')
@@ -273,7 +289,12 @@ export default function AdminSemanticLayerDetails() {
 
   useEffect(() => { Promise.resolve().then(loadLayer) }, [loadLayer])
 
-  const sourceIds = useMemo(() => SOURCE_TYPES.map((type) => ({ key: type.key, fileId: status?.sources?.[type.sourceKey] })).filter((source) => source.fileId), [status])
+  const sourceIds = useMemo(() => {
+    const persistedSources = { ...(layer?.sources || {}), ...(status?.sources || {}) }
+    return SOURCE_TYPES
+      .map((type) => ({ key: type.key, fileId: persistedSources[type.sourceKey] }))
+      .filter((source) => source.fileId)
+  }, [layer, status])
 
   const loadSourceFiles = useCallback(async () => {
     if (!sourceIds.length) {
@@ -287,10 +308,10 @@ export default function AdminSemanticLayerDetails() {
       setSourceFiles((current) => ({
         ...current,
         ...Object.fromEntries(successful.map(([key, file]) => [key, {
-          fileId: file?.fileId,
-          fileName: file?.fileName,
-          fileType: file?.fileType,
-          content: file?.content,
+          fileId: file?.fileId || file?.FileId || file?.id || file?.Id,
+          fileName: file?.fileName || file?.FileName || file?.name || file?.Name,
+          fileType: file?.fileType || file?.FileType || file?.type,
+          content: file?.content || file?.Content,
         }])),
       }))
       setSourceState('ready')
@@ -387,7 +408,7 @@ export default function AdminSemanticLayerDetails() {
         <nav className="semantic-details-tabs" aria-label="Semantic layer sections">{TABS.map((item) => <Link key={item.key} className={item.key === tab ? 'active' : ''} to={item.key === 'overview' ? `/admin/semantic-layers/${layer.id}` : `/admin/semantic-layers/${layer.id}/${item.key}`}>{item.label}</Link>)}</nav>
         {notice ? <p className={`semantic-details-notice ${notice.type === 'error' ? 'is-error' : ''}`} role="status">{notice.text}</p> : null}
         {tab === 'overview' ? <OverviewTab layer={layer} status={status} /> : null}
-        {tab === 'sources' ? <SourcesTab status={status} sourceFiles={sourceFiles} sourceState={sourceState} actionKey={sourceAction} onDownload={downloadSource} onUpload={uploadSource} onDelete={setPendingDelete} /> : null}
+        {tab === 'sources' ? <SourcesTab layer={layer} status={status} sourceFiles={sourceFiles} sourceState={sourceState} actionKey={sourceAction} onDownload={downloadSource} onUpload={uploadSource} onDelete={setPendingDelete} /> : null}
         {tab === 'generate' ? <GenerateDraftTab layer={layer} status={status} sourceFiles={sourceFiles} onGenerated={handleDraftGenerated} /> : null}
         {tab === 'revisions' ? <RevisionsTab layer={layer} status={status} /> : null}
         {tab === 'tables' ? <TablesTab layer={layer} /> : null}

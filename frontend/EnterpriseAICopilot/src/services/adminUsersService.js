@@ -1,6 +1,19 @@
 import { request } from "./httpClient";
 import { toApiRole } from '../config/roles'
 
+// GET /api/v1/users/me
+// Returns the authenticated user's profile for both supported roles.
+export function fetchCurrentUser() {
+  return request('/api/v1/users/me')
+}
+
+// GET /api/v1/users?id={id}
+// With no id, the backend returns the administrator's user directory.
+export function fetchUsers({ id } = {}) {
+  const query = id ? `?id=${encodeURIComponent(id)}` : ''
+  return request(`/api/v1/users${query}`)
+}
+
 // Wraps the 4 confirmed backend endpoints (Swagger UI, runasp.net backend).
 // Request/response shapes are taken exactly from the Swagger schemas
 // provided — nothing here is invented or assumed.

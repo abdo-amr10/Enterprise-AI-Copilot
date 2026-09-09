@@ -28,7 +28,7 @@ function LoadingState() {
 }
 
 function EmptyState({ filtered, onClear }) {
-  return <section className="semantic-layers-state"><IconLayers aria-hidden="true" /><h2>{filtered ? 'No matching layers' : 'No semantic layers yet'}</h2><p>{filtered ? 'Try a different search or filter.' : 'Create a data source to start building the business context for Copilot.'}</p>{filtered ? <button type="button" onClick={onClear}>Clear filters</button> : <Link className="primary" to="/admin/semantic-layer/upload">Add data source</Link>}</section>
+  return <section className="semantic-layers-state"><IconLayers aria-hidden="true" /><h2>{filtered ? 'No matching layers' : 'No semantic layers yet'}</h2><p>{filtered ? 'Try a different search or filter.' : 'Create a data source to start building the business context for Copilot.'}</p>{filtered ? <button type="button" onClick={onClear}>Clear filters</button> : <Link className="primary" to="/admin/semantic-layer/upload">Add New Semantic</Link>}</section>
 }
 
 export default function AdminSemanticLayers() {
@@ -55,7 +55,7 @@ export default function AdminSemanticLayers() {
 
   const visibleLayers = useMemo(() => layers.filter((layer) => {
     const matchesQuery = `${layer.name} ${layer.description} ${layer.databaseName}`.toLowerCase().includes(query.trim().toLowerCase())
-    const matchesFilter = filter === 'all' || (filter === 'active' ? layer.isActive : !layer.isActive)
+    const matchesFilter = filter === 'all' || (filter === 'approved' && layer.hasApprovedRevision) || (filter === 'not-approved' && !layer.hasApprovedRevision)
     return matchesQuery && matchesFilter
   }), [filter, layers, query])
 
@@ -93,8 +93,8 @@ export default function AdminSemanticLayers() {
             <IconSearch aria-hidden="true" />
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search layers" aria-label="Search semantic layers" />
           </label>
-          <label className="semantic-layer-filter">Status<select value={filter} onChange={(event) => setFilter(event.target.value)} aria-label="Filter semantic layers by status"><option value="all">All layers</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
-          <Link className="primary semantic-layer-add" to="/admin/semantic-layer/upload"><IconDatabase aria-hidden="true" /> Add data source</Link>
+          <label className="semantic-layer-filter">Revision status<select value={filter} onChange={(event) => setFilter(event.target.value)} aria-label="Filter semantic layers by approved revision"><option value="all">All</option><option value="approved">Approved</option><option value="not-approved">Not Approved</option></select></label>
+          <Link className="primary semantic-layer-add" to="/admin/semantic-layer/upload"><IconDatabase aria-hidden="true" /> Add New Semantic</Link>
         </div>
         {notice ? <p className="semantic-layer-notice" role="status">{notice}</p> : null}
         {state === 'loading' ? <LoadingState /> : null}

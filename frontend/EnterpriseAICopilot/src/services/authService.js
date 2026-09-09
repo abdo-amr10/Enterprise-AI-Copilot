@@ -12,7 +12,9 @@ async function login(credentials) {
   })
 
   const token = response?.token
-  const user = readUserFromJwt(token, credentials.email)
+  const jwtUser = readUserFromJwt(token, credentials.email)
+  const responseUser = response?.user || response?.data?.user || (response?.firstName || response?.lastName || response?.fullName ? response : null)
+  const user = responseUser && typeof responseUser === 'object' ? { ...jwtUser, ...responseUser } : jwtUser
 
   return {
     status: response?.status,

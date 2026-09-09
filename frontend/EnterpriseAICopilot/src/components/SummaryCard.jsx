@@ -19,19 +19,28 @@ function formatValue(value) {
   return String(value);
 }
 
+function formatExecutionTime(value) {
+  if (value === null || value === undefined || value === "") return "";
+  const milliseconds = Number(value);
+  if (!Number.isFinite(milliseconds)) return "";
+  return milliseconds >= 1000
+    ? `Execution time: ${(milliseconds / 1000).toFixed(milliseconds >= 10000 ? 1 : 2)}s `
+    : `${Math.round(milliseconds)}ms execution time`;
+}
+
 // `data` is whatever `report.data` the backend sent back for this
 // question — its shape isn't fixed, so this decides how to present it:
 // a single row with one field renders as a big headline number (like a
 // KPI), anything with more rows/columns renders as a real table, and if
 // there's no tabular data at all we just show the plain-language answer.
-export default function SummaryCard({ question, textSummary, data, status = "Completed", queryId, askedAt }) {
+export default function SummaryCard({ question, textSummary, data, heroMetric, kpiCards, status = "Completed", queryId, askedAt, executionTimeMs }) {
   const rows = Array.isArray(data) ? data : [];
   const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
   const isSingleMetric = rows.length === 1 && columns.length === 1;
-  const hasResult = Boolean(textSummary && textSummary.trim()) || rows.length > 0;
+  const hasResult = Boolean(textSummary && textSummary.trim()) || rows.length > 0 || heroMetric || kpiCards?.length;
 
   return (
-    <article className="summary-card" aria-label="Copilot answer summary">
+    <article className={`summary-card${rows.length > 0 ? " has-table" : ""}`} aria-label="Copilot answer summary">
       <header className="summary-card-header">
         <span className="summary-card-ai">
           <IconSparkles aria-hidden="true" /> Copilot
@@ -42,6 +51,10 @@ export default function SummaryCard({ question, textSummary, data, status = "Com
       </header>
 
       <div className="summary-card-body">
+        {heroMetric ? <div className="summary-card-hero-metric"><span>{heroMetric.label}</span><strong>{heroMetric.value}</strong>{heroMetric.deltaText ? <small>{heroMetric.deltaText}</small> : null}</div> : null}
+
+        {kpiCards?.length ? <div className="summary-card-kpis">{kpiCards.map((card, index) => <div key={`${card.label}-${index}`}><span>{card.label}</span><strong>{card.value}</strong>{card.subtext ? <small>{card.subtext}</small> : null}</div>)}</div> : null}
+
         {isSingleMetric ? (
           <>
             <p className="summary-card-label">{humanizeKey(columns[0])}</p>
@@ -78,7 +91,7 @@ export default function SummaryCard({ question, textSummary, data, status = "Com
       <footer className="summary-card-footer">
         <span>
           {/*queryId ? `Query ID: ${queryId}` : "Based on the information available to you."*/}
-          {askedAt ? `  ${askedAt}` : ""}
+          {[askedAt, formatExecutionTime(executionTimeMs)].filter(Boolean).join(" · ")}
         </span>
         {hasResult ? <ExportMenu payload={{ question, textSummary, data: rows, queryId, status }} /> : null}
       </footer>
