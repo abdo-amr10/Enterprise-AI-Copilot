@@ -265,7 +265,14 @@ namespace EnterpriseAiCopilot.Application.Services
                     cancellationToken: cancellationToken
                 );
 
-                return Result<AskCopilotResponse>.Failure(finalErrorMessage);
+                return Result<AskCopilotResponse>.Failure(finalErrorMessage, new AskCopilotResponse
+                {
+                    QueryId = historyId.ToString(),
+                    ConversationId = conversationId.ToString(),
+                    Status = "Failed",
+                    ErrorCode = "BUSINESS_ERROR",
+                    Message = finalErrorMessage
+                });
             }
 
             await _auditService.LogEventAsync(

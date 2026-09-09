@@ -51,6 +51,9 @@ namespace EnterpriseAiCopilot.Api.Controllers
 
             if (!result.IsSuccess)
             {
+                if (result.Data is AskCopilotResponse failedResponse)
+                    return BadRequest(failedResponse);
+
                 return BadRequest(new
                 {
                     status = "Failed",
