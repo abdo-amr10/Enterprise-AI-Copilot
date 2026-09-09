@@ -79,7 +79,7 @@
 .confirm-dialog-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 24px; }
 .confirm-dialog-actions button { min-height: 38px; border: 1px solid #dbe1ee; border-radius: 8px; background: #fff; color: #3f465b; cursor: pointer; font-size: 12px; font-weight: 700; padding: 0 14px; }
 .confirm-dialog { position: relative; }
-.confirm-dialog-loader { position: absolute; top: 20px; left: 24px; width: 18px; height: 18px; color: #159ac4; animation: copilot-spin .8s linear infinite; }
+.confirm-dialog-loader { position: absolute; top: 20px; right: 24px; width: 18px; height: 18px; color: #159ac4; animation: copilot-spin .8s linear infinite; }
 .confirm-dialog-actions button.primary { border-color: #2563eb; background: #2563eb; color: #fff; }
 .confirm-dialog-actions button.is-destructive { border-color: #dc2626; background: #dc2626; color: #fff; }
 .confirm-dialog-actions button:hover { filter: brightness(.97); }
