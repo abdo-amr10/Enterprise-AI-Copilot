@@ -8,6 +8,7 @@ public sealed class UserDetailsResponse
     public string Email { get; set; } = string.Empty;
     public string Role { get; set; } = string.Empty;
     public string? BranchId { get; set; }
+    public string? BranchName { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? LastModifiedAt { get; set; }
     public int ConversationCount { get; set; }
@@ -23,6 +24,7 @@ public sealed class PublicUserResponse
     public string Email { get; set; } = string.Empty;
     public string Role { get; set; } = string.Empty;
     public string? BranchId { get; set; }
+    public string? BranchName { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? LastModifiedAt { get; set; }
 }

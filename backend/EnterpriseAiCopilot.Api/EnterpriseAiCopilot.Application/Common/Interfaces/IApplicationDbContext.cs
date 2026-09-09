@@ -9,6 +9,7 @@ namespace EnterpriseAiCopilot.Application.Common.Interfaces
     public interface IApplicationDbContext
     {
         DbSet<User> Users { get; }
+        DbSet<Branch> Branches { get; }
         DbSet<SemanticLayer> SemanticLayers { get; }
         DbSet<SemanticSourceFile> SemanticSourceFiles { get; }
         DbSet<SemanticRevision> SemanticRevisions { get; }
