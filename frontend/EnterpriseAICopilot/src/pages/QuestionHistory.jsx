@@ -61,7 +61,7 @@ export default function QuestionHistory() {
 
   return (
     <AppShell active="history" title="Conversation History" mainClassName="history-page">
-      <div className="history-actions"><p>Review and continue your previous Copilot conversations.</p></div>
+      <div className="history-actions"></div>
       {state === "loading" ? <div className="history-state history-loading"><div className="history-state-icon loading-icon"><IconLoader aria-hidden="true" /></div><span className="history-state-kicker">Please wait</span><h2>Loading your conversations</h2><p>We’re retrieving your previous Copilot conversations.</p><div className="history-loading-bar"><span /></div></div> : null}
       {state === "empty" ? <div className="history-state history-empty"><div className="history-state-icon"><IconSparkles aria-hidden="true" /></div><span className="history-state-kicker">My Conversations</span><h2>No conversations yet</h2><p>Your Copilot conversations will appear here once you start asking.</p><Link className="history-primary-action" to="/copilot">Start a conversation <span aria-hidden="true">→</span></Link></div> : null}
       {state === "error" ? <div className="history-state history-error"><div className="history-state-icon error-icon"><span aria-hidden="true">!</span></div><span className="history-state-kicker">Something went wrong</span><h2>We couldn’t load your conversations</h2><p>Please try again in a moment.</p><button className="history-primary-action" type="button" onClick={load}>Try again</button></div> : null}

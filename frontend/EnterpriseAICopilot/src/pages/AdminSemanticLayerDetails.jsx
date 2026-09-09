@@ -55,7 +55,7 @@ function SourceCard({ source, isLoading, isBusy, actionLabel, onDownload, onUplo
 
 function OverviewTab({ layer, status }) {
   const sourceCount = Object.values(status?.sources || {}).filter(Boolean).length
-  return <section className="semantic-details-workspace"><span className="semantic-details-kicker">Layer overview</span><h2>Business context at a glance</h2><p>This layer provides the approved context that helps Copilot understand your organization’s data.</p><div className="semantic-overview-grid"><div><small>LAYER STATUS</small><strong>{layer.isActive ? 'Active' : 'Inactive'}</strong></div><div><small>LATEST REVISION</small><strong>{status?.version || 'No revision yet'}</strong></div><div><small>REVISION STATUS</small><strong>{status?.status || 'Not available'}</strong></div><div><small>DATA SOURCES</small><strong>{status ? `${sourceCount} connected` : 'Not available'}</strong></div><div><small>LAST UPDATED</small><strong>{formatTimestamp(status?.buildTimestamp)}</strong></div><div><small>LAST GENERATION</small><strong>{status?.lastRegenerationType || 'Not available'}</strong></div></div>{!layer.isActive ? <p className="semantic-details-note">Revision details become available here when this layer is active.</p> : null}</section>
+  return <section className="semantic-details-workspace"><span className="semantic-details-kicker">Layer overview</span><h2>Business context at a glance</h2><p>This layer provides the approved context that helps Copilot understand your organization’s data.</p><div className="semantic-overview-grid"><div><small>LAYER STATUS</small><strong>{layer.isActive ? 'Active' : 'Inactive'}</strong></div><div><small>LATEST REVISION</small><strong>{status?.version || 'No revision yet'}</strong></div><div><small>REVISION STATUS</small><strong>{status?.status || 'Not available'}</strong></div><div><small>DATA SOURCES</small><strong>{status ? `${sourceCount} connected` : 'Not available'}</strong></div><div><small>LAST UPDATED</small><strong>{formatTimestamp(status?.buildTimestamp)}</strong></div><div><small>LAST GENERATION</small><strong>{status?.lastRegenerationType || 'Not available'}</strong></div></div></section>
 }
 
 function SourcesTab({ layer, status, sourceFiles, sourceState, actionKey, onDownload, onUpload, onDelete }) {
@@ -127,14 +127,14 @@ function GenerateDraftTab({ layer, status, sourceFiles, onGenerated }) {
     <div className="semantic-generation-summary"><div><small>SCHEMA DEFINITION</small><strong>{hasSchema ? 'Ready to use' : 'Required before generating'}</strong></div><div><small>CURRENT REVISION</small><strong>{status?.version || 'No revision yet'}</strong></div><div><small>GENERATION TYPE</small><strong>{generationType === 'FullRebuild' ? 'Full rebuild' : 'Incremental update'}</strong></div></div>
     {error ? <p className="semantic-generation-error" role="alert">{error}</p> : null}
     {isGenerating ? <div className="semantic-generating" aria-live="polite"><IconLoader className="copilot-processing-loader" aria-hidden="true" /><div><strong>Generating your semantic draft</strong><span>This may take a moment. You can stay on this page while we prepare it.</span></div></div> : null}
-    <div className="semantic-generate-actions"><Link to={`/admin/semantic-layers/${layer.id}/sources`}>Review sources</Link><button type="button" className="primary" disabled={isGenerating || !canGenerate} onClick={requestGeneration}>Generate draft</button></div>
+    <div className="semantic-generate-actions"><Link to={`/admin/semantic-layers/${layer.id}/sources`}>Review sources</Link><button type="button" className="primary" disabled={isGenerating || !canGenerate} onClick={requestGeneration}>{isGenerating ? 'Generating…' : 'Generate draft'}</button></div>
     <ConfirmDialog open={isConfirming} title="Generate semantic draft?" message={generationType === 'FullRebuild' ? 'This creates a new complete draft from the current data sources. It will be sent to review before it can be used by Copilot.' : 'This creates a focused update from the current revision and saved data sources. It will be sent to review before it can be used by Copilot.'} confirmLabel="Generate draft" isBusy={isGenerating} onConfirm={generate} onCancel={() => !isGenerating && setIsConfirming(false)} />
   </section>
 }
 
 function RevisionsTab({ layer, status }) {
   const revisionId = status?.revisionId
-  return <section className="semantic-details-workspace semantic-revisions-workspace"><div className="semantic-management-heading"><div><span className="semantic-details-kicker">Revisions</span><h2>Review the business context</h2><p>Each generated draft is reviewed before it can be made available to Copilot.</p></div></div>{revisionId ? <article className="semantic-revision-row"><div><strong>{status?.version || 'Current revision'}</strong><span>{status?.lastRegenerationType || 'Generated revision'} · {formatTimestamp(status?.buildTimestamp)}</span></div><Link className="primary" to={`/admin/semantic-layers/${layer.id}/revisions/${revisionId}/review`}>Open revision</Link></article> : <div className="semantic-management-state semantic-revisions-empty"><IconLayers aria-hidden="true" /><div><strong>No revision is ready to review</strong><span>Generate a draft to begin the review and approval process.</span></div><Link to={`/admin/semantic-layers/${layer.id}/generate`}>Generate draft</Link></div>}<p className="semantic-details-note">After a revision is approved, return to Semantic Layers and activate the layer when you are ready to use it in Copilot.</p></section>
+  return <section className="semantic-details-workspace semantic-revisions-workspace"><div className="semantic-management-heading"><div><span className="semantic-details-kicker">Revisions</span><h2>Review the business context</h2><p>Each generated draft is reviewed before it can be made available to Copilot.</p></div></div>{revisionId ? <article className="semantic-revision-row"><div><strong>{status?.version || 'Current revision'}</strong><span>{status?.lastRegenerationType || 'Generated revision'} · {formatTimestamp(status?.buildTimestamp)}</span></div><Link className="primary" to={`/admin/semantic-layers/${layer.id}/revisions/${revisionId}/review`}>Open revision</Link></article> : <div className="semantic-management-state semantic-revisions-empty"><IconLayers aria-hidden="true" /><div><strong>No revision is ready to review</strong><span>Generate a draft to begin the review and approval process.</span></div><Link to={`/admin/semantic-layers/${layer.id}/generate`}>Generate draft</Link></div>}</section>
 }
 
 function useLayerTables(layer) {
@@ -394,25 +394,27 @@ export default function AdminSemanticLayerDetails() {
 
   return <main className="admin-shell">
     <AdminSidebar active="semantic" />
-    <section className="admin-main semantic-details-main">
-      <AdminTopBar title="Semantic Layer" description="Review and manage the business context used by Copilot." />
+    <section className="admin-main semantic-details-main semantic-layer-details-main">
+      <AdminTopBar title="Semantic Layer"  />
       {state === 'loading' ? <DetailsLoading /> : null}
       {state === 'error' ? <section className="semantic-details-state"><h2>We couldn’t load this layer</h2><p>Please check your connection and try again.</p><button type="button" className="primary" onClick={loadLayer}>Try again</button></section> : null}
       {state === 'not-found' ? <section className="semantic-details-state"><IconLayers aria-hidden="true" /><h2>Semantic layer not found</h2><p>This layer may have been removed or is no longer available.</p><Link className="primary" to="/admin/semantic-layers">Back to semantic layers</Link></section> : null}
       {state === 'ready' ? <>
         <Link className="semantic-details-back" to="/admin/semantic-layers"><IconArrowLeft aria-hidden="true" />All semantic layers</Link>
-        <section className="semantic-details-hero">
-          <div className="semantic-details-icon"><IconLayers aria-hidden="true" /></div>
-          <div className="semantic-details-copy"><div className="semantic-details-title"><h2>{layer.name}</h2><LayerBadges layer={layer} /></div><p>{layer.description || 'No description provided for this semantic layer.'}</p><span><IconDatabase aria-hidden="true" />{layer.databaseName || 'Database not specified'}</span></div>
-        </section>
-        <nav className="semantic-details-tabs" aria-label="Semantic layer sections">{TABS.map((item) => <Link key={item.key} className={item.key === tab ? 'active' : ''} to={item.key === 'overview' ? `/admin/semantic-layers/${layer.id}` : `/admin/semantic-layers/${layer.id}/${item.key}`}>{item.label}</Link>)}</nav>
-        {notice ? <p className={`semantic-details-notice ${notice.type === 'error' ? 'is-error' : ''}`} role="status">{notice.text}</p> : null}
-        {tab === 'overview' ? <OverviewTab layer={layer} status={status} /> : null}
-        {tab === 'sources' ? <SourcesTab layer={layer} status={status} sourceFiles={sourceFiles} sourceState={sourceState} actionKey={sourceAction} onDownload={downloadSource} onUpload={uploadSource} onDelete={setPendingDelete} /> : null}
-        {tab === 'generate' ? <GenerateDraftTab layer={layer} status={status} sourceFiles={sourceFiles} onGenerated={handleDraftGenerated} /> : null}
-        {tab === 'revisions' ? <RevisionsTab layer={layer} status={status} /> : null}
-        {tab === 'tables' ? <TablesTab layer={layer} /> : null}
-        {tab === 'permissions' ? <PermissionsTab layer={layer} /> : null}
+        <div className="semantic-layer-details-scroll">
+          <section className="semantic-details-hero">
+            <div className="semantic-details-icon"><IconLayers aria-hidden="true" /></div>
+            <div className="semantic-details-copy"><div className="semantic-details-title"><h2>{layer.name}</h2><LayerBadges layer={layer} /></div><p>{layer.description || 'No description provided for this semantic layer.'}</p><span><IconDatabase aria-hidden="true" />{layer.databaseName || 'Database not specified'}</span></div>
+          </section>
+          <nav className="semantic-details-tabs" aria-label="Semantic layer sections">{TABS.map((item) => <Link key={item.key} className={item.key === tab ? 'active' : ''} to={item.key === 'overview' ? `/admin/semantic-layers/${layer.id}` : `/admin/semantic-layers/${layer.id}/${item.key}`}>{item.label}</Link>)}</nav>
+          {notice ? <p className={`semantic-details-notice ${notice.type === 'error' ? 'is-error' : ''}`} role="status">{notice.text}</p> : null}
+          {tab === 'overview' ? <OverviewTab layer={layer} status={status} /> : null}
+          {tab === 'sources' ? <SourcesTab layer={layer} status={status} sourceFiles={sourceFiles} sourceState={sourceState} actionKey={sourceAction} onDownload={downloadSource} onUpload={uploadSource} onDelete={setPendingDelete} /> : null}
+          {tab === 'generate' ? <GenerateDraftTab layer={layer} status={status} sourceFiles={sourceFiles} onGenerated={handleDraftGenerated} /> : null}
+          {tab === 'revisions' ? <RevisionsTab layer={layer} status={status} /> : null}
+          {tab === 'tables' ? <TablesTab layer={layer} /> : null}
+          {tab === 'permissions' ? <PermissionsTab layer={layer} /> : null}
+        </div>
       </> : null}
     </section>
     <ConfirmDialog open={Boolean(pendingDelete)} title="Remove source file?" message={`Remove the ${pendingDelete?.label || 'selected'} file from this semantic layer? This action cannot be undone.`} confirmLabel="Remove file" variant="destructive" isBusy={Boolean(sourceAction)} onConfirm={removeSource} onCancel={() => !sourceAction && setPendingDelete(null)} />
