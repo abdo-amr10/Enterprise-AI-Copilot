@@ -20,10 +20,12 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import time
 from collections.abc import Callable
 from typing import Any
 import sqlglot
+from sqlglot import exp
 
 from src.application.ports.physical_schema_repository import PhysicalSchemaRepository
 from src.application.services.self_correction.critic_finding_verifier import (
@@ -368,6 +370,25 @@ class SelfCorrectionService:
 
             logger.info("SQL correction generated for attempt %s", attempt + 1)
             trace[-1]["correctedSql"] = corrected_sql
+
+            omission_issues = self._detect_silent_omissions(
+                current_sql, corrected_sql, issues, _get_schema()
+            )
+            if omission_issues:
+                logger.warning(
+                    "Silent omission detected in corrected SQL: %s",
+                    [iss.message for iss in omission_issues],
+                )
+                last_issues = omission_issues
+                trace.append({
+                    "attempt": attempt + 1,
+                    "sql": corrected_sql,
+                    "deterministicIssues": [iss.message for iss in omission_issues],
+                    "action": "silent_omission_detected",
+                })
+                self._notify_trace_observer(trace_observer, trace[-1])
+                break
+
             self._notify_trace_observer(
                 trace_observer,
                 {
@@ -676,4 +697,95 @@ class SelfCorrectionService:
             return "\n".join(lines)
         except Exception:
             return fallback_context
+
+    def _detect_silent_omissions(
+        self,
+        previous_sql: str,
+        corrected_sql: str,
+        previous_issues: list[ValidationIssue],
+        schema: dict[str, Any],
+    ) -> list[ValidationIssue]:
+        unknown_column_issues = [
+            issue for issue in previous_issues
+            if issue.type == "UNKNOWN_COLUMN"
+        ]
+        if not unknown_column_issues:
+            return []
+
+        try:
+            prev_stmts = sqlglot.parse(previous_sql, dialect="tsql")
+            curr_stmts = sqlglot.parse(corrected_sql, dialect="tsql")
+        except Exception:
+            return []
+
+        def _get_select(stmts):
+            for stmt in stmts:
+                if isinstance(stmt, exp.Select):
+                    return stmt
+                sel = stmt.find(exp.Select)
+                if sel:
+                    return sel
+            return None
+
+        prev_sel = _get_select(prev_stmts)
+        curr_sel = _get_select(curr_stmts)
+        if not prev_sel or not curr_sel:
+            return []
+
+        prev_projections = prev_sel.expressions
+        curr_projections = curr_sel.expressions
+
+        omissions: list[ValidationIssue] = []
+
+        for issue in unknown_column_issues:
+            match = re.search(r"Column\s+'(?:([^']+)\.)?([^']+)'\s+does not exist", issue.message)
+            if match:
+                table_name = match.group(1)
+                column_name = match.group(2)
+            else:
+                match_unq = re.search(r"Unqualified column\s+'([^']+)'\s+does not exist", issue.message)
+                if match_unq:
+                    table_name = None
+                    column_name = match_unq.group(1)
+                else:
+                    continue
+
+            was_projected = any(
+                any(c.name.casefold() == column_name.casefold() for c in proj.find_all(exp.Column))
+                or proj.alias_or_name.casefold() == column_name.casefold()
+                for proj in prev_projections
+            )
+
+            is_projected = any(
+                any(c.name.casefold() == column_name.casefold() for c in proj.find_all(exp.Column))
+                or proj.alias_or_name.casefold() == column_name.casefold()
+                for proj in curr_projections
+            )
+
+            if was_projected and not is_projected:
+                is_unresolvable = False
+                has_plausible = True
+
+                checker = getattr(self._schema_validator, "is_column_unresolvable_in_schema", None)
+                if callable(checker):
+                    is_unresolvable = checker(column_name, schema=schema)
+
+                finder = getattr(self._schema_validator, "find_plausible_column_matches", None)
+                if callable(finder) and table_name:
+                    plausible_matches = finder(table_name, column_name, schema=schema)
+                    has_plausible = bool(plausible_matches)
+
+                if is_unresolvable or (not has_plausible and len(curr_projections) < len(prev_projections)):
+                    omissions.append(
+                        ValidationIssue(
+                            type="SILENT_OMISSION",
+                            message=(
+                                f"Requested column '{column_name}' does not exist in the database schema "
+                                "and was silently omitted during self-correction."
+                            ),
+                            source="self_correction",
+                        )
+                    )
+
+        return omissions
 

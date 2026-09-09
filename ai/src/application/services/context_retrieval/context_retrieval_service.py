@@ -322,7 +322,7 @@ class ContextRetrievalService:
                 isinstance(relationship.get(field), str) and relationship[field]
                 for field in required
             )
-            and relationship.get("is_executable", False) is True
+            and relationship.get("is_executable", True) is not False
             and relationship.get("status") not in ("UNCERTAIN", "NO_SUPPORTED_RELATIONSHIP", "uncertain", "rejected")
         ]
 

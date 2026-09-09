@@ -43,7 +43,10 @@ class SQLDeterministicRepairService:
     ) -> None:
         self._syntax_validator = syntax_validator
         self._schema_validator = schema_validator
-        self._rls_validator = rls_validator
+        self._rls_validator = rls_validator or SQLRlsValidator(
+            syntax_validator=syntax_validator,
+            schema_validator=schema_validator,
+        )
         self._relationship_validator = relationship_validator
 
     def repair(
@@ -140,13 +143,22 @@ class SQLDeterministicRepairService:
         select: exp.Select,
         schema: dict[str, Any] | None = None,
     ) -> None:
-        """Repair direct transitive shortcut joins by inserting canonical intermediate bridging tables."""
+        """Repair direct transitive shortcut joins by inserting canonical intermediate bridging tables.
+
+        Uses table-level adjacency to discover bridge tables that connect two
+        tables lacking a direct approved relationship, regardless of which side
+        is the from_table in the approved relationship definitions.
+        """
         relationships = self._load_approved_relationships(schema=schema)
         if not relationships:
             return
 
         approved_pairs: set[tuple[str, str, str, str]] = set()
-        edge_map: dict[tuple[str, str], list[tuple[str, str]]] = {}
+        # table_adj: table -> set of tables it has ANY approved relationship with
+        table_adj: dict[str, set[str]] = {}
+        # rel_columns: (tbl_a, tbl_b) -> list of (col_a, col_b) approved column pairs
+        rel_columns: dict[tuple[str, str], list[tuple[str, str]]] = {}
+
         for rel in relationships:
             if not isinstance(rel, dict):
                 continue
@@ -159,8 +171,12 @@ class SQLDeterministicRepairService:
             if ft and fc and tt and tc:
                 approved_pairs.add((ft, fc, tt, tc))
                 approved_pairs.add((tt, tc, ft, fc))
-                edge_map.setdefault((ft, fc), []).append((tt, tc))
-                edge_map.setdefault((tt, tc), []).append((ft, fc))
+                # Build bidirectional table-level adjacency
+                table_adj.setdefault(ft, set()).add(tt)
+                table_adj.setdefault(tt, set()).add(ft)
+                # Store column pairs in both directions for lookup
+                rel_columns.setdefault((ft, tt), []).append((fc, tc))
+                rel_columns.setdefault((tt, ft), []).append((tc, fc))
 
         alias_map = self._schema_validator.resolve_table_aliases(
             select.sql(dialect=_DIALECT), schema=schema
@@ -199,62 +215,71 @@ class SQLDeterministicRepairService:
                         continue
 
                     if (tbl1, col1, tbl2, col2) not in approved_pairs:
-                        # Find bridging table
-                        neighbors_1 = edge_map.get((tbl1, col1), [])
-                        for bridge_tbl, bridge_col1 in neighbors_1:
-                            if (bridge_tbl, bridge_col1, tbl2, col2) in approved_pairs or any(
-                                (bridge_tbl, bcol2, tbl2, col2) in approved_pairs
-                                for bcol2 in [bridge_col1, col2]
-                            ):
-                                bridge_col2 = (
-                                    bridge_col1
-                                    if (bridge_tbl, bridge_col1, tbl2, col2) in approved_pairs
-                                    else col2
-                                )
-                                base_alias = bridge_tbl[0].lower()
-                                candidate_alias = base_alias
-                                counter = 1
-                                while candidate_alias in existing_aliases:
-                                    candidate_alias = f"{base_alias}{counter}"
-                                    counter += 1
-                                existing_aliases.add(candidate_alias)
-                                alias_map[candidate_alias] = bridge_tbl
+                        # Find bridge tables adjacent to BOTH tbl1 and tbl2
+                        neighbors_1 = table_adj.get(tbl1, set())
+                        neighbors_2 = table_adj.get(tbl2, set())
+                        bridge_candidates = (neighbors_1 & neighbors_2) - {tbl1, tbl2}
 
-                                bridge_join = exp.Join(
-                                    this=exp.Table(
-                                        this=exp.to_identifier(bridge_tbl),
-                                        alias=exp.TableAlias(this=exp.to_identifier(candidate_alias)),
-                                    ),
-                                    on=exp.EQ(
-                                        this=exp.Column(
-                                            this=exp.to_identifier(col1),
-                                            table=exp.to_identifier(left.table),
-                                        ),
-                                        expression=exp.Column(
-                                            this=exp.to_identifier(bridge_col1),
-                                            table=exp.to_identifier(candidate_alias),
-                                        ),
-                                    ),
-                                    kind="INNER",
-                                )
-                                new_joins.append(bridge_join)
+                        for bridge_tbl in bridge_candidates:
+                            # Look up approved column pairs for bridge->tbl1 and bridge->tbl2
+                            cols_to_tbl1 = rel_columns.get((bridge_tbl, tbl1), [])
+                            cols_to_tbl2 = rel_columns.get((bridge_tbl, tbl2), [])
 
-                                eq.replace(
-                                    exp.EQ(
-                                        this=exp.Column(
-                                            this=exp.to_identifier(bridge_col2),
-                                            table=exp.to_identifier(candidate_alias),
-                                        ),
-                                        expression=exp.Column(
-                                            this=exp.to_identifier(col2),
-                                            table=exp.to_identifier(right.table),
-                                        ),
-                                    )
+                            if not cols_to_tbl1 or not cols_to_tbl2:
+                                continue
+
+                            # Use the first valid column pair for each leg
+                            bridge_col_for_tbl1, tbl1_join_col = cols_to_tbl1[0]
+                            bridge_col_for_tbl2, tbl2_join_col = cols_to_tbl2[0]
+
+                            # Generate a unique alias for the bridge table
+                            base_alias = bridge_tbl[0].lower()
+                            candidate_alias = base_alias
+                            counter = 1
+                            while candidate_alias in existing_aliases:
+                                candidate_alias = f"{base_alias}{counter}"
+                                counter += 1
+                            existing_aliases.add(candidate_alias)
+                            alias_map[candidate_alias] = bridge_tbl
+
+                            # Create the bridge JOIN (bridge_table to tbl1)
+                            bridge_join = exp.Join(
+                                this=exp.Table(
+                                    this=exp.to_identifier(bridge_tbl),
+                                    alias=exp.TableAlias(this=exp.to_identifier(candidate_alias)),
+                                ),
+                                on=exp.EQ(
+                                    this=exp.Column(
+                                        this=exp.to_identifier(tbl1_join_col),
+                                        table=exp.to_identifier(left.table),
+                                    ),
+                                    expression=exp.Column(
+                                        this=exp.to_identifier(bridge_col_for_tbl1),
+                                        table=exp.to_identifier(candidate_alias),
+                                    ),
+                                ),
+                                kind="INNER",
+                            )
+                            new_joins.append(bridge_join)
+
+                            # Replace the original unapproved ON condition
+                            # with the bridge->tbl2 leg
+                            eq.replace(
+                                exp.EQ(
+                                    this=exp.Column(
+                                        this=exp.to_identifier(bridge_col_for_tbl2),
+                                        table=exp.to_identifier(candidate_alias),
+                                    ),
+                                    expression=exp.Column(
+                                        this=exp.to_identifier(tbl2_join_col),
+                                        table=exp.to_identifier(right.table),
+                                    ),
                                 )
-                                new_joins.append(join)
-                                bridged = True
-                                modified = True
-                                break
+                            )
+                            new_joins.append(join)
+                            bridged = True
+                            modified = True
+                            break
                     if bridged:
                         break
             if not bridged:
@@ -270,6 +295,7 @@ class SQLDeterministicRepairService:
         alias: str,
         path_str: str,
         param_name: str,
+        existing_aliases: set[str] | None = None,
     ) -> bool:
         """Dynamically attach required RLS propagation INNER JOINs and WHERE predicate to the select statement."""
         if not path_str or "->" not in path_str:
@@ -279,9 +305,20 @@ class SQLDeterministicRepairService:
         if not segments:
             return False
 
-        existing_aliases = {t.alias_or_name.lower(): t.name.lower() for t in select.find_all(exp.Table)}
-        table_alias_map = {t.name.lower(): t.alias_or_name for t in select.find_all(exp.Table)}
-        table_alias_map[tbl_name.lower()] = alias
+        if existing_aliases is None:
+            existing_aliases = {
+                t.alias_or_name.lower()
+                for t in select.find_all(exp.Table)
+                if t.alias_or_name
+            }
+
+        table_alias_map = {
+            t.name.lower(): t.alias_or_name
+            for t in select.find_all(exp.Table)
+            if t.find_ancestor(exp.Select) is select and t.name
+        }
+        if tbl_name and alias:
+            table_alias_map[tbl_name.lower()] = alias
 
         alias_counter = 1
         joins_to_add: list[exp.Join] = []
@@ -319,7 +356,7 @@ class SQLDeterministicRepairService:
                         while cand_alias.lower() in existing_aliases:
                             cand_alias = f"{base_alias}{alias_counter}"
                             alias_counter += 1
-                        existing_aliases[cand_alias.lower()] = t2_lower
+                        existing_aliases.add(cand_alias.lower())
                         table_alias_map[t2_lower] = cand_alias
 
                         join_node = exp.Join(
@@ -347,7 +384,7 @@ class SQLDeterministicRepairService:
                         while cand_alias.lower() in existing_aliases:
                             cand_alias = f"{base_alias}{alias_counter}"
                             alias_counter += 1
-                        existing_aliases[cand_alias.lower()] = t1_lower
+                        existing_aliases.add(cand_alias.lower())
                         table_alias_map[t1_lower] = cand_alias
 
                         join_node = exp.Join(
@@ -376,7 +413,11 @@ class SQLDeterministicRepairService:
             select.args.setdefault("joins", []).extend(joins_to_add)
 
         if where_cond is not None:
-            select.where(where_cond, copy=False)
+            where_node = select.args.get("where")
+            where_sql = where_node.sql(dialect=_DIALECT).casefold() if where_node else ""
+            cond_sql = where_cond.sql(dialect=_DIALECT).casefold()
+            if cond_sql not in where_sql:
+                select.where(where_cond, copy=False)
 
         return True
 
@@ -395,13 +436,56 @@ class SQLDeterministicRepairService:
             except Exception:
                 pass
 
-        select = tree if isinstance(tree, exp.Select) else tree.find(exp.Select)
-        if select is None:
+        if not enforce_rls:
             return tree
 
-        if enforce_rls:
-            import re
-            domains = self._load_security_domains(schema=schema)
+        import re
+
+        domains = self._load_security_domains(schema=schema)
+        if not domains:
+            return tree
+
+        global_aliases = self._schema_validator.resolve_table_aliases(
+            tree.sql(dialect=_DIALECT), schema=schema
+        )
+        cte_names = {
+            cte.alias_or_name.lower()
+            for cte in tree.find_all(exp.CTE)
+            if cte.alias_or_name
+        }
+
+        all_tree_aliases = {
+            t.alias_or_name.lower()
+            for t in tree.find_all(exp.Table)
+            if t.alias_or_name
+        }
+
+        # Repair scopes innermost to outermost (reverse preorder traversal).
+        # This ensures inner subqueries and CTEs are repaired before outer scopes evaluate semijoins.
+        scopes = list(tree.find_all(exp.Select))[::-1]
+
+        for scope in scopes:
+            # Find tables belonging directly to this scope
+            scope_tables: dict[str, str] = {}
+            for t in scope.find_all(exp.Table):
+                if t.find_ancestor(exp.Select) is not scope:
+                    continue
+                tbl_name = t.name
+                alias_or_name = t.alias_or_name
+                if not tbl_name:
+                    continue
+                if tbl_name.lower() in cte_names or alias_or_name.lower() in cte_names:
+                    continue
+                real_name = (
+                    global_aliases.get(alias_or_name)
+                    or global_aliases.get(tbl_name)
+                    or tbl_name
+                )
+                scope_tables[real_name.lower()] = alias_or_name
+
+            if not scope_tables:
+                continue
+
             for domain in domains:
                 if not isinstance(domain, dict):
                     continue
@@ -409,89 +493,106 @@ class SQLDeterministicRepairService:
                 if "." not in canonical_root:
                     continue
                 root_table, root_col = canonical_root.split(".", 1)
+                root_table_lower = root_table.lower()
                 canonical_predicate = domain.get("canonical_predicate", "")
                 param_match = re.search(r"@\w+", canonical_predicate)
                 param_name = param_match.group(0) if param_match else "@UserBranchId"
 
-                # Check if param is already present in the statement AST
-                if param_name.casefold() in select.sql(dialect=_DIALECT).casefold():
+                propagation_paths = domain.get("propagation_paths", [])
+                domain_protected: set[str] = {root_table_lower}
+                paths_by_table: dict[str, dict[str, Any]] = {}
+                for p in propagation_paths:
+                    if isinstance(p, dict) and p.get("target_table"):
+                        tgt = p["target_table"].lower()
+                        domain_protected.add(tgt)
+                        paths_by_table[tgt] = p
+
+                active_protected = set(scope_tables.keys()).intersection(domain_protected)
+                if not active_protected:
                     continue
 
-                repaired_for_domain = False
-                # Check if root table is in select (e.g. FROM accounts or JOIN accounts)
-                for table in select.find_all(exp.Table):
-                    if table.name == root_table:
-                        alias = table.alias_or_name
-                        eq_cond = exp.EQ(
-                            this=exp.Column(
-                                this=exp.to_identifier(root_col),
-                                table=exp.to_identifier(alias),
-                            ),
-                            expression=exp.var(param_name),
-                        )
-                        select.where(eq_cond, copy=False)
-                        repaired_for_domain = True
-                        break
+                # Validate if this scope already satisfies RLS for this domain
+                if self._rls_validator is not None:
+                    val_res = self._rls_validator._validate_scope(
+                        scope=scope,
+                        global_aliases=global_aliases,
+                        cte_names=cte_names,
+                        security_domains=[domain],
+                        enforce_presence=True,
+                    )
+                    if val_res.is_valid:
+                        continue
 
-                # If root table wasn't in query, check equivalent direct tables (e.g. branches)
-                if not repaired_for_domain:
-                    for prop in domain.get("propagation_paths", []):
-                        if not isinstance(prop, dict):
-                            continue
-                        pred_eq = prop.get("predicate_equivalence")
-                        if prop.get("is_canonical_root") or (
-                            isinstance(pred_eq, dict) and pred_eq.get("INNER JOIN") is True
-                        ):
-                            target_tbl = prop.get("target_table")
-                            path_str = prop.get("path", "")
-                            if (
-                                target_tbl
-                                and f"{target_tbl}." in path_str
-                                and f"={param_name}" in path_str.replace(" ", "")
-                            ):
-                                for table in select.find_all(exp.Table):
-                                    if table.name == target_tbl:
-                                        alias = table.alias_or_name
-                                        col = path_str.split("=")[0].strip().split(".")[-1]
-                                        eq_cond = exp.EQ(
-                                            this=exp.Column(
-                                                this=exp.to_identifier(col),
-                                                table=exp.to_identifier(alias),
-                                            ),
-                                            expression=exp.var(param_name),
-                                        )
-                                        select.where(eq_cond, copy=False)
-                                        repaired_for_domain = True
-                                        break
-                                if repaired_for_domain:
-                                    break
+                # Sort active_protected by propagation path depth (hop count) descending
+                # so deeper multi-hop paths (e.g. loans -> customers -> accounts -> branches)
+                # are repaired first, fulfilling intermediate table join requirements.
+                def _hop_count(tbl: str) -> int:
+                    if tbl == root_table_lower:
+                        return 0
+                    p_entry = paths_by_table.get(tbl)
+                    if not p_entry:
+                        return 0
+                    p_str = p_entry.get("path", "")
+                    return p_str.count("->") + 1 if p_str else 0
 
-                # If direct root/branch tables weren't in query, check indirect tables with approved propagation paths dynamically
-                if not repaired_for_domain:
-                    propagation_paths = domain.get("propagation_paths", [])
-                    for table in select.find_all(exp.Table):
-                        tbl_name = table.name
-                        alias = table.alias_or_name
-                        path_entry = next(
-                            (
-                                p
-                                for p in propagation_paths
-                                if isinstance(p, dict)
-                                and p.get("target_table") == tbl_name
-                                and p.get("propagation") != "not_allowed"
-                            ),
-                            None,
+                sorted_protected = sorted(active_protected, key=_hop_count, reverse=True)
+
+                for tbl in sorted_protected:
+                    alias = scope_tables[tbl]
+                    p_entry = paths_by_table.get(tbl)
+                    path_str = p_entry.get("path", "") if p_entry else ""
+
+                    if path_str and "->" in path_str:
+                        self._apply_dynamic_rls_joins(
+                            select=scope,
+                            tbl_name=tbl,
+                            alias=alias,
+                            path_str=path_str,
+                            param_name=param_name,
+                            existing_aliases=all_tree_aliases,
                         )
-                        if path_entry:
-                            path_str = path_entry.get("path", "")
-                            if self._apply_dynamic_rls_joins(
-                                select=select,
-                                tbl_name=tbl_name,
-                                alias=alias,
-                                path_str=path_str,
-                                param_name=param_name,
-                            ):
-                                repaired_for_domain = True
-                                break
+                    elif tbl == root_table_lower:
+                        where_node = scope.args.get("where")
+                        where_sql = where_node.sql(dialect=_DIALECT).casefold() if where_node else ""
+                        if param_name.casefold() not in where_sql:
+                            eq_cond = exp.EQ(
+                                this=exp.Column(
+                                    this=exp.to_identifier(root_col),
+                                    table=exp.to_identifier(alias),
+                                ),
+                                expression=exp.var(param_name),
+                            )
+                            scope.where(eq_cond, copy=False)
+                    elif p_entry and (
+                        p_entry.get("is_canonical_root")
+                        or (
+                            isinstance(p_entry.get("predicate_equivalence"), dict)
+                            and p_entry["predicate_equivalence"].get("INNER JOIN") is True
+                        )
+                    ):
+                        where_node = scope.args.get("where")
+                        where_sql = where_node.sql(dialect=_DIALECT).casefold() if where_node else ""
+                        if param_name.casefold() not in where_sql:
+                            col = path_str.split("=")[0].strip().split(".")[-1] if "=" in path_str else root_col
+                            eq_cond = exp.EQ(
+                                this=exp.Column(
+                                    this=exp.to_identifier(col),
+                                    table=exp.to_identifier(alias),
+                                ),
+                                expression=exp.var(param_name),
+                            )
+                            scope.where(eq_cond, copy=False)
+
+                    # Check if scope is now valid
+                    if self._rls_validator is not None:
+                        val_res = self._rls_validator._validate_scope(
+                            scope=scope,
+                            global_aliases=global_aliases,
+                            cte_names=cte_names,
+                            security_domains=[domain],
+                            enforce_presence=True,
+                        )
+                        if val_res.is_valid:
+                            break
 
         return tree

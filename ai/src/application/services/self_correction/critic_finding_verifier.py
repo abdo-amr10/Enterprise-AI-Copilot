@@ -183,6 +183,17 @@ class CriticFindingVerifier:
                         source=_SOURCE,
                     )
                 )
+            elif any(term in ref_lower for term in ("missing", "omitted", "does not include", "not include", "not contained", "lacks")) or getattr(issue, "type", "").upper() in ("MISSING_COLUMN", "UNRESOLVABLE_COLUMN"):
+                # If the critic cites a table/column as missing from the query, and that table/column
+                # physically does not exist in the schema, the user asked for something that does not exist.
+                # Preserve this as an unresolvable requirement so clarification can be triggered.
+                verified.append(
+                    ValidationIssue(
+                        type="UNRESOLVABLE_COLUMN",
+                        message=description,
+                        source=_SOURCE,
+                    )
+                )
             # else: the critic cited a table/column that does not exist --
             # this finding is a hallucination and is silently discarded.
 

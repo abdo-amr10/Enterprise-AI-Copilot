@@ -376,10 +376,22 @@ class CopilotRuntimePipeline:
                         },
                     )
                     is_oscillation = any("CORRECTION_OSCILLATION" in str(iss) or "oscillat" in str(iss).lower() for iss in outcome.issues)
-                    error_code = "CORRECTION_OSCILLATION" if is_oscillation else "MAX_RETRIES_EXCEEDED"
+                    is_silent_omission = any("SILENT_OMISSION" in str(iss) or "silently omitted" in str(iss).lower() for iss in outcome.issues)
+                    is_unresolvable = is_silent_omission or any("UNRESOLVABLE" in str(iss) for iss in outcome.issues)
+
+                    if is_unresolvable:
+                        error_code = "NEEDS_CLARIFICATION"
+                        message = "The request cannot be translated into a safe query because requested data is not available in the database schema."
+                    elif is_oscillation:
+                        error_code = "CORRECTION_OSCILLATION"
+                        message = "The system could not generate a valid read-only SQL query."
+                    else:
+                        error_code = "MAX_RETRIES_EXCEEDED"
+                        message = "The system could not generate a valid read-only SQL query."
+
                     response = TextToSQLRuntimeResponse.failure(
                         error_code,
-                        "The system could not generate a valid read-only SQL query.",
+                        message,
                         failure_reason="; ".join(outcome.issues) or "The query remained invalid after correction attempts.",
                     )
                     return response

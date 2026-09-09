@@ -590,3 +590,67 @@ class SQLSchemaValidator:
 
         return issues
 
+    @staticmethod
+    def is_plausible_column_match(target_column: str, candidate_column: str) -> bool:
+        """Check if candidate_column could reasonably be what target_column intended."""
+        tgt = target_column.casefold().replace("_", "")
+        cand = candidate_column.casefold().replace("_", "")
+        if tgt == cand:
+            return True
+
+        # Telephony / contact guard: mobile/phone must only match phone/mobile/contact
+        is_telephony_tgt = any(k in tgt for k in ("phone", "mobile", "cell", "telephone"))
+        is_telephony_cand = any(k in cand for k in ("phone", "mobile", "cell", "telephone"))
+        if is_telephony_tgt or is_telephony_cand:
+            return is_telephony_tgt and is_telephony_cand
+
+        # Substring / containment (e.g. 'name' in 'firstname', 'balance' in 'balanceusd')
+        if (len(tgt) >= 3 and tgt in cand) or (len(cand) >= 3 and cand in tgt):
+            return True
+
+        # ID suffix matching: e.g. cust_id vs customer_id
+        if tgt.endswith("id") and cand.endswith("id"):
+            t_base = tgt[:-2]
+            c_base = cand[:-2]
+            if (len(t_base) >= 3 and t_base in c_base) or (len(c_base) >= 3 and c_base in t_base):
+                return True
+
+        synonyms = {
+            "amount": {"amt", "total", "value", "balance", "price", "cost"},
+            "balance": {"bal", "amount", "total"},
+            "date": {"dt", "time", "timestamp"},
+            "name": {"title", "desc", "description"},
+            "user": {"customer", "client", "member"},
+            "customer": {"user", "client", "member"},
+        }
+        for k, syns in synonyms.items():
+            if (k in tgt and any(s in cand for s in syns)) or (k in cand and any(s in tgt for s in syns)):
+                return True
+        return False
+
+    def find_plausible_column_matches(
+        self, table_name: str, column_name: str, schema: dict[str, Any] | None = None
+    ) -> list[str]:
+        """Find columns in table_name that plausibly match column_name."""
+        tables = (schema or self._schema_provider.get_schema())["tables"]
+        table_def = tables.get(table_name)
+        if not table_def:
+            return []
+        matches = []
+        for col in table_def.get("columns", []):
+            col_name = col.get("name", "")
+            if self.is_plausible_column_match(column_name, col_name):
+                matches.append(col_name)
+        return matches
+
+    def is_column_unresolvable_in_schema(
+        self, column_name: str, schema: dict[str, Any] | None = None
+    ) -> bool:
+        """Check if a column cannot be plausibly resolved anywhere in the physical schema."""
+        tables = (schema or self._schema_provider.get_schema())["tables"]
+        for table_def in tables.values():
+            for col in table_def.get("columns", []):
+                if self.is_plausible_column_match(column_name, col.get("name", "")):
+                    return False
+        return True
+
