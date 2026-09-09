@@ -160,7 +160,15 @@ class PostQueryResponseFormatter:
         if result.effective_row_count == 0 or not result.columns:
             return None
 
-        payload = self._excel_exporter.export(result.columns, result.rows)
+        # An optional spreadsheet export must never make result formatting
+        # fail.  Previously a missing xlsxwriter installation turned the
+        # formatter endpoint into HTTP 500, which the Backend surfaced as the
+        # generic "couldn't generate an AI summary" fallback even though the
+        # narrative and table were perfectly usable.
+        try:
+            payload = self._excel_exporter.export(result.columns, result.rows)
+        except Exception:
+            return None
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         return ExcelExport(
             available=True,

@@ -66,6 +66,7 @@ class ConversationStateManager:
         conversation_id: str,
         *,
         sql: str,
+        question: Optional[str] = None,
         query_state: Optional[SemanticQueryState] = None,
         result_metadata: Optional[ResultMetadata] = None,
         fingerprint: Optional[str] = None,
@@ -77,14 +78,18 @@ class ConversationStateManager:
 
         with conv_lock:
             state = self.get_or_create_state(conversation_id)
-            state.last_successful_execution = ExecutionRecord(
+            record = ExecutionRecord(
                 sql=sql,
                 status="Success",
                 timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 row_count=row_count,
                 tenant_id=state.tenant_id,
                 user_id=state.user_id,
+                user_question=question,
             )
+            # Appends to execution_history (bounded) AND keeps
+            # last_successful_execution in sync -- see ConversationState.
+            state.append_execution(record)
             if query_state is not None:
                 state.active_query_state = query_state
             elif sql:

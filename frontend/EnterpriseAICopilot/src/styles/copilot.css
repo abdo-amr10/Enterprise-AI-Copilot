@@ -136,7 +136,7 @@
   min-width: 0;
   height: 100vh;
   overflow: hidden;
-  padding: 32px clamp(24px, 6vw, 90px) 22px;
+  padding: 32px 32px 22px;
   box-sizing: border-box;
 }
 .copilot-header {
@@ -281,14 +281,23 @@
 }
 .copilot-thread {
   display: flex;
-  width: min(100%, 760px);
+  width: min(100%, 900px);
+  margin: 0 auto;
   flex-direction: column;
   gap: 18px;
 }
 .copilot-turn {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: 18px;
+  overflow: visible;
+}
+
+.copilot-turn .summary-card {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 .copilot-processing-message {
   border: 1px solid #dbe1ee;
@@ -367,7 +376,7 @@
   flex-shrink: 0;
   align-items: center;
   gap: 12px;
-  width: min(100%, 850px);
+  width: min(100%, 900px);
   margin: 0 auto;
   border: 1px solid #dbe1ee;
   border-radius: 15px;

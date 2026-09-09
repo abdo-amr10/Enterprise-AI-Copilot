@@ -155,6 +155,14 @@ export function IconChevronDown(props) {
   return <svg {...base} {...props}><path d="m6 9 6 6 6-6" /></svg>;
 }
 
+export function IconPlus(props) {
+  return <svg {...base} {...props}><path d="M12 5v14M5 12h14" /></svg>;
+}
+
+export function IconMinus(props) {
+  return <svg {...base} {...props}><path d="M5 12h14" /></svg>;
+}
+
 export function IconSearch(props) {
   return <svg {...base} {...props}><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>;
 }

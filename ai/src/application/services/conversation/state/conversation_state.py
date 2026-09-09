@@ -61,6 +61,11 @@ class ExecutionRecord:
     error_message: Optional[str] = None
     tenant_id: Optional[str] = None
     user_id: Optional[str] = None
+    # The question this execution answered. Required for full-history
+    # similarity search (see conversation/retrieval/turn_retriever.py) --
+    # without it, a stored execution can't be matched against a new
+    # question at all.
+    user_question: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -101,10 +106,24 @@ class ConversationState:
     last_successful_execution: Optional[ExecutionRecord] = None
     last_result_metadata: Optional[ResultMetadata] = None
     last_request_fingerprint: Optional[str] = None
+    # Additive: full history of successful executions for this
+    # conversation (bounded, see MAX_EXECUTION_HISTORY below).
+    # `last_successful_execution` above always mirrors execution_history[-1]
+    # for backward compatibility with existing readers.
+    execution_history: list[ExecutionRecord] = field(default_factory=list)
     negative_results: dict[str, NegativeResultRecord] = field(default_factory=dict)
     updated_at: datetime.datetime = field(
         default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
     )
+
+    MAX_EXECUTION_HISTORY = 200
+
+    def append_execution(self, record: ExecutionRecord) -> None:
+        """Appends to history (bounded) and keeps last_successful_execution in sync."""
+        self.execution_history.append(record)
+        if len(self.execution_history) > self.MAX_EXECUTION_HISTORY:
+            self.execution_history = self.execution_history[-self.MAX_EXECUTION_HISTORY:]
+        self.last_successful_execution = record
 
     def increment_version(self) -> int:
         self.state_version += 1

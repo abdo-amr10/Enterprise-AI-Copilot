@@ -259,7 +259,7 @@ export default function AdminSemanticLayer() {
       <AdminSidebar active="semantic" />
       <section className="admin-main semantic-upload-main">
         <AdminTopBar
-          title="Add data source"
+          title="Add New Semantic"
           description="Create a new business context for Copilot."
         />
         <UploadSources

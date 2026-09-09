@@ -28,7 +28,7 @@ export default function MainLayout() {
           <Route element={<RoleRoute roles={[ROLES.NORMAL, ROLES.ADMIN]} />}>
             <Route path="/copilot" element={<Copilot />} />
             <Route path="/history" element={<QuestionHistory />} />
-            <Route path="/history/:queryId" element={<QuestionDetails />} />
+            <Route path="/history/:conversationId" element={<QuestionDetails />} />
           </Route>
 
           <Route element={<RoleRoute role={ROLES.ADMIN} />}>

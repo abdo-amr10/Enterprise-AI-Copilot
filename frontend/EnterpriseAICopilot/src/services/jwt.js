@@ -8,9 +8,11 @@ const ROLE_CLAIMS = [
 ]
 
 const CLAIMS = {
-  userId: ['sub', 'userId', 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier'],
-  email: ['email', 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress'],
+  userId: ['sub', 'userId', 'UserId', 'userID', 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier'],
+  email: ['email', 'Email', 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress'],
   name: ['name', 'unique_name', 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name'],
+  firstName: ['firstName', 'FirstName'],
+  lastName: ['lastName', 'LastName'],
   branchId: ['branchId'],
 }
 
@@ -50,8 +52,12 @@ export function readRoleFromJwt(token) {
 export function readUserFromJwt(token, fallbackEmail = '') {
   const payload = decodeJwt(token)
   const email = firstClaim(payload, CLAIMS.email) || fallbackEmail
+  const claimedFirstName = firstClaim(payload, CLAIMS.firstName)?.trim() || ''
+  const claimedLastName = firstClaim(payload, CLAIMS.lastName)?.trim() || ''
   const claimedName = firstClaim(payload, CLAIMS.name)?.trim()
-  const fullName = claimedName && !claimedName.includes('@')
+  const fullName = claimedFirstName || claimedLastName
+    ? `${claimedFirstName} ${claimedLastName}`.trim()
+    : claimedName && !claimedName.includes('@')
     ? claimedName
     : String(email || '').split('@')[0]?.split(/[._-]+/).filter(Boolean).map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`).join(' ')
   const [firstName = '', ...lastName] = fullName?.trim().split(/\s+/) || []

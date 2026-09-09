@@ -4,6 +4,7 @@ import AdminSidebar from "../components/AdminSidebar";
 import AdminTopBar from "../components/AdminTopBar";
 import { IconAlertCircle, IconLoader, IconShieldCheck } from "../components/icons";
 import { fetchAuditLogs } from "../services/auditService";
+import { fetchUsers } from "../services/adminUsersService";
 import "../styles/admin.css";
 import "../styles/admin-pages.css";
 
@@ -19,22 +20,45 @@ function formatTimestamp(iso) {
   return date.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+function usersFromResponse(response) {
+  if (Array.isArray(response)) return response;
+  const data = response?.items || response?.users || response?.data || response;
+  return Array.isArray(data) ? data : data?.items || data?.users || [];
+}
+
+function userDisplayName(user) {
+  return [user?.firstName, user?.lastName].filter(Boolean).join(" ") || user?.name || user?.fullName || "—";
+}
+
+function auditUserDetails(item, usersById) {
+  const directoryUser = usersById[String(item.userId || "").toLowerCase()];
+  return {
+    name: userDisplayName(directoryUser) !== "—" ? userDisplayName(directoryUser) : item.userName || item.user?.fullName || item.user?.name || item.userId || "—",
+    email: directoryUser?.email || item.userEmail || item.email || item.user?.email || "—",
+  };
+}
+
 export default function AdminAuditLogs() {
   const [state, setState] = useState("loading"); // loading | list | empty | error
   const [items, setItems] = useState([]);
+  const [usersById, setUsersById] = useState({});
   const [filters, setFilters] = useState(emptyFilters);
   const [appliedFilters, setAppliedFilters] = useState(emptyFilters);
 
   const load = async (activeFilters) => {
     setState("loading");
     try {
-      const response = await fetchAuditLogs({
+      const [auditResult, usersResult] = await Promise.allSettled([fetchAuditLogs({
         action: activeFilters.action || undefined,
         from: toIsoStart(activeFilters.from) || undefined,
         to: toIsoEnd(activeFilters.to) || undefined,
         userId: activeFilters.userId || undefined,
-      });
-      const list = response?.items || [];
+      }), fetchUsers()]);
+      if (auditResult.status === "rejected") throw auditResult.reason;
+      const response = auditResult.value;
+      const list = Array.isArray(response) ? response : response?.items || [];
+      const directory = usersResult.status === "fulfilled" ? usersFromResponse(usersResult.value) : [];
+      setUsersById(Object.fromEntries(directory.filter((user) => user?.userId).map((user) => [String(user.userId).toLowerCase(), user])));
       setItems(list);
       setState(list.length > 0 ? "list" : "empty");
     } catch {
@@ -43,8 +67,7 @@ export default function AdminAuditLogs() {
   };
 
   useEffect(() => {
-    load(emptyFilters);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    Promise.resolve().then(() => load(emptyFilters));
   }, []);
 
   const onApply = (event) => {
@@ -150,26 +173,24 @@ export default function AdminAuditLogs() {
             <div className="admin-table">
               <div className="table-row audit table-head">
                 <span>Action</span>
-                <span>User / Resource</span>
+                <span>User</span>
                 <span>Status</span>
                 <span>Time</span>
               </div>
-              {items.map((item) => (
-                <div className="table-row audit" key={item.eventId}>
+              {items.map((item) => {
+                const auditUser = auditUserDetails(item, usersById);
+                return <div className="table-row audit" key={item.eventId}>
                   <span>
                     <b>{item.action}</b>
                     <small>{item.eventId}</small>
                   </span>
-                  <span>
-                    {item.userId}
-                    <small>{item.resourceId || item.queryId || "—"}</small>
-                  </span>
+                  <span><b>{auditUser.name}</b><small>{auditUser.email}</small></span>
                   <span className={`admin-badge${item.status === "Success" ? "" : " is-failed"}`}>
                     {item.status}
                   </span>
                   <span>{formatTimestamp(item.timestamp)}</span>
-                </div>
-              ))}
+                </div>;
+              })}
             </div>
           </div>
         )}
@@ -177,4 +198,3 @@ export default function AdminAuditLogs() {
     </main>
   );
 }
-

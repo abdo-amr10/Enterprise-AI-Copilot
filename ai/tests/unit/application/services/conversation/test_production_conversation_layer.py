@@ -350,6 +350,13 @@ def test_followup_detection_operations():
     res6 = detector.detect("What about it?", has_history=True)
     assert res6.confidence_level == FollowupConfidence.UNRESOLVED
 
+    # A concrete filter correction must update the prior intent, rather than
+    # being treated as a semantically similar replay of the old query.
+    res7 = detector.detect("Change it to 2025", has_history=True)
+    assert res7.confidence_level == FollowupConfidence.FOLLOW_UP_CONFIRMED
+    assert res7.operation_type == FollowupType.TIME_CHANGE
+    assert res7.target_value == "2025"
+
 
 def test_continuation_resolver_semantic_update_no_sql_mutation():
     resolver = ContinuationResolver()
@@ -382,6 +389,95 @@ def test_continuation_resolver_semantic_update_no_sql_mutation():
     assert res.updated_semantic_state.limit == 5
     # Raw SQL string was NOT mutated via string.replace!
     assert res.updated_semantic_state.raw_sql == state.active_query_state.raw_sql
+
+
+def test_time_correction_rewrites_the_prior_question_before_sql_generation():
+    resolver = ContinuationResolver()
+    state = ConversationState(conversation_id="date_correction")
+    followup = FollowupDetectionResult(
+        confidence_level=FollowupConfidence.FOLLOW_UP_CONFIRMED,
+        operation_type=FollowupType.TIME_CHANGE,
+        target_value="2025",
+    )
+
+    result = resolver.resolve(
+        "Change it to 2025",
+        state,
+        followup,
+        prior_question="Show all transactions made after January 1, 2026.",
+    )
+
+    assert result.is_resolved is True
+    assert "2025" in result.resolved_question
+    assert "2026" not in result.resolved_question
+    assert result.updated_semantic_state.time_range == "2025"
+
+
+def test_router_executes_date_correction_instead_of_replaying_prior_sql():
+    router = ConversationRouter()
+    executed_questions = []
+
+    def executor(request):
+        executed_questions.append(request.question)
+        return TextToSQLRuntimeResponse.success("SELECT 1;")
+
+    decision = router.route(
+        "Change it to 2025",
+        raw_conversation=(
+            {
+                "role": "turn",
+                "user_question": "Show all transactions made after January 1, 2026.",
+                "generated_sql": "SELECT * FROM transactions WHERE transaction_date >= '2026-01-01';",
+                "execution_status": "Completed",
+            },
+        ),
+        conversation_id="date_correction_router",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        executor=executor,
+    )
+
+    assert decision.route == ConversationRoute.FOLLOW_UP_QUERY
+    assert executed_questions == ["Show all transactions made after January 1, 2025."]
+
+
+def test_router_reuses_resolved_follow_up_sql_without_reinvoking_text_to_sql():
+    router = ConversationRouter()
+    executed_questions = []
+    history = (
+        {
+            "role": "turn",
+            "user_question": "Show all transactions made after January 1, 2026.",
+            "generated_sql": "SELECT * FROM transactions WHERE transaction_date >= '2026-01-01';",
+            "execution_status": "Completed",
+        },
+    )
+
+    def executor(request):
+        executed_questions.append(request.question)
+        return TextToSQLRuntimeResponse.success("SELECT 1;")
+
+    first = router.route(
+        "Change it to 2025",
+        raw_conversation=history,
+        conversation_id="cached_date_correction",
+        tenant_id="branch_1",
+        user_id="user_1",
+        executor=executor,
+    )
+    second = router.route(
+        "Update it to 2025",
+        raw_conversation=history,
+        conversation_id="cached_date_correction",
+        tenant_id="branch_1",
+        user_id="user_1",
+        executor=executor,
+    )
+
+    assert first.cache_hit is False
+    assert second.cache_hit is True
+    assert second.cache_type == "RESOLVED_FOLLOW_UP_REPLAY"
+    assert executed_questions == ["Show all transactions made after January 1, 2025."]
 
 
 # ==============================================================================

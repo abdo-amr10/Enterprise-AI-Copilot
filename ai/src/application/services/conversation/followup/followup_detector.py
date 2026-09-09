@@ -59,6 +59,12 @@ class FollowupDetector:
         re.IGNORECASE,
     )
 
+    _EXPLICIT_TIME_CHANGE_PATTERN = re.compile(
+        r"^(?:change|update|replace|make)\s+(?:it|that|the\s+(?:date|year|period))\s+(?:to|for)\s+"
+        r"(january|february|march|april|may|june|july|august|september|october|november|december|\d{4}|last\s+year|last\s+month|this\s+year|this\s+month|q[1-4])$",
+        re.IGNORECASE,
+    )
+
     _UNRESOLVED_PATTERN = re.compile(
         r"^(?:what\s+about\s+(?:it|them|that|this)|and\s+(?:it|them|that|this)|how\s+about\s+it|what\s+about\s+it)\??$",
         re.IGNORECASE,
@@ -102,6 +108,18 @@ class FollowupDetector:
                 operation_type=FollowupType.CORRECTION,
                 target_value=target,
                 confidence_score=0.95,
+            )
+
+        # Explicit temporal corrections are follow-ups, not independent
+        # questions.  The narrow grammar prevents unrelated requests from
+        # inheriting state accidentally.
+        explicit_time_change = self._EXPLICIT_TIME_CHANGE_PATTERN.search(norm_q)
+        if explicit_time_change:
+            return FollowupDetectionResult(
+                confidence_level=FollowupConfidence.FOLLOW_UP_CONFIRMED,
+                operation_type=FollowupType.TIME_CHANGE,
+                target_value=explicit_time_change.group(1).strip().lower(),
+                confidence_score=0.98,
             )
 
         # 3. Limit change (e.g. "Make it top 5", "top 10")

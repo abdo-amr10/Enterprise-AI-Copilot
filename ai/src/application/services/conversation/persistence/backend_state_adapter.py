@@ -64,8 +64,12 @@ class BackendStateAdapter:
         if not raw_conversation:
             return state
 
-        # Inspect turns in reverse to locate the latest successful execution and result
-        for raw in reversed(raw_conversation):
+        # Walk turns FORWARD (oldest first) so execution_history preserves
+        # chronological order, building the full history instead of
+        # stopping at the first match found. last_successful_execution /
+        # last_result_metadata still end up as the most recent one, same
+        # as before, via append_execution's side effect.
+        for raw in raw_conversation:
             if not isinstance(raw, dict):
                 continue
 
@@ -96,22 +100,25 @@ class BackendStateAdapter:
                     if len(parts) > 1 and parts[1].strip():
                         sql = parts[1].strip()
 
+                question_text = raw.get("user_question") or raw.get("userQuestion")
                 summary = raw.get("execution_result_summary") or raw.get("text_summary") or raw.get("textSummary")
                 exec_res = raw.get("execution_result") or raw.get("executionResult")
 
-                if sql and state.last_successful_execution is None:
-                    state.last_successful_execution = ExecutionRecord(
+                if sql:
+                    record = ExecutionRecord(
                         sql=str(sql),
                         status=str(raw.get("execution_status") or raw.get("status") or "Success"),
                         timestamp=str(raw.get("timestamp") or ""),
                         row_count=raw.get("row_count") or raw.get("rowCount"),
                         tenant_id=tenant_id,
                         user_id=user_id,
+                        user_question=str(question_text) if question_text else None,
                     )
+                    state.append_execution(record)
                     if state.active_query_state is None:
                         state.active_query_state = SemanticQueryState(raw_sql=str(sql))
 
-                if (exec_res or summary) and state.last_result_metadata is None:
+                if exec_res or summary:
                     columns: tuple[str, ...] = ()
                     rows: tuple[tuple[Any, ...], ...] = ()
                     row_count = 0
@@ -121,6 +128,8 @@ class BackendStateAdapter:
                         rows = tuple(tuple(r) for r in (exec_res.get("rows") or ()))
                         row_count = int(exec_res.get("rowCount") or exec_res.get("row_count") or len(rows))
 
+                    # Keep the most recent result metadata (last one wins,
+                    # since we're walking forward in chronological order).
                     state.last_result_metadata = ResultMetadata(
                         columns=columns,
                         row_count=row_count,
@@ -129,10 +138,6 @@ class BackendStateAdapter:
                         tenant_id=tenant_id,
                         user_id=user_id,
                     )
-
-            # If both execution and result found, stop scanning history
-            if state.last_successful_execution is not None and state.last_result_metadata is not None:
-                break
 
         return state
 

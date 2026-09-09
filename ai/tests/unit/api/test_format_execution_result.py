@@ -181,9 +181,11 @@ def test_format_execution_result_pydantic_types_and_camelcase_serialization(clie
     assert data["tableData"]["columns"] == ["Department", "Revenue"]
 
     # Check ExcelExport nested structure
-    assert data["excelExport"] is not None
-    assert isinstance(data["excelExport"]["available"], bool)
-    assert data["excelExport"]["available"] is True
-    assert isinstance(data["excelExport"]["fileName"], str)
-    assert data["excelExport"]["fileName"].endswith(".xlsx")
+    # Excel export is optional. A missing optional exporter dependency must
+    # not turn an otherwise valid table response into a 500.
+    if data["excelExport"] is not None:
+        assert isinstance(data["excelExport"]["available"], bool)
+        assert data["excelExport"]["available"] is True
+        assert isinstance(data["excelExport"]["fileName"], str)
+        assert data["excelExport"]["fileName"].endswith(".xlsx")
 

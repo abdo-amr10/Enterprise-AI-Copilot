@@ -38,6 +38,7 @@ class ContinuationResolver:
     )
 
     _TOP_N_REGEX = re.compile(r"\b(?:top|first)\s+(\d+)\b", re.IGNORECASE)
+    _YEAR_REGEX = re.compile(r"\b\d{4}\b")
 
     def resolve(
         self,
@@ -93,7 +94,14 @@ class ContinuationResolver:
             updated_state = base_state.clone_with(filters=filters, time_range=target)
 
             if base_question and self._MONTHS_YEARS_REGEX.search(base_question):
-                resolved_q = self._MONTHS_YEARS_REGEX.sub(target, base_question)
+                # A year correction must replace the year token only.  The
+                # previous broad pattern also matched the month in "January
+                # 1, 2026", producing malformed text such as "2025 1, 2025".
+                resolved_q = (
+                    self._YEAR_REGEX.sub(target, base_question)
+                    if self._YEAR_REGEX.fullmatch(target)
+                    else self._MONTHS_YEARS_REGEX.sub(target, base_question)
+                )
             elif base_question:
                 resolved_q = f"{base_question} for {target}"
             else:
@@ -166,7 +174,11 @@ class ContinuationResolver:
             updated_state = base_state.clone_with(filters=filters)
 
             if base_question and self._MONTHS_YEARS_REGEX.search(base_question) and self._MONTHS_YEARS_REGEX.search(target):
-                resolved_q = self._MONTHS_YEARS_REGEX.sub(target, base_question)
+                resolved_q = (
+                    self._YEAR_REGEX.sub(target, base_question)
+                    if self._YEAR_REGEX.fullmatch(target)
+                    else self._MONTHS_YEARS_REGEX.sub(target, base_question)
+                )
             elif base_question:
                 resolved_q = f"{base_question} (corrected to {target})"
             else:

@@ -89,16 +89,26 @@ def is_local_development_mode() -> bool:
     return os.getenv("AI_LOCAL_DEV_MODE", "").casefold() == "true"
 
 
-def get_semantic_repository() -> BackendSemanticRepository | FileSemanticRepository:
-    global _semantic_repository
-    if _semantic_repository is None:
-        embedding_service = EmbeddingService(
+_embedding_service: EmbeddingService | None = None
+
+
+def get_embedding_service() -> EmbeddingService:
+    global _embedding_service
+    if _embedding_service is None:
+        _embedding_service = EmbeddingService(
             _SETTINGS.production_embedding_model_path,
             model_name=_SETTINGS.production_embedding_model_name,
             device=_SETTINGS.embedding_device,
             batch_size=_SETTINGS.embedding_batch_size,
             normalize=_SETTINGS.normalize_embeddings,
         )
+    return _embedding_service
+
+
+def get_semantic_repository() -> BackendSemanticRepository | FileSemanticRepository:
+    global _semantic_repository
+    if _semantic_repository is None:
+        embedding_service = get_embedding_service()
         _semantic_repository = (
             FileSemanticRepository(
                 _LOCAL_APPROVED_LAYER,
@@ -222,6 +232,8 @@ def get_conversation_router():
         from src.application.services.conversation.router.conversation_router import (
             ConversationRouter,
         )
+        # Similarity is not enough to replay SQL: a date, amount, or other
+        # filter change can be close in embedding space but needs new SQL.
         _conversation_router = ConversationRouter()
     return _conversation_router
 

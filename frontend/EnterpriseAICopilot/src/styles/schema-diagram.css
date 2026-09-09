@@ -1,0 +1,20 @@
+.schema-diagram-shell { margin-top: 22px; border: 1px solid #e3e9f3; border-radius: 12px; background: #fff; overflow: hidden; }
+.schema-diagram-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid #e9edf5; padding: 12px 14px; color: #687590; font-size: 11px; }
+.schema-diagram-toolbar > div { display: inline-flex; align-items: center; gap: 8px; }
+.schema-diagram-toolbar button { display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; border: 1px solid #d9e2f0; border-radius: 7px; background: #fff; color: #315b9b; cursor: pointer; }
+.schema-diagram-toolbar button:hover { background: #f2f6fd; }
+.schema-diagram-toolbar svg { width: 14px; height: 14px; }
+.schema-diagram-toolbar b { min-width: 40px; color: #2f4161; text-align: center; font-size: 11px; }
+.schema-diagram-viewport { height: 560px; overflow: auto; background: #f8faff; }
+.schema-diagram-canvas { position: relative; background-image: radial-gradient(#d8e1ef 1px, transparent 1px); background-size: 18px 18px; }
+.schema-diagram-edges { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+.schema-diagram-edges line { stroke: #8ca1c0; stroke-width: 2; }
+.schema-diagram-edges text { fill: #637795; font-size: 11px; font-weight: 600; }
+.schema-diagram-node { position: absolute; z-index: 1; overflow: hidden; border: 1px solid #d9e2ef; border-radius: 10px; background: #fff; box-shadow: 0 5px 14px rgb(50 72 109 / 8%); cursor: grab; user-select: none; }
+.schema-diagram-node:active { cursor: grabbing; }
+.schema-diagram-node header { padding: 11px 13px; border-bottom: 1px solid #dce7f7; background: #eef4ff; color: #24487f; font-size: 12px; font-weight: 700; }
+.schema-diagram-columns { max-height: 178px; overflow-y: auto; padding: 8px 12px 10px; }
+.schema-diagram-columns > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 4px 0; border-bottom: 1px solid #f0f3f8; }
+.schema-diagram-columns strong { min-width: 0; overflow: hidden; color: #35445f; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.schema-diagram-columns strong.is-primary { color: #1d5ec2; }
+.schema-diagram-columns span { flex: 0 0 auto; color: #8592a9; font-size: 9px; }
