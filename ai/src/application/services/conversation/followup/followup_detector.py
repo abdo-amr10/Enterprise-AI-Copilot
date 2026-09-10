@@ -23,9 +23,20 @@ class FollowupDetector:
         "last year", "last month", "this year", "this month", "q1", "q2", "q3", "q4",
     }
 
+    _CONTEXT_RESET_PATTERN = re.compile(
+        r"^(?:new\s+question[:\s]+|forget\s+(?:the\s+)?previous(?:\s+query|\s+question)?[\s.,;:]*|"
+        r"start\s+over(?:\s+and)?[\s.,;:]*|reset(?:\s+context)?[\s.,;:]*)(.+)$",
+        re.IGNORECASE,
+    )
+
+    _STANDALONE_QUERY_START = re.compile(
+        r"^(?:and\s+)?(?:show|list|get|find|what\s+is|what\s+are|how\s+many|display|give\s+me|select|fetch)\b",
+        re.IGNORECASE,
+    )
+
     _LIMIT_PATTERN = re.compile(
-        r"^(?:make\s+it\s+)?(?:top|first|limit\s+to|only)\s+(\d+)$|"
-        r"^(?:top|first)\s+(\d+)$",
+        r"^(?:(?:make\s+it\s+|only\s+|just\s+)?(?:show\s+)?(?:the\s+)?(?:top|first|limit\s+(?:to\s+)?)\s*(\d+)(?:\s+(?:only|rows|records|items|results|[a-zA-Z_]+))?)$|"
+        r"^(?:top|first|limit)\s+(\d+)$",
         re.IGNORECASE,
     )
 
@@ -35,12 +46,19 @@ class FollowupDetector:
     )
 
     _SORT_PATTERN = re.compile(
-        r"^(?:sort(?:\s+(?:that|it))?|order(?:\s+(?:that|it))?)\s*(?:by\s+)?([a-zA-Z_\s]+)?\s*(desc(?:ending)?|asc(?:ending)?|highest\s+first|lowest\s+first)?$",
+        r"^(?:sort(?:\s+(?:that|it|them|these|those))?|order(?:\s+(?:that|it|them|these|those))?)\s*(?:by\s+)?([a-zA-Z_\s]+)?\s*(desc(?:ending)?|asc(?:ending)?|highest\s+first|lowest\s+first)?$",
         re.IGNORECASE,
     )
 
     _CORRECTION_PATTERN = re.compile(
-        r"^(?:no[,،]?\s*(?:i\s+meant\s+)?|correction[:\s]+)(.+)$",
+        r"^(?:no[,]?\s*(?:i\s+meant\s+)?|correction[:\s]+|actually[,]?\s*|"
+        r"instead\s+of\s+.+?[,]\s*show\s+|not\s+.+?[—\-,]\s*show\s+)(.+)$",
+        re.IGNORECASE,
+    )
+
+    _PRONOUN_PATTERN = re.compile(
+        r"\b(?:which\s+of\s+them|which\s+one|who\s+among\s+them|how\s+many\s+of\s+them|sort\s+them|order\s+them|filter\s+them)\b|"
+        r"^(?:which\s+of\s+them|which\s+one|who\s+among\s+them)\b",
         re.IGNORECASE,
     )
 
@@ -70,6 +88,10 @@ class FollowupDetector:
         re.IGNORECASE,
     )
 
+    _FILTER_PREPOSITIONS = {
+        "in", "for", "at", "from", "with", "by", "under", "over", "between", "during", "before", "after",
+    }
+
     def detect(
         self,
         question: str,
@@ -79,16 +101,32 @@ class FollowupDetector:
         """Detect follow-up operations deterministically."""
         norm_q = RequestNormalizer.normalize(question)
 
+        # Explicit context reset commands (e.g. "New question: ...", "Forget previous query...")
+        reset_match = self._CONTEXT_RESET_PATTERN.search(norm_q)
+        if reset_match:
+            clean_q = reset_match.group(1).strip()
+            return FollowupDetectionResult(
+                confidence_level=FollowupConfidence.INDEPENDENT,
+                confidence_score=1.0,
+                reason="Explicit context reset requested.",
+                is_context_reset=True,
+                clean_question=clean_q,
+            )
+
         # If no previous context or history, query is independent
         has_context = has_history or (state is not None and (
             state.active_query_state is not None or state.last_successful_execution is not None
         ))
 
         if not has_context:
+            is_standalone = bool(
+                self._STANDALONE_QUERY_START.search(norm_q)
+                and not self._PRONOUN_PATTERN.search(norm_q)
+            )
             return FollowupDetectionResult(
                 confidence_level=FollowupConfidence.INDEPENDENT,
                 confidence_score=1.0,
-                reason="No active conversation context.",
+                reason="Complete standalone question." if is_standalone else "No active conversation context.",
             )
 
         # 1. Ambiguous unresolved patterns (e.g. "What about it?", "What about that?")
@@ -99,7 +137,41 @@ class FollowupDetector:
                 reason="Ambiguous anaphoric pronoun without explicit modifier.",
             )
 
-        # 2. Correction (e.g. "No, I meant Cairo", "No, February")
+        # 2. Standalone complete queries that begin with standard question words
+        if self._STANDALONE_QUERY_START.search(norm_q) and not self._PRONOUN_PATTERN.search(norm_q):
+            limit_match = self._LIMIT_PATTERN.search(norm_q)
+            if limit_match:
+                num = limit_match.group(1) or limit_match.group(2)
+                return FollowupDetectionResult(
+                    confidence_level=FollowupConfidence.FOLLOW_UP_CONFIRMED,
+                    operation_type=FollowupType.LIMIT_CHANGE,
+                    target_value=num,
+                    confidence_score=0.95,
+                )
+            return FollowupDetectionResult(
+                confidence_level=FollowupConfidence.INDEPENDENT,
+                confidence_score=1.0,
+                reason="Complete standalone question.",
+            )
+
+        # 3. Pronoun / referential follow-up (e.g. "Which of them has the highest...", "Sort them by...")
+        if self._PRONOUN_PATTERN.search(norm_q):
+            sort_match = self._SORT_PATTERN.search(norm_q)
+            if sort_match:
+                return FollowupDetectionResult(
+                    confidence_level=FollowupConfidence.FOLLOW_UP_CONFIRMED,
+                    operation_type=FollowupType.SORT_CHANGE,
+                    target_value=norm_q,
+                    confidence_score=0.92,
+                )
+            return FollowupDetectionResult(
+                confidence_level=FollowupConfidence.FOLLOW_UP_CONFIRMED,
+                operation_type=FollowupType.PRONOUN_REFERENCE,
+                target_value=norm_q,
+                confidence_score=0.92,
+            )
+
+        # 4. Correction (e.g. "No, I meant Chicago", "Actually, make that 2026", "Actually, below 600")
         corr_match = self._CORRECTION_PATTERN.search(norm_q)
         if corr_match:
             target = corr_match.group(1).strip()
@@ -110,9 +182,7 @@ class FollowupDetector:
                 confidence_score=0.95,
             )
 
-        # Explicit temporal corrections are follow-ups, not independent
-        # questions.  The narrow grammar prevents unrelated requests from
-        # inheriting state accidentally.
+        # Explicit temporal corrections
         explicit_time_change = self._EXPLICIT_TIME_CHANGE_PATTERN.search(norm_q)
         if explicit_time_change:
             return FollowupDetectionResult(
@@ -122,7 +192,7 @@ class FollowupDetector:
                 confidence_score=0.98,
             )
 
-        # 3. Limit change (e.g. "Make it top 5", "top 10")
+        # 5. Limit change (e.g. "Make it top 5", "top 10", "Only show the top 5")
         limit_match = self._LIMIT_PATTERN.search(norm_q)
         if limit_match:
             num = limit_match.group(1) or limit_match.group(2)
@@ -133,7 +203,7 @@ class FollowupDetector:
                 confidence_score=0.95,
             )
 
-        # 4. Group by change (e.g. "Group it by region", "by department")
+        # 6. Group by change (e.g. "Group it by region", "by department")
         group_match = self._GROUP_BY_PATTERN.search(norm_q)
         if group_match:
             dim = group_match.group(1).strip()
@@ -144,7 +214,7 @@ class FollowupDetector:
                 confidence_score=0.95,
             )
 
-        # 5. Sort change (e.g. "Sort by total descending")
+        # 7. Sort change (e.g. "Sort by total descending", "Sort them by credit score")
         sort_match = self._SORT_PATTERN.search(norm_q)
         if sort_match:
             criteria = norm_q
@@ -155,10 +225,19 @@ class FollowupDetector:
                 confidence_score=0.9,
             )
 
-        # 6. Filter change / addition (e.g. "Only Cairo", "only managers")
+        # 8. Filter change / addition (e.g. "Only Chicago", "only managers")
         filter_match = self._FILTER_PATTERN.search(norm_q)
         if filter_match:
             val = filter_match.group(1).strip()
+            sub_lim = self._LIMIT_PATTERN.search(val)
+            if sub_lim:
+                num = sub_lim.group(1) or sub_lim.group(2)
+                return FollowupDetectionResult(
+                    confidence_level=FollowupConfidence.FOLLOW_UP_CONFIRMED,
+                    operation_type=FollowupType.LIMIT_CHANGE,
+                    target_value=num,
+                    confidence_score=0.95,
+                )
             return FollowupDetectionResult(
                 confidence_level=FollowupConfidence.FOLLOW_UP_CONFIRMED,
                 operation_type=FollowupType.FILTER_CHANGE,
@@ -166,7 +245,7 @@ class FollowupDetector:
                 confidence_score=0.92,
             )
 
-        # 7. Scope change (e.g. "Show the same thing for Alexandria")
+        # 9. Scope change (e.g. "Show the same thing for Chicago")
         scope_match = self._SCOPE_PATTERN.search(norm_q)
         if scope_match:
             val = scope_match.group(1).strip()
@@ -177,10 +256,33 @@ class FollowupDetector:
                 confidence_score=0.92,
             )
 
-        # 8. Time change (e.g. "What about February?", "What about 2024?", "in 2025")
+        # 10. Time change / Follow-up fragment (e.g. "What about February?", "What about Chicago?")
         time_match = self._TIME_PATTERN.search(norm_q)
         if time_match:
-            candidate = time_match.group(1).strip().lower()
+            candidate = (time_match.group(1) or "").strip().lower()
+
+            # If the candidate starts with a standalone query verb (e.g. "and show all merchants"),
+            # it is an independent standalone query, not a follow-up fragment!
+            if self._STANDALONE_QUERY_START.search(candidate):
+                return FollowupDetectionResult(
+                    confidence_level=FollowupConfidence.INDEPENDENT,
+                    confidence_score=1.0,
+                    reason="Standalone question prefixed with conversational conjunction.",
+                )
+
+            # Ambiguous noun mentions where an entity is introduced without predicate or clear intent:
+            # In multi-turn dialogue, turns starting with conversational "and " (e.g. "And merchants?",
+            # "And doctors?", "And flarix?") without prepositions or time periods are ambiguous dangling entities.
+            first_word = candidate.split()[0] if candidate.split() else ""
+            if norm_q.startswith("and ") and first_word not in self._FILTER_PREPOSITIONS:
+                is_time = candidate in self._MONTHS_AND_PERIODS or bool(re.match(r"^\d{4}$", candidate))
+                if not is_time:
+                    return FollowupDetectionResult(
+                        confidence_level=FollowupConfidence.UNRESOLVED,
+                        confidence_score=0.5,
+                        reason=f"Ambiguous entity reference '{candidate}'. Clarification required.",
+                    )
+
             # If candidate is a known month, year (\d{4}), or time period:
             if candidate in self._MONTHS_AND_PERIODS or re.match(r"^\d{4}$", candidate):
                 return FollowupDetectionResult(
@@ -189,7 +291,8 @@ class FollowupDetector:
                     target_value=candidate,
                     confidence_score=0.95,
                 )
-            # General "What about X" might be a filter or entity change
+
+            # General "What about X" is a filter or scope change
             return FollowupDetectionResult(
                 confidence_level=FollowupConfidence.FOLLOW_UP_CONFIRMED,
                 operation_type=FollowupType.FILTER_CHANGE,
@@ -197,7 +300,7 @@ class FollowupDetector:
                 confidence_score=0.88,
             )
 
-        # 9. Standalone month/year or entity query: e.g. "February", "2024"
+        # 11. Standalone month/year or entity query: e.g. "February", "2024"
         if norm_q in self._MONTHS_AND_PERIODS or re.match(r"^\d{4}$", norm_q):
             return FollowupDetectionResult(
                 confidence_level=FollowupConfidence.FOLLOW_UP_CONFIRMED,
@@ -206,7 +309,7 @@ class FollowupDetector:
                 confidence_score=0.9,
             )
 
-        # 10. Default: independent query
+        # 12. Default: independent query
         return FollowupDetectionResult(
             confidence_level=FollowupConfidence.INDEPENDENT,
             confidence_score=1.0,

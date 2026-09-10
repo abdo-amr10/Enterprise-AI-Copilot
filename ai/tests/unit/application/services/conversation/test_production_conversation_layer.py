@@ -63,16 +63,10 @@ def test_normalization_whitespace_and_casing():
     assert RequestNormalizer.normalize(raw) == expected
 
 
-def test_normalization_arabic_diacritics_tatweel_alef():
-    # Includes diacritics (fatha, damma), tatweel, and alef hamza
-    raw = "مَـبِـيعَـات أَكْتُوبَر؟"
+def test_normalization_punctuation_and_quotes():
+    raw = "  \"Show total revenue for Q3?\"!  "
     normalized = RequestNormalizer.normalize(raw)
-    assert "ـ" not in normalized
-    assert "َ" not in normalized
-    assert "أ" not in normalized
-    assert "؟" not in normalized
-    assert "مبيعات" in normalized
-    assert "اكتوبر" in normalized
+    assert normalized == "show total revenue for q3"
 
 
 def test_normalization_semantic_distinctions_preserved():

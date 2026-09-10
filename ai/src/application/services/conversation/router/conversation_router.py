@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Callable, Optional
 import uuid
 
@@ -16,10 +17,17 @@ from src.application.services.conversation.cache.semantic_cache import (
 from src.application.services.conversation.continuation.continuation_resolver import (
     ContinuationResolver,
 )
+from src.application.services.conversation.extraction.slot_extractor import (
+    SlotExtractor,
+)
 from src.application.services.conversation.followup.followup_detector import (
     FollowupDetector,
 )
-from src.application.services.conversation.followup.models import FollowupConfidence
+from src.application.services.conversation.followup.models import (
+    FollowupConfidence,
+    FollowupDetectionResult,
+    FollowupType,
+)
 from src.application.services.conversation.normalization.normalizer import (
     RequestNormalizer,
 )
@@ -39,12 +47,26 @@ from src.application.services.conversation.router.routing_decision import (
     ConversationRoute,
     RoutingDecision,
 )
-from src.application.services.conversation.router.scope_guard import ScopeGuard
+from src.application.services.conversation.router.scope_guard import (
+    ScopeGuard,
+    _OUT_OF_SCOPE_MESSAGE,
+)
+from src.application.services.conversation.semantic_routing.application.semantic_intent_router import (
+    SemanticIntentRouter,
+)
+from src.application.services.conversation.semantic_routing.domain.intent import (
+    ConversationIntent,
+)
+from src.application.services.conversation.state.conversation_state import (
+    ResultMetadata,
+)
 from src.application.services.conversation.state.state_manager import (
     ConversationStateManager,
 )
 
 logger = logging.getLogger(__name__)
+
+_UNSET = object()
 
 
 class ConversationRouter:
@@ -54,12 +76,14 @@ class ConversationRouter:
     2. Minimal state load (Backend payload + Runtime cache)
     3. Exact replay check
     4. Previous-result resolution (No SQL / No LLM)
-    5. Follow-up detection & continuation (Semantic update, no SQL replace)
+    5. Semantic Intent Classification & Follow-up detection
     6. Early scope guard / safe rejection (Before Text-to-SQL)
     7. Conditional semantic reuse
     8. Independent database query -> Existing Text-to-SQL
     9. State update & persistence
     """
+
+    _WORD_TO_NUM = SlotExtractor._WORD_TO_NUM
 
     def __init__(
         self,
@@ -70,6 +94,8 @@ class ConversationRouter:
         followup_detector: Optional[FollowupDetector] = None,
         continuation_resolver: Optional[ContinuationResolver] = None,
         semantic_cache: Optional[ConditionalSemanticCache] = None,
+        semantic_router: Any = _UNSET,
+        slot_extractor: Optional[SlotExtractor] = None,
     ) -> None:
         self._replay_manager = replay_manager or ExactReplayManager()
         self._state_manager = state_manager or ConversationStateManager()
@@ -77,6 +103,20 @@ class ConversationRouter:
         self._followup_detector = followup_detector or FollowupDetector()
         self._continuation_resolver = continuation_resolver or ContinuationResolver()
         self._semantic_cache = semantic_cache or ConditionalSemanticCache(enabled=True)
+        self._slot_extractor = slot_extractor or SlotExtractor()
+
+        if semantic_router is not _UNSET:
+            self._semantic_router: Optional[SemanticIntentRouter] = semantic_router
+        else:
+            try:
+                from src.config.conversation_settings import CONVERSATION_SETTINGS
+                if CONVERSATION_SETTINGS.semantic_router_enabled:
+                    self._semantic_router = SemanticIntentRouter.get_shared_instance()
+                else:
+                    self._semantic_router = None
+            except Exception as e:
+                logger.warning("Failed to initialize SemanticIntentRouter: %s", e)
+                self._semantic_router = None
 
     @property
     def replay_manager(self) -> ExactReplayManager:
@@ -102,6 +142,36 @@ class ConversationRouter:
     def semantic_cache(self) -> ConditionalSemanticCache:
         return self._semantic_cache
 
+    @property
+    def semantic_router(self) -> Optional[SemanticIntentRouter]:
+        return self._semantic_router
+
+    @property
+    def slot_extractor(self) -> SlotExtractor:
+        return self._slot_extractor
+
+    @classmethod
+    def _map_intent_to_followup_type(cls, intent: ConversationIntent) -> FollowupType:
+        mapping = {
+            ConversationIntent.LIMIT_CHANGE: FollowupType.LIMIT_CHANGE,
+            ConversationIntent.SORT_CHANGE: FollowupType.SORT_CHANGE,
+            ConversationIntent.GROUP_BY_CHANGE: FollowupType.GROUP_BY_CHANGE,
+            ConversationIntent.FILTER_CHANGE: FollowupType.FILTER_CHANGE,
+            ConversationIntent.CORRECTION: FollowupType.CORRECTION,
+            ConversationIntent.PRONOUN_REFERENCE: FollowupType.PRONOUN_REFERENCE,
+        }
+        return mapping.get(intent, FollowupType.FILTER_CHANGE)
+
+    @classmethod
+    def _extract_slot_for_intent(cls, intent: ConversationIntent, text: str) -> str:
+        """Delegate slot extraction to SlotExtractor."""
+        return SlotExtractor.extract_slot(intent, text)
+
+    @staticmethod
+    def _extract_clean_question_after_reset(text: str) -> Optional[str]:
+        """Delegate clean question extraction to SlotExtractor."""
+        return SlotExtractor.extract_clean_question_after_reset(text)
+
     def route(
         self,
         question: str,
@@ -125,6 +195,9 @@ class ConversationRouter:
         else:
             conv_id = f"ephem_{uuid.uuid4().hex[:12]}"
 
+        # Derive effective tenant scope (authoritative RLS context from tenant_id or branch_id)
+        effective_tenant_id = (tenant_id or branch_id or "").strip() or None
+
         # ----------------------------------------------------------------------
         # 1. Normalization
         # ----------------------------------------------------------------------
@@ -137,12 +210,20 @@ class ConversationRouter:
                 reason_for_fallback="Empty normalized query.",
             )
 
+        logger.debug(
+            "conversation.normalized_query=%s conv_id=%s tenant_id=%s branch_id=%s",
+            normalized_q,
+            conv_id,
+            effective_tenant_id,
+            branch_id,
+        )
+
         # ----------------------------------------------------------------------
         # 2. Minimal State Load (Backend payload + Runtime cache)
         # ----------------------------------------------------------------------
         state = self._state_manager.get_or_create_state(
             conv_id,
-            tenant_id=tenant_id,
+            tenant_id=effective_tenant_id,
             user_id=user_id,
             semantic_revision_id=semantic_revision_id,
             schema_version=schema_version,
@@ -153,7 +234,7 @@ class ConversationRouter:
             extracted = BackendStateAdapter.extract_state(
                 conv_id,
                 raw_conversation,
-                tenant_id=tenant_id,
+                tenant_id=effective_tenant_id,
                 user_id=user_id,
                 semantic_revision_id=semantic_revision_id,
                 schema_version=schema_version,
@@ -161,11 +242,13 @@ class ConversationRouter:
             )
             if extracted.last_result_metadata is not None:
                 state.last_result_metadata = extracted.last_result_metadata
+        elif isinstance(last_result_metadata, ResultMetadata):
+            state.last_result_metadata = last_result_metadata
         elif state.last_successful_execution is None and raw_conversation:
             backend_state = BackendStateAdapter.extract_state(
                 conv_id,
                 raw_conversation,
-                tenant_id=tenant_id,
+                tenant_id=effective_tenant_id,
                 user_id=user_id,
                 semantic_revision_id=semantic_revision_id,
                 schema_version=schema_version,
@@ -177,18 +260,20 @@ class ConversationRouter:
                 state.last_result_metadata = backend_state.last_result_metadata
 
         has_history = bool(raw_conversation or state.last_successful_execution)
+        logger.debug("conversation.state_loaded=True has_history=%s", has_history)
 
         # ----------------------------------------------------------------------
         # 3. Exact Replay Check
         # ----------------------------------------------------------------------
         replay = self._replay_manager.lookup(
             question,
-            tenant_id=tenant_id,
+            tenant_id=effective_tenant_id,
             user_id=user_id,
             semantic_revision_id=semantic_revision_id,
             schema_version=schema_version,
             conversation_id=conv_id,
         )
+        logger.debug("conversation.exact_replay.hit=%s", replay.is_valid and replay.entry is not None)
 
         if replay.is_valid and replay.entry is not None:
             logger.info("Exact replay cache hit for question: %s", normalized_q)
@@ -210,8 +295,12 @@ class ConversationRouter:
             question,
             state.last_result_metadata,
             summary=state.last_result_metadata.summary if state.last_result_metadata else None,
-            current_tenant_id=tenant_id,
+            current_tenant_id=effective_tenant_id,
             current_user_id=user_id,
+        )
+        logger.debug(
+            "conversation.result_resolver.hit=%s",
+            res_outcome.status == ResultResolutionStatus.ANSWERABLE,
         )
 
         if res_outcome.status == ResultResolutionStatus.ANSWERABLE and res_outcome.answer:
@@ -229,10 +318,155 @@ class ConversationRouter:
             )
 
         # ----------------------------------------------------------------------
-        # 5. Follow-Up Detection & Continuation
+        # 5. Semantic Intent Classification & Follow-Up Continuation
         # ----------------------------------------------------------------------
+        # Step 5a: Follow-Up & Reset Detection (Deterministic checks)
         followup = self._followup_detector.detect(question, state, has_history=has_history)
+        logger.debug(
+            "conversation.followup.detected=%s confidence=%s is_reset=%s",
+            followup.confidence_level == FollowupConfidence.FOLLOW_UP_CONFIRMED,
+            followup.confidence_level.value,
+            followup.is_context_reset,
+        )
 
+        # Context Reset: intentionally reset conversation state if requested
+        if followup.is_context_reset:
+            logger.info("Explicit context reset requested. Resetting state for conv_id: %s", conv_id)
+            self._state_manager.clear(conv_id)
+            state = self._state_manager.get_or_create_state(
+                conv_id,
+                tenant_id=effective_tenant_id,
+                user_id=user_id,
+                semantic_revision_id=semantic_revision_id,
+                schema_version=schema_version,
+            )
+            raw_conversation = ()
+            has_history = False
+            clean_q = followup.clean_question or self._slot_extractor.extract_clean_question_after_reset(normalized_q)
+            if clean_q:
+                question = clean_q
+                normalized_q = RequestNormalizer.normalize(question)
+                followup = self._followup_detector.detect(question, state, has_history=False)
+            else:
+                return RoutingDecision(
+                    route=ConversationRoute.NEW_DATABASE_QUERY,
+                    is_success=True,
+                    direct_answer="Conversation context has been reset. What would you like to ask?",
+                    text_summary="Conversation context has been reset.",
+                    presentation_type="DirectAnswer",
+                    state_loaded=True,
+                    semantic_intent=ConversationIntent.RESET_CONTEXT.value,
+                    semantic_confidence=1.0,
+                )
+
+        semantic_result = None
+        semantic_intent = None
+        semantic_conf = None
+
+        if self._semantic_router is not None:
+            semantic_result = self._semantic_router.classify(
+                question, state=state, has_history=has_history
+            )
+            semantic_intent = semantic_result.intent
+            semantic_conf = semantic_result.confidence_score
+            logger.debug(
+                "conversation.semantic_router.classified intent=%s score=%.4f margin=%.4f",
+                semantic_intent.value,
+                semantic_conf,
+                semantic_result.margin,
+            )
+
+            # Semantic context reset fallback (if deterministic didn't catch the reset phrase)
+            if semantic_intent == ConversationIntent.RESET_CONTEXT:
+                logger.info("Semantic context reset requested. Resetting state for conv_id: %s", conv_id)
+                self._state_manager.clear(conv_id)
+                state = self._state_manager.get_or_create_state(
+                    conv_id,
+                    tenant_id=effective_tenant_id,
+                    user_id=user_id,
+                    semantic_revision_id=semantic_revision_id,
+                    schema_version=schema_version,
+                )
+                raw_conversation = ()
+                has_history = False
+                clean_q = self._slot_extractor.extract_clean_question_after_reset(normalized_q)
+                if clean_q:
+                    question = clean_q
+                    normalized_q = RequestNormalizer.normalize(question)
+                    followup = self._followup_detector.detect(question, state, has_history=False)
+                    semantic_result = self._semantic_router.classify(question, state=state, has_history=False)
+                    semantic_intent = semantic_result.intent
+                    semantic_conf = semantic_result.confidence_score
+                else:
+                    return RoutingDecision(
+                        route=ConversationRoute.NEW_DATABASE_QUERY,
+                        is_success=True,
+                        direct_answer="Conversation context has been reset. What would you like to ask?",
+                        text_summary="Conversation context has been reset.",
+                        presentation_type="DirectAnswer",
+                        state_loaded=True,
+                        semantic_intent=semantic_intent.value,
+                        semantic_confidence=semantic_conf,
+                    )
+
+            # Direct capability answer (bypasses Text-to-SQL)
+            if semantic_intent == ConversationIntent.CAPABILITY and not (
+                has_history and followup.confidence_level == FollowupConfidence.FOLLOW_UP_CONFIRMED
+            ):
+                direct_ans = (
+                    "I am your Enterprise AI Copilot. I can query and analyze enterprise data, "
+                    "filter records, aggregate metrics across departments or time periods, "
+                    "sort results, and answer questions from your previous query results."
+                )
+                return RoutingDecision(
+                    route=ConversationRoute.CAPABILITY,
+                    is_success=True,
+                    text_summary=direct_ans,
+                    direct_answer=direct_ans,
+                    presentation_type="DirectAnswer",
+                    state_loaded=True,
+                    semantic_intent=semantic_intent.value,
+                    semantic_confidence=semantic_conf,
+                )
+
+            # Out-of-scope safe rejection
+            if semantic_intent == ConversationIntent.OUT_OF_SCOPE:
+                logger.info("Semantic router safely rejected out-of-scope question: %s", normalized_q)
+                self._state_manager.record_unsupported_request(conv_id)
+                return RoutingDecision(
+                    route=ConversationRoute.UNSUPPORTED,
+                    is_success=False,
+                    error_message=_OUT_OF_SCOPE_MESSAGE,
+                    reason_for_fallback="Semantic router classified question as OUT_OF_SCOPE.",
+                    state_loaded=True,
+                    semantic_intent=semantic_intent.value,
+                    semantic_confidence=semantic_conf,
+                )
+
+            # Ambiguous / Unresolved intent
+            if semantic_intent == ConversationIntent.AMBIGUOUS:
+                if (
+                    followup.confidence_level != FollowupConfidence.FOLLOW_UP_CONFIRMED
+                    and followup.reason not in (
+                        "Complete standalone question.",
+                        "Standalone question prefixed with conversational conjunction.",
+                    )
+                ):
+                    return RoutingDecision(
+                        route=ConversationRoute.UNRESOLVED_CONTEXT,
+                        is_success=False,
+                        error_message=(
+                            "I'm not sure what that's referring to. Could you clarify which "
+                            "previous question or result you mean?"
+                        ),
+                        state_loaded=True,
+                        followup_detected=True,
+                        followup_confidence="UNRESOLVED",
+                        semantic_intent=semantic_intent.value,
+                        semantic_confidence=semantic_conf,
+                    )
+
+        # Rule 1: Respect unresolved clarification requests (e.g. ambiguous entity mention like "And merchants?")
         if followup.confidence_level == FollowupConfidence.UNRESOLVED:
             return RoutingDecision(
                 route=ConversationRoute.UNRESOLVED_CONTEXT,
@@ -244,6 +478,47 @@ class ConversationRouter:
                 state_loaded=True,
                 followup_detected=True,
                 followup_confidence="UNRESOLVED",
+                semantic_intent=semantic_intent.value if semantic_intent else None,
+                semantic_confidence=semantic_conf,
+            )
+
+        # Rule 2: Check if followup detector verified a complete standalone question
+        is_standalone = followup.reason in (
+            "Complete standalone question.",
+            "Standalone question prefixed with conversational conjunction.",
+        )
+
+        # Rule 3: Enhance Follow-Up with Semantic Router insights
+        if (
+            semantic_intent in (
+                ConversationIntent.LIMIT_CHANGE,
+                ConversationIntent.SORT_CHANGE,
+                ConversationIntent.GROUP_BY_CHANGE,
+                ConversationIntent.FILTER_CHANGE,
+                ConversationIntent.CORRECTION,
+                ConversationIntent.PRONOUN_REFERENCE,
+            )
+            and followup.confidence_level != FollowupConfidence.FOLLOW_UP_CONFIRMED
+            and not is_standalone
+            and has_history
+        ):
+            op_type = self._map_intent_to_followup_type(semantic_intent)
+            target_val = self._slot_extractor.extract_slot(semantic_intent, normalized_q)
+            followup = FollowupDetectionResult(
+                confidence_level=FollowupConfidence.FOLLOW_UP_CONFIRMED,
+                operation_type=op_type,
+                target_value=target_val,
+                confidence_score=semantic_conf or 0.9,
+                reason=f"Semantic router classified as {semantic_intent.value}",
+            )
+        elif (
+            (semantic_intent == ConversationIntent.NEW_DATABASE_QUERY or is_standalone)
+            and followup.confidence_level != FollowupConfidence.FOLLOW_UP_CONFIRMED
+        ):
+            followup = FollowupDetectionResult(
+                confidence_level=FollowupConfidence.INDEPENDENT,
+                confidence_score=semantic_conf or 1.0,
+                reason=followup.reason or "Semantic router classified as NEW_DATABASE_QUERY.",
             )
 
         if followup.confidence_level == FollowupConfidence.FOLLOW_UP_CONFIRMED:
@@ -258,11 +533,19 @@ class ConversationRouter:
                             prior_q = raw["content"]
                             break
 
+            if not prior_q and state and state.last_successful_execution:
+                prior_q = state.last_successful_execution.user_question
+
             continuation = self._continuation_resolver.resolve(
                 question,
                 state,
                 followup,
                 prior_question=prior_q,
+            )
+            logger.debug(
+                "conversation.canonical_query=%s resolved=%s",
+                continuation.resolved_question,
+                continuation.is_resolved,
             )
 
             if continuation.is_resolved and executor:
@@ -273,7 +556,7 @@ class ConversationRouter:
                 # semantic revision, and schema version.
                 resolved_replay = self._replay_manager.lookup(
                     continuation.resolved_question,
-                    tenant_id=tenant_id,
+                    tenant_id=effective_tenant_id,
                     user_id=user_id,
                     semantic_revision_id=semantic_revision_id,
                     schema_version=schema_version,
@@ -302,6 +585,8 @@ class ConversationRouter:
                             state_loaded=True,
                             followup_detected=True,
                             followup_confidence=followup.confidence_level.value,
+                            semantic_intent=semantic_intent.value if semantic_intent else None,
+                            semantic_confidence=semantic_conf,
                         )
 
                 exec_req = CopilotAskRequest(
@@ -326,7 +611,7 @@ class ConversationRouter:
                     self._replay_manager.record_success(
                         question,
                         runtime_resp.sql,
-                        tenant_id=tenant_id,
+                        tenant_id=effective_tenant_id,
                         user_id=user_id,
                         semantic_revision_id=semantic_revision_id,
                         schema_version=schema_version,
@@ -339,7 +624,7 @@ class ConversationRouter:
                         self._replay_manager.record_success(
                             continuation.resolved_question,
                             runtime_resp.sql,
-                            tenant_id=tenant_id,
+                            tenant_id=effective_tenant_id,
                             user_id=user_id,
                             semantic_revision_id=semantic_revision_id,
                             schema_version=schema_version,
@@ -354,6 +639,8 @@ class ConversationRouter:
                         followup_detected=True,
                         followup_confidence=followup.confidence_level.value,
                         text_to_sql_called=True,
+                        semantic_intent=semantic_intent.value if semantic_intent else None,
+                        semantic_confidence=semantic_conf,
                     )
                 else:
                     self._state_manager.record_execution_failure(
@@ -370,12 +657,26 @@ class ConversationRouter:
                         state_loaded=True,
                         followup_detected=True,
                         text_to_sql_called=True,
+                        semantic_intent=semantic_intent.value if semantic_intent else None,
+                        semantic_confidence=semantic_conf,
                     )
+            elif continuation.is_resolved:
+                return RoutingDecision(
+                    route=ConversationRoute.FOLLOW_UP_QUERY,
+                    is_success=True,
+                    resolved_question=continuation.resolved_question,
+                    state_loaded=True,
+                    followup_detected=True,
+                    followup_confidence=followup.confidence_level.value,
+                    semantic_intent=semantic_intent.value if semantic_intent else None,
+                    semantic_confidence=semantic_conf,
+                )
 
         # ----------------------------------------------------------------------
         # 6. Early Scope Guard / Safe Rejection (BEFORE Text-to-SQL)
         # ----------------------------------------------------------------------
         scope_eval = ScopeGuard.evaluate(question)
+        logger.debug("conversation.scope_guard.decision=%s", "IN_SCOPE" if scope_eval.is_in_scope else "REJECTED")
         if not scope_eval.is_in_scope:
             logger.info("Scope guard safely rejected out-of-scope question: %s", normalized_q)
             self._state_manager.record_unsupported_request(conv_id)
@@ -384,6 +685,8 @@ class ConversationRouter:
                 is_success=False,
                 error_message=scope_eval.rejection_message,
                 reason_for_fallback=scope_eval.reason,
+                semantic_intent=semantic_intent.value if semantic_intent else None,
+                semantic_confidence=semantic_conf,
             )
 
         # ----------------------------------------------------------------------
@@ -392,11 +695,12 @@ class ConversationRouter:
         sem_entry = self._semantic_cache.lookup_and_validate(
             normalized_q,
             state.active_query_state,
-            tenant_id=tenant_id,
+            tenant_id=effective_tenant_id,
             user_id=user_id,
             semantic_revision_id=semantic_revision_id or "active",
             schema_version=schema_version or "default_schema",
         )
+        logger.debug("conversation.semantic_reuse.hit=%s", sem_entry is not None)
         if sem_entry is not None:
             logger.info("Conditional semantic cache hit for question: %s", normalized_q)
             return RoutingDecision(
@@ -406,18 +710,28 @@ class ConversationRouter:
                 cache_hit=True,
                 cache_type="SEMANTIC",
                 semantic_lookup_used=True,
+                semantic_intent=semantic_intent.value if semantic_intent else None,
+                semantic_confidence=semantic_conf,
             )
 
         # ----------------------------------------------------------------------
         # 8. Supported Database Query -> Existing Text-to-SQL
         # ----------------------------------------------------------------------
         if executor:
+            # For independent database queries, isolate context: do NOT pass previous user/assistant
+            # conversation turns to CopilotAskRequest to prevent LLM prompt contamination.
+            # Only pass system-level correction feedback (e.g. RLS_CORRECTION) if present.
+            system_corrections = tuple(
+                msg for msg in raw_conversation
+                if isinstance(msg, dict) and msg.get("role") == "system"
+            )
             exec_req = CopilotAskRequest(
                 question=question,
-                conversation=raw_conversation,
+                conversation=system_corrections,
                 correlation_id=correlation_id,
             )
-            logger.info("Delegating independent query [%s] to existing Text-to-SQL", question)
+            logger.info("Delegating independent query [%s] to existing Text-to-SQL (isolated prompt context)", question)
+            logger.debug("conversation.sql_generation.invoked=True")
             runtime_resp = executor(exec_req)
 
             if runtime_resp.status == "Success" and runtime_resp.sql:
@@ -430,7 +744,7 @@ class ConversationRouter:
                 self._replay_manager.record_success(
                     question,
                     runtime_resp.sql,
-                    tenant_id=tenant_id,
+                    tenant_id=effective_tenant_id,
                     user_id=user_id,
                     semantic_revision_id=semantic_revision_id,
                     schema_version=schema_version,
@@ -442,6 +756,8 @@ class ConversationRouter:
                     generated_sql=runtime_resp.sql,
                     state_loaded=True,
                     text_to_sql_called=True,
+                    semantic_intent=semantic_intent.value if semantic_intent else None,
+                    semantic_confidence=semantic_conf,
                 )
             else:
                 self._state_manager.record_execution_failure(
@@ -456,6 +772,8 @@ class ConversationRouter:
                     error_message=runtime_resp.failure_reason or runtime_resp.message or runtime_resp.error_code,
                     state_loaded=True,
                     text_to_sql_called=True,
+                    semantic_intent=semantic_intent.value if semantic_intent else None,
+                    semantic_confidence=semantic_conf,
                 )
 
         # If no executor supplied (e.g. standalone router test)
@@ -464,4 +782,6 @@ class ConversationRouter:
             is_success=True,
             resolved_question=question,
             state_loaded=True,
+            semantic_intent=semantic_intent.value if semantic_intent else None,
+            semantic_confidence=semantic_conf,
         )

@@ -33,12 +33,38 @@ class ContinuationResolver:
     """Applies structured continuation operations to SemanticQueryState and resolves standalone query."""
 
     _MONTHS_YEARS_REGEX = re.compile(
-        r"\b(january|february|march|april|may|june|july|august|september|october|november|december|\d{4}|last\s+year|last\s+month|q[1-4])\b",
+        r"\b(january|february|march|april|may|june|july|august|september|october|november|december|\d{4}|last\s+year|last\s+month|this\s+year|this\s+month|q[1-4])\b",
         re.IGNORECASE,
     )
 
-    _TOP_N_REGEX = re.compile(r"\b(?:top|first)\s+(\d+)\b", re.IGNORECASE)
+    _TOP_N_REGEX = re.compile(r"\b(?:top|first|limit)\s+(\d+)\b", re.IGNORECASE)
     _YEAR_REGEX = re.compile(r"\b\d{4}\b")
+
+    @staticmethod
+    def _replace_syntactic_slot(base_question: str, target: str) -> tuple[bool, str]:
+        """Dynamically replace a prepositional argument slot in base_question with target.
+
+        Agnostic to schema and entity types: works for locations (in New York -> in Chicago),
+        departments (in HR -> in Marketing), products (for laptops -> for smartphones),
+        statuses, categories, etc.
+        """
+        clean_target = target.strip()
+        formatted_target = clean_target.title() if (clean_target.islower() and " " not in clean_target) else clean_target
+
+        prep_pattern = re.compile(
+            r"\b(in|for|from|at|by|with)\s+([A-Za-z0-9_\-]+(?:\s+[A-Za-z0-9_\-]+){0,3})\b",
+            re.IGNORECASE,
+        )
+        matches = list(prep_pattern.finditer(base_question))
+        if matches:
+            last_match = matches[-1]
+            if re.match(r"^(?:in|for|from|at|by|with)\s+", clean_target, re.IGNORECASE):
+                resolved_q = base_question[:last_match.start()] + clean_target + base_question[last_match.end():]
+            else:
+                resolved_q = base_question[:last_match.start(2)] + formatted_target + base_question[last_match.end(2):]
+            return True, resolved_q
+
+        return False, base_question
 
     def resolve(
         self,
@@ -72,11 +98,11 @@ class ContinuationResolver:
 
             updated_state = base_state.clone_with(limit=new_limit)
 
-            # Rewrite question preserving original query
             if base_question and self._TOP_N_REGEX.search(base_question):
                 resolved_q = self._TOP_N_REGEX.sub(f"top {new_limit}", base_question)
             elif base_question:
-                resolved_q = f"Show top {new_limit} {base_question}"
+                clean_base = re.sub(r"^(?:show|list|get|find)\s+", "", base_question, flags=re.IGNORECASE).strip()
+                resolved_q = f"Show top {new_limit} {clean_base}"
             else:
                 resolved_q = f"Top {new_limit}"
 
@@ -94,9 +120,6 @@ class ContinuationResolver:
             updated_state = base_state.clone_with(filters=filters, time_range=target)
 
             if base_question and self._MONTHS_YEARS_REGEX.search(base_question):
-                # A year correction must replace the year token only.  The
-                # previous broad pattern also matched the month in "January
-                # 1, 2026", producing malformed text such as "2025 1, 2025".
                 resolved_q = (
                     self._YEAR_REGEX.sub(target, base_question)
                     if self._YEAR_REGEX.fullmatch(target)
@@ -121,7 +144,10 @@ class ContinuationResolver:
 
             clean_base = re.sub(r"\s+group\s+by\s+.*$", "", base_question, flags=re.IGNORECASE).strip()
             clean_base = re.sub(r"\s+by\s+.*$", "", clean_base, flags=re.IGNORECASE).strip()
-            resolved_q = f"{clean_base} group by {target}" if clean_base else f"Group by {target}"
+            if clean_base:
+                resolved_q = f"{clean_base} group by {target}"
+            else:
+                resolved_q = f"Group by {target}"
 
             return ContinuationResolution(
                 is_resolved=True,
@@ -134,7 +160,16 @@ class ContinuationResolver:
         if op == FollowupType.SORT_CHANGE:
             new_order_by = (target,)
             updated_state = base_state.clone_with(order_by=new_order_by)
-            resolved_q = f"{base_question}, {target}" if base_question else target
+            clean_sort = re.sub(
+                r"^(?:sort|order)(?:\s+(?:it|them|that|these|those))?\s*(?:by\s+)?",
+                "",
+                target,
+                flags=re.IGNORECASE,
+            ).strip()
+            if clean_sort:
+                resolved_q = f"{base_question}, sort by {clean_sort}" if base_question else f"Sort by {clean_sort}"
+            else:
+                resolved_q = f"{base_question}, {target}" if base_question else target
 
             return ContinuationResolution(
                 is_resolved=True,
@@ -143,22 +178,32 @@ class ContinuationResolver:
                 operation_applied=op,
             )
 
-        # 5. FILTER_CHANGE / FILTER_ADDITION
-        if op in (FollowupType.FILTER_CHANGE, FollowupType.FILTER_ADDITION):
+        # 5. FILTER_CHANGE / FILTER_ADDITION / SAME_QUERY_DIFFERENT_SCOPE
+        if op in (FollowupType.FILTER_CHANGE, FollowupType.FILTER_ADDITION, FollowupType.SAME_QUERY_DIFFERENT_SCOPE):
             filters = dict(base_state.filters)
-            filters["filter"] = target
-            updated_state = base_state.clone_with(filters=filters)
 
-            if "only" in current_question.lower() or "keep the same" in current_question.lower():
-                # E.g. "Keep the same filters but only Egypt" -> "Show total sales for Egypt"
-                # If base question exists:
-                if base_question:
-                    resolved_q = f"{base_question}, only {target}"
+            replaced = False
+            for k, v in list(filters.items()):
+                if v and isinstance(v, str) and re.search(r"\b" + re.escape(v) + r"\b", base_question, re.IGNORECASE):
+                    resolved_q = re.sub(r"\b" + re.escape(v) + r"\b", target.title() if target.islower() else target, base_question, flags=re.IGNORECASE)
+                    filters[k] = target
+                    replaced = True
+                    break
+
+            if not replaced:
+                slot_replaced, resolved_q = self._replace_syntactic_slot(base_question, target)
+                if slot_replaced:
+                    filters["filter"] = target
+                    replaced = True
+
+            if not replaced:
+                if "only" in current_question.lower() or "keep the same" in current_question.lower():
+                    resolved_q = f"{base_question}, only {target}" if base_question else f"Only {target}"
                 else:
-                    resolved_q = f"Only {target}"
-            else:
-                resolved_q = f"{base_question} for {target}" if base_question else target
+                    resolved_q = f"{base_question} for {target}" if base_question else target
+                filters["filter"] = target
 
+            updated_state = base_state.clone_with(filters=filters)
             return ContinuationResolution(
                 is_resolved=True,
                 resolved_question=resolved_q,
@@ -168,11 +213,74 @@ class ContinuationResolver:
 
         # 6. CORRECTION
         if op == FollowupType.CORRECTION:
-            # Replaces the last conflicting token with target
             filters = dict(base_state.filters)
-            filters["correction"] = target
-            updated_state = base_state.clone_with(filters=filters)
 
+            # "Not X — show Y instead" / "Instead of X, show Y"
+            m_not = re.search(r"(?:not|instead\s+of)\s+([a-zA-Z0-9_]+).*?(?:show\s+)?([a-zA-Z0-9_]+)\s+instead", current_question, re.IGNORECASE)
+            if not m_not:
+                m_not = re.search(r"not\s+([a-zA-Z0-9_]+).*?(?:show|use)\s+([a-zA-Z0-9_]+)", current_question, re.IGNORECASE)
+            if m_not:
+                old_val, new_val = m_not.group(1), m_not.group(2)
+                resolved_q = re.sub(r"\b" + re.escape(old_val) + r"\b", new_val.title(), base_question, flags=re.IGNORECASE)
+                filters["correction"] = new_val
+                return ContinuationResolution(
+                    is_resolved=True,
+                    resolved_question=resolved_q,
+                    updated_semantic_state=base_state.clone_with(filters=filters),
+                    operation_applied=op,
+                )
+
+            # Full query rewrite: "Actually, show customers in Chicago instead"
+            m_show = re.search(r"(?:show|list|get|find)\s+(.+?)(?:\s+instead)?$", target, re.IGNORECASE)
+            if m_show:
+                resolved_q = f"Show {m_show.group(1).strip()}"
+                filters["correction"] = target
+                return ContinuationResolution(
+                    is_resolved=True,
+                    resolved_question=resolved_q,
+                    updated_semantic_state=base_state.clone_with(filters=filters),
+                    operation_applied=op,
+                )
+
+            # Year correction: "Actually, make that 2026"
+            m_year = re.search(r"\b(\d{4})\b", target)
+            if m_year and re.search(r"\b\d{4}\b", base_question):
+                new_yr = m_year.group(1)
+                resolved_q = self._YEAR_REGEX.sub(new_yr, base_question)
+                filters["time"] = new_yr
+                return ContinuationResolution(
+                    is_resolved=True,
+                    resolved_question=resolved_q,
+                    updated_semantic_state=base_state.clone_with(filters=filters, time_range=new_yr),
+                    operation_applied=op,
+                )
+
+            # Numeric comparison correction: "Actually, below 600"
+            num_cond_pattern = r"(?:below|above|less\s+than|greater\s+than|<|>|<=|>=)\s*(\d+)"
+            m_num_cond = re.search(num_cond_pattern, target, re.IGNORECASE)
+            if m_num_cond and re.search(num_cond_pattern, base_question, re.IGNORECASE):
+                resolved_q = re.sub(num_cond_pattern, target, base_question, flags=re.IGNORECASE)
+                filters["correction"] = target
+                return ContinuationResolution(
+                    is_resolved=True,
+                    resolved_question=resolved_q,
+                    updated_semantic_state=base_state.clone_with(filters=filters),
+                    operation_applied=op,
+                )
+
+            # Prepositional slot correction: "No, Chicago" or "Actually, Miami"
+            clean_target = re.sub(r"^(?:no[,]?\s*(?:i\s+meant\s+)?|actually[,]?\s*(?:make\s+that\s+)?|correction[:\s]+)", "", current_question, flags=re.IGNORECASE).strip()
+            slot_replaced, resolved_q = self._replace_syntactic_slot(base_question, clean_target)
+            if slot_replaced:
+                filters["correction"] = clean_target
+                return ContinuationResolution(
+                    is_resolved=True,
+                    resolved_question=resolved_q,
+                    updated_semantic_state=base_state.clone_with(filters=filters),
+                    operation_applied=op,
+                )
+
+            # Default date/generic correction
             if base_question and self._MONTHS_YEARS_REGEX.search(base_question) and self._MONTHS_YEARS_REGEX.search(target):
                 resolved_q = (
                     self._YEAR_REGEX.sub(target, base_question)
@@ -184,24 +292,27 @@ class ContinuationResolver:
             else:
                 resolved_q = target
 
+            filters["correction"] = target
             return ContinuationResolution(
                 is_resolved=True,
                 resolved_question=resolved_q,
-                updated_semantic_state=updated_state,
+                updated_semantic_state=base_state.clone_with(filters=filters),
                 operation_applied=op,
             )
 
-        # 7. SAME_QUERY_DIFFERENT_SCOPE
-        if op == FollowupType.SAME_QUERY_DIFFERENT_SCOPE:
-            filters = dict(base_state.filters)
-            filters["scope"] = target
-            updated_state = base_state.clone_with(filters=filters)
-            resolved_q = f"{base_question} for {target}" if base_question else target
+        # 7. PRONOUN_REFERENCE
+        if op == FollowupType.PRONOUN_REFERENCE:
+            clean_prior = re.sub(r"^(?:show|list|get|find)\s+", "", base_question, flags=re.IGNORECASE).rstrip(".?")
+            clean_curr = re.sub(r"\b(?:of\s+them|among\s+them|from\s+them)\b", "", current_question, flags=re.IGNORECASE).strip(" ?.")
+            if clean_prior and clean_curr:
+                resolved_q = f"Among {clean_prior}, {clean_curr}"
+            else:
+                resolved_q = current_question
 
             return ContinuationResolution(
                 is_resolved=True,
                 resolved_question=resolved_q,
-                updated_semantic_state=updated_state,
+                updated_semantic_state=base_state,
                 operation_applied=op,
             )
 

@@ -61,6 +61,11 @@ class ConversationStateManager:
                     state.schema_version = schema_version
             return self._states[conversation_id]
 
+    def get_state(self, conversation_id: str) -> Optional[ConversationState]:
+        """Return state if exists, without creating."""
+        with self._global_lock:
+            return self._states.get(conversation_id)
+
     def record_successful_execution(
         self,
         conversation_id: str,

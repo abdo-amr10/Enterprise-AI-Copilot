@@ -23,6 +23,10 @@ class ResultResolutionOutcome:
     referenced_row_index: Optional[int] = None
     reason: Optional[str] = None
 
+    @property
+    def message(self) -> Optional[str]:
+        return self.reason
+
     @classmethod
     def answerable(
         cls,

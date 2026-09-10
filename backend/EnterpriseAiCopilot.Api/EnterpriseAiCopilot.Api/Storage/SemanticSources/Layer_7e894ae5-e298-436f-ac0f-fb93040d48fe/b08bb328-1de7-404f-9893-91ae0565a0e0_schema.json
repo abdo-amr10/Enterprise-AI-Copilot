@@ -1,0 +1,266 @@
+{
+  "version": "1.0",
+  "database": "Synthetic Banking Database",
+  "source": "Database Test Schema.pdf",
+  "tables": {
+    "customers": {
+      "columns": [
+        {
+          "name": "customer_id",
+          "type": "varchar(20)",
+          "primary_key": true
+        },
+        {
+          "name": "first_name",
+          "type": "varchar(50)",
+          "primary_key": false
+        },
+        {
+          "name": "last_name",
+          "type": "varchar(50)",
+          "primary_key": false
+        },
+        {
+          "name": "email",
+          "type": "varchar(100)",
+          "primary_key": false
+        },
+        {
+          "name": "city",
+          "type": "varchar(50)",
+          "primary_key": false
+        },
+        {
+          "name": "credit_score",
+          "type": "int",
+          "primary_key": false
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "primary_key": false
+        }
+      ]
+    },
+    "branches": {
+      "columns": [
+        {
+          "name": "branch_id",
+          "type": "varchar(20)",
+          "primary_key": true
+        },
+        {
+          "name": "branch_name",
+          "type": "varchar(100)",
+          "primary_key": false
+        },
+        {
+          "name": "manager_name",
+          "type": "varchar(100)",
+          "primary_key": false
+        },
+        {
+          "name": "city",
+          "type": "varchar(50)",
+          "primary_key": false
+        },
+        {
+          "name": "country",
+          "type": "varchar(50)",
+          "primary_key": false
+        }
+      ]
+    },
+    "accounts": {
+      "columns": [
+        {
+          "name": "account_id",
+          "type": "varchar(20)",
+          "primary_key": true
+        },
+        {
+          "name": "customer_id",
+          "type": "varchar(20)",
+          "primary_key": false
+        },
+        {
+          "name": "branch_id",
+          "type": "varchar(20)",
+          "primary_key": false
+        },
+        {
+          "name": "account_type",
+          "type": "varchar(20)",
+          "primary_key": false
+        },
+        {
+          "name": "balance_usd",
+          "type": "decimal(12,2)",
+          "primary_key": false
+        },
+        {
+          "name": "open_date",
+          "type": "date",
+          "primary_key": false
+        }
+      ]
+    },
+    "cards": {
+      "columns": [
+        {
+          "name": "card_id",
+          "type": "varchar(20)",
+          "primary_key": true
+        },
+        {
+          "name": "account_id",
+          "type": "varchar(20)",
+          "primary_key": false
+        },
+        {
+          "name": "card_type",
+          "type": "varchar(20)",
+          "primary_key": false
+        },
+        {
+          "name": "expiration_date",
+          "type": "date",
+          "primary_key": false
+        }
+      ]
+    },
+    "merchants": {
+      "columns": [
+        {
+          "name": "merchant_id",
+          "type": "varchar(20)",
+          "primary_key": true
+        },
+        {
+          "name": "merchant_name",
+          "type": "varchar(100)",
+          "primary_key": false
+        },
+        {
+          "name": "city",
+          "type": "varchar(50)",
+          "primary_key": false
+        }
+      ]
+    },
+    "transactions": {
+      "columns": [
+        {
+          "name": "transaction_id",
+          "type": "varchar(25)",
+          "primary_key": true
+        },
+        {
+          "name": "account_id",
+          "type": "varchar(20)",
+          "primary_key": false
+        },
+        {
+          "name": "merchant_id",
+          "type": "varchar(20)",
+          "primary_key": false
+        },
+        {
+          "name": "amount_usd",
+          "type": "decimal(12,2)",
+          "primary_key": false
+        },
+        {
+          "name": "transaction_date",
+          "type": "datetime",
+          "primary_key": false
+        }
+      ]
+    },
+    "loans": {
+      "columns": [
+        {
+          "name": "loan_id",
+          "type": "varchar(20)",
+          "primary_key": true
+        },
+        {
+          "name": "customer_id",
+          "type": "varchar(20)",
+          "primary_key": false
+        },
+        {
+          "name": "loan_amount",
+          "type": "decimal(12,2)",
+          "primary_key": false
+        },
+        {
+          "name": "interest_rate",
+          "type": "decimal(5,2)",
+          "primary_key": false
+        },
+        {
+          "name": "start_date",
+          "type": "date",
+          "primary_key": false
+        }
+      ]
+    }
+  },
+  "relationships": [
+    {
+      "name": "customers_accounts",
+      "from_table": "customers",
+      "from_column": "customer_id",
+      "to_table": "accounts",
+      "to_column": "customer_id",
+      "cardinality": "1:N",
+      "relationship_type": "foreign_key"
+    },
+    {
+      "name": "branches_accounts",
+      "from_table": "branches",
+      "from_column": "branch_id",
+      "to_table": "accounts",
+      "to_column": "branch_id",
+      "cardinality": "1:N",
+      "relationship_type": "foreign_key"
+    },
+    {
+      "name": "accounts_cards",
+      "from_table": "accounts",
+      "from_column": "account_id",
+      "to_table": "cards",
+      "to_column": "account_id",
+      "cardinality": "1:N",
+      "relationship_type": "foreign_key"
+    },
+    {
+      "name": "accounts_transactions",
+      "from_table": "accounts",
+      "from_column": "account_id",
+      "to_table": "transactions",
+      "to_column": "account_id",
+      "cardinality": "1:N",
+      "relationship_type": "foreign_key"
+    },
+    {
+      "name": "merchants_transactions",
+      "from_table": "merchants",
+      "from_column": "merchant_id",
+      "to_table": "transactions",
+      "to_column": "merchant_id",
+      "cardinality": "1:N",
+      "relationship_type": "foreign_key"
+    },
+    {
+      "name": "customers_loans",
+      "from_table": "customers",
+      "from_column": "customer_id",
+      "to_table": "loans",
+      "to_column": "customer_id",
+      "cardinality": "1:N",
+      "relationship_type": "foreign_key"
+    }
+  ]
+}

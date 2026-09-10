@@ -1,16 +1,14 @@
-"""Deterministic Result Resolver operating on previous execution results.
-
-Evaluates questions deterministically without calling LLMs, without Text-to-SQL,
-and without SQL generation. Never hallucinates information absent from the result.
-"""
+"""Deterministic result resolution for follow-up queries answerable from existing data."""
 
 from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Optional
+from typing import Optional
 
-from src.application.services.conversation.normalization.normalizer import RequestNormalizer
+from src.application.services.conversation.normalization.normalizer import (
+    RequestNormalizer,
+)
 from src.application.services.conversation.result_resolution.models import (
     ResultResolutionOutcome,
     ResultResolutionStatus,
@@ -48,13 +46,14 @@ class ResultResolver:
 
     _ORDINAL_PATTERN = re.compile(
         r"\b(?:who|what|which)(?:\s+one)?\s+is\s+(?:#|number|no\.?|num\.?)?\s*(\d+)\b|"
-        r"\b(?:number|#|no\.?)\s*(\d+)\b|"
-        r"\b(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th)\b",
+        r"\b(?:who|what|which)(?:\s+is|\s+was)?\s+(?:the\s+)?(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th)(?:\s+(?:one|row|item|record|result))?\b|"
+        r"\b(?:the\s+)?(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th)\s+(?:one|row|item|record|result)\b|"
+        r"^(?:#|number|no\.?)\s*(\d+)\??$",
         re.IGNORECASE,
     )
 
     _COUNT_PATTERN = re.compile(
-        r"\b(?:how\s+many(?:\s+(?:rows|records|items|results|customers|employees))?|count|total\s+rows)\b",
+        r"\b(?:how\s+many(?:\s+[a-zA-Z_]+)?|count|total\s+rows)\b",
         re.IGNORECASE,
     )
 
@@ -62,6 +61,14 @@ class ResultResolver:
         r"\b(?:which|who|what)(?:\s+[a-zA-Z_]+)?\s+(?:is|has|was|had)?\s*(?:the\s+)?(highest|maximum|max|top|lowest|minimum|min)\b",
         re.IGNORECASE,
     )
+
+    @staticmethod
+    def _extract_column_tokens_and_phrases(col_name: str) -> tuple[str, str, list[str]]:
+        """Return (clean, spaced, tokens) for a column name handling CamelCase and delimiters."""
+        col_clean = col_name.lower()
+        col_spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", col_name).lower()
+        tokens = [t for t in re.split(r"[_\s\-]+", col_spaced) if len(t) > 2]
+        return col_clean, col_spaced, tokens
 
     def resolve(
         self,
@@ -86,64 +93,162 @@ class ResultResolver:
         norm_q = RequestNormalizer.normalize(question)
 
         # 1. Count / Row count queries
-        if self._COUNT_PATTERN.search(norm_q):
-            if result_metadata and result_metadata.row_count is not None:
+        count_match = self._COUNT_PATTERN.search(norm_q)
+        if count_match:
+            specific_noun_match = re.search(r"\bhow\s+many\s+([a-zA-Z_]+)\b", norm_q)
+            is_generic_count = True
+            if specific_noun_match:
+                noun = specific_noun_match.group(1).lower()
+                generic_nouns = {
+                    "rows", "records", "items", "results", "entries", "people", "ones",
+                    "of", "are", "were", "is", "there", "total",
+                }
+                if noun not in generic_nouns:
+                    cols_str = " ".join(c.lower() for c in (result_metadata.columns if result_metadata else []))
+                    if noun not in cols_str and noun.rstrip("s") not in cols_str:
+                        is_generic_count = False
+
+            if is_generic_count and result_metadata and result_metadata.row_count is not None:
                 return ResultResolutionOutcome.answerable(
                     f"There are {result_metadata.row_count} rows in the previous result.",
                     confidence=1.0,
                 )
 
         # 2. Ordinal / Rank queries (e.g. "Who is #3?", "What is the 3rd one?")
-        ordinal_match = self._ORDINAL_PATTERN.search(norm_q)
-        if ordinal_match:
-            rank = None
-            if ordinal_match.group(1):
-                rank = int(ordinal_match.group(1))
-            elif ordinal_match.group(2):
-                rank = int(ordinal_match.group(2))
-            elif ordinal_match.group(3):
-                rank = self._ORDINAL_WORDS.get(ordinal_match.group(3).lower())
+        is_limit_query = bool(re.search(r"\b(?:first|top|last)\s+\d+\b", norm_q))
+        if not is_limit_query:
+            ordinal_match = self._ORDINAL_PATTERN.search(norm_q)
+            if ordinal_match:
+                rank = None
+                groups = ordinal_match.groups()
+                if groups[0]:
+                    rank = int(groups[0])
+                elif groups[1]:
+                    rank = self._ORDINAL_WORDS.get(groups[1].lower())
+                elif groups[2]:
+                    rank = self._ORDINAL_WORDS.get(groups[2].lower())
+                elif groups[3]:
+                    rank = int(groups[3])
 
-            if rank is not None and rank > 0:
-                if not result_metadata or not result_metadata.sample_rows:
-                    return ResultResolutionOutcome.not_answerable("Result rows are not available for rank lookup.")
+                if rank is not None and rank > 0:
+                    if not result_metadata or not result_metadata.sample_rows:
+                        return ResultResolutionOutcome.not_answerable("Result rows are not available for rank lookup.")
 
-                index = rank - 1
-                if 0 <= index < len(result_metadata.sample_rows):
-                    row = result_metadata.sample_rows[index]
-                    cols = result_metadata.columns
-                    if cols and len(cols) == len(row):
-                        row_details = ", ".join(f"{c}: {v}" for c, v in zip(cols, row) if v is not None)
-                        # If primary name column exists, format nicely
-                        answer = f"Number {rank} is {row[0]} ({row_details})" if len(row) > 1 else f"Number {rank} is {row[0]}"
+                    index = rank - 1
+                    if 0 <= index < len(result_metadata.sample_rows):
+                        row = result_metadata.sample_rows[index]
+                        cols = result_metadata.columns
+                        if cols and len(cols) == len(row):
+                            row_details = ", ".join(f"{c}: {v}" for c, v in zip(cols, row) if v is not None)
+                            answer = f"Number {rank} is {row[0]} ({row_details})" if len(row) > 1 else f"Number {rank} is {row[0]}"
+                        else:
+                            answer = f"Number {rank} is {row[0] if len(row) > 0 else 'empty'}"
+                        return ResultResolutionOutcome.answerable(answer, row_index=index)
                     else:
-                        answer = f"Number {rank} is {row[0] if len(row) > 0 else 'empty'}"
-                    return ResultResolutionOutcome.answerable(answer, row_index=index)
-                else:
-                    return ResultResolutionOutcome.not_answerable(
-                        f"Rank {rank} is out of range for result with {result_metadata.row_count} rows."
-                    )
+                        return ResultResolutionOutcome.not_answerable(
+                            f"Rank {rank} is out of range for result with {result_metadata.row_count} rows."
+                        )
 
-        # 3. Min/Max Extreme queries (e.g. "Which region is highest?")
+        # 3. Min/Max Extreme queries (e.g. "Which region is highest?", "Which customer has the highest balance?")
         extreme_match = self._EXTREME_PATTERN.search(norm_q)
         if extreme_match and result_metadata and result_metadata.sample_rows:
-            is_max = extreme_match.group(1).lower() in ("highest", "maximum", "max", "top")
+            is_max = True
+            if extreme_match.group(1):
+                is_max = extreme_match.group(1).lower() in ("highest", "maximum", "max", "top")
+
             cols = result_metadata.columns
             rows = result_metadata.sample_rows
 
-            # Find numeric columns and categorical columns
-            numeric_col_idx = None
-            cat_col_idx = None
+            metric_match = re.search(
+                r"\b(?:highest|maximum|max|top|lowest|minimum|min)\s+([a-zA-Z_]+)\b",
+                norm_q,
+                re.IGNORECASE,
+            )
+            requested_metric = None
+            if metric_match:
+                raw_m = metric_match.group(1)
+                if raw_m:
+                    raw_m = raw_m.strip().lower()
+                    if raw_m not in {"one", "result", "record", "row", "value", "number", "of"}:
+                        requested_metric = raw_m
+
+            # Find all numeric columns and categorical columns
+            numeric_col_indices = []
+            cat_col_indices = []
 
             for i, col in enumerate(cols):
-                # Check sample row values
                 val = rows[0][i] if len(rows[0]) > i else None
-                if isinstance(val, (int, float)) or (isinstance(val, str) and val.replace(".", "", 1).replace("-", "", 1).isdigit()):
-                    if numeric_col_idx is None:
-                        numeric_col_idx = i
+                is_num = isinstance(val, (int, float)) or (
+                    isinstance(val, str) and val.replace(".", "", 1).replace("-", "", 1).isdigit()
+                )
+                if is_num:
+                    numeric_col_indices.append(i)
                 else:
-                    if cat_col_idx is None:
-                        cat_col_idx = i
+                    cat_col_indices.append(i)
+
+            target_num_col_idx = None
+
+            # If requested_metric was not extracted from "highest/lowest <word>",
+            # check if any numeric column name, spaced phrase, or token appears in the query
+            if requested_metric is None:
+                for i in numeric_col_indices:
+                    col = cols[i]
+                    col_clean, col_spaced, tokens = self._extract_column_tokens_and_phrases(col)
+                    if (
+                        re.search(r"\b" + re.escape(col_clean) + r"\b", norm_q, re.IGNORECASE)
+                        or re.search(r"\b" + re.escape(col_spaced) + r"\b", norm_q, re.IGNORECASE)
+                    ):
+                        requested_metric = col_clean
+                        target_num_col_idx = i
+                        break
+                    for token in tokens:
+                        if re.search(r"\b" + re.escape(token) + r"\b", norm_q, re.IGNORECASE):
+                            requested_metric = token
+                            target_num_col_idx = i
+                            break
+                    if target_num_col_idx is not None:
+                        break
+
+            # Find matching numeric column index if requested_metric was explicitly extracted
+            if requested_metric and target_num_col_idx is None:
+                for i in numeric_col_indices:
+                    col = cols[i]
+                    col_clean, col_spaced, tokens = self._extract_column_tokens_and_phrases(col)
+                    if (
+                        requested_metric == col_clean
+                        or requested_metric == col_spaced
+                        or requested_metric in tokens
+                        or requested_metric in col_clean
+                        or requested_metric in col_spaced
+                        or col_clean in requested_metric
+                    ):
+                        target_num_col_idx = i
+                        break
+                # If an explicit metric was asked for but not found in columns, DO NOT HALLUCINATE!
+                if target_num_col_idx is None:
+                    return ResultResolutionOutcome.not_answerable(
+                        f"Requested metric '{requested_metric}' is not present in previous result columns."
+                    )
+
+            # CRITICAL AUDIT RISK #2: Multi-Numeric Column Ambiguity
+            if target_num_col_idx is None:
+                if len(numeric_col_indices) > 1:
+                    return ResultResolutionOutcome.not_answerable(
+                        "Ambiguous metric: multiple numeric columns exist. Specify which metric to evaluate."
+                    )
+                elif len(numeric_col_indices) == 1:
+                    numeric_col_idx = numeric_col_indices[0]
+                else:
+                    numeric_col_idx = None
+            else:
+                numeric_col_idx = target_num_col_idx
+
+            target_cat_col_idx = None
+            for i in cat_col_indices:
+                if re.search(r"\b" + re.escape(cols[i]) + r"\b", norm_q, re.IGNORECASE):
+                    target_cat_col_idx = i
+                    break
+            cat_col_idx = target_cat_col_idx if target_cat_col_idx is not None else (cat_col_indices[0] if cat_col_indices else None)
 
             if numeric_col_idx is not None and cat_col_idx is not None:
                 def extract_num(r):
@@ -165,13 +270,25 @@ class ResultResolver:
             cols = [c.lower() for c in result_metadata.columns]
             rows = result_metadata.sample_rows
 
-            # Identify target column requested (e.g. department, salary, role, status, email, phone)
             target_col_idx = None
             target_col_name = None
-            for i, col_name in enumerate(cols):
-                if re.search(r"\b" + re.escape(col_name) + r"\b", norm_q):
+            for i, raw_col_name in enumerate(result_metadata.columns):
+                col_clean, col_spaced, tokens = self._extract_column_tokens_and_phrases(raw_col_name)
+                # 1. Exact or whole-word/phrase match on column name or spaced name
+                if (
+                    re.search(r"\b" + re.escape(col_clean) + r"\b", norm_q)
+                    or re.search(r"\b" + re.escape(col_spaced) + r"\b", norm_q)
+                ):
                     target_col_idx = i
-                    target_col_name = result_metadata.columns[i]
+                    target_col_name = raw_col_name
+                    break
+                # 2. Token-level match (e.g. column 'employee_salary' matches query containing 'salary')
+                for token in tokens:
+                    if re.search(r"\b" + re.escape(token) + r"\b", norm_q):
+                        target_col_idx = i
+                        target_col_name = raw_col_name
+                        break
+                if target_col_idx is not None:
                     break
 
             # Identify target row by matching any string cell value against query words
@@ -194,23 +311,17 @@ class ResultResolver:
                     row_index=target_row_idx,
                 )
 
-            # CRITICAL SAFETY: If the user explicitly asks for a field (e.g., "department")
-            # and a subject is found, but the field is NOT present in columns:
-            # We MUST return NOT_ANSWERABLE so we never hallucinate!
+            # Target entity found in result, but requested attribute column is not present
             if target_row_idx is not None and target_col_idx is None:
-                # User asked about an entity in the table, but the requested attribute is missing
                 return ResultResolutionOutcome.not_answerable(
                     "Target entity found in result, but requested attribute column is not present."
                 )
 
-        # 5. Text Summary Lookup (e.g. "Egypt: $2.5M, Brazil: $1.1M" -> "What was the sales amount for Egypt?")
+        # 5. Text Summary Lookup
         eff_summary = summary or (result_metadata.summary if result_metadata else None)
         if eff_summary:
-            # Extract pattern: entity followed by colon/dash and value
-            # e.g., "Egypt's total sales were $2.5M" or "Egypt: $2.5M"
             words = [w for w in re.split(r"[\s,;?.'\"]+", norm_q) if len(w) > 3]
             for w in words:
-                # Look for word in summary
                 pattern = re.compile(
                     r"\b" + re.escape(w) + r"[\'\w]*\s*(?::|was|were|totaled|is|=)\s*([^\n,;.]+)",
                     re.IGNORECASE,

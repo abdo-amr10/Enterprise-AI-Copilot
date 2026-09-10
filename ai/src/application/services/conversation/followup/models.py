@@ -20,6 +20,7 @@ class FollowupType(str, Enum):
     CLARIFICATION = "CLARIFICATION"
     CORRECTION = "CORRECTION"
     SAME_QUERY_DIFFERENT_SCOPE = "SAME_QUERY_DIFFERENT_SCOPE"
+    PRONOUN_REFERENCE = "PRONOUN_REFERENCE"
 
 
 class FollowupConfidence(str, Enum):
@@ -38,6 +39,8 @@ class FollowupDetectionResult:
     confidence_score: float = 1.0
     referenced_turn_id: Optional[str] = None
     reason: Optional[str] = None
+    is_context_reset: bool = False
+    clean_question: Optional[str] = None
 
     @property
     def is_followup(self) -> bool:
