@@ -185,6 +185,11 @@
   overflow: visible;
 }
 
+.question-details-main .chat-thread > div > .summary-card,
+.question-details-main .chat-thread > div > .conversation-feedback {
+  margin-top: 10px;
+}
+
 .question-details-main .summary-card {
   width: 100%;
   max-width: 100%;

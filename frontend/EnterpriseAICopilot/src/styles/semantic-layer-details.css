@@ -2,9 +2,16 @@
 .semantic-details-main::-webkit-scrollbar { width: 6px; }
 .semantic-details-main::-webkit-scrollbar-thumb { border-radius: 999px; background: #cbd5e1; }
 .semantic-details-main::-webkit-scrollbar-track { background: transparent; }
-.semantic-details-back { display: inline-flex; align-items: center; gap: 7px; margin-top: 23px; color: #2563eb; font-size: 12px; font-weight: 700; text-decoration: none; }
-.semantic-details-back svg { width: 15px; height: 15px; }
-.semantic-details-back:hover { color: #1d4ed8; }
+.semantic-layer-details-main { display: flex; min-height: 0; height: 100vh; max-height: none; flex-direction: column; overflow: hidden; }
+.semantic-layer-details-scroll { min-height: 0; flex: 1; overflow-y: auto; overflow-x: hidden; padding-bottom: 20px; scrollbar-color: #cbd5e1 transparent; scrollbar-width: thin; }
+.semantic-layer-details-scroll::-webkit-scrollbar { width: 6px; }
+.semantic-layer-details-scroll::-webkit-scrollbar-thumb { border-radius: 999px; background: #cbd5e1; }
+.semantic-layer-details-scroll::-webkit-scrollbar-track { background: transparent; }
+.semantic-layer-details-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+.semantic-details-back { display: inline-flex; width: fit-content; flex: 0 0 auto; align-items: center; gap: 8px; margin-top: 24px; padding: 9px 14px; border: 1px solid #dbe1ee; border-radius: 8px; background: #fff; color: #3f465b; font-size: 13px; font-weight: 600; text-decoration: none; transition: all 160ms ease; }
+.semantic-details-back svg { width: 16px; height: 16px; flex-shrink: 0; color: #2563eb; }
+.semantic-details-back:hover { border-color: #2563eb; background: #f8faff; color: #2563eb; }
+.semantic-details-back:active { transform: translateY(1px); }
 .semantic-details-hero { display: flex; align-items: flex-start; gap: 14px; margin-top: 14px; border: 1px solid #e5eaf3; border-radius: 14px; background: #fff; box-shadow: 0 4px 14px rgba(19, 27, 46, .03); padding: 19px; }
 .semantic-details-icon { display: grid; width: 42px; height: 42px; flex: 0 0 auto; place-items: center; border-radius: 11px; background: #eef0ff; color: #2563eb; }
 .semantic-details-icon svg { width: 22px; height: 22px; }
@@ -106,7 +113,7 @@
 .semantic-draft-ready-actions button.primary:focus-visible { outline: 3px solid #dbeafe; outline-offset: 2px; }
 .semantic-draft-ready-actions button.primary:disabled { cursor: not-allowed; opacity: .58; }
 .semantic-generate-actions button:disabled { cursor: not-allowed; opacity: .58; }
-.semantic-draft-ready { max-width: 840px; }
+.semantic-draft-ready { max-width: none; }
 .semantic-draft-ready-icon { display: grid; width: 42px; height: 42px; place-items: center; margin-bottom: 14px; border-radius: 12px; background: #ecfdf5; color: #16804a; }
 .semantic-draft-ready-icon svg { width: 22px; height: 22px; }
 .semantic-revision-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 19px; border: 1px solid #e5eaf3; border-left: 3px solid #2563eb; border-radius: 10px; background: #fff; padding: 14px; }
@@ -138,6 +145,22 @@
 .semantic-review-content > div { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 11px; }
 .semantic-review-content span { display: inline-flex; align-items: baseline; gap: 4px; border-radius: 99px; background: #f7f9fc; color: #6f778e; font-size: 10px; padding: 6px 9px; }
 .semantic-review-content strong { color: #2563eb; font-size: 11px; }
+.semantic-generated-context { margin-top: 22px; border-top: 1px solid #eef0f5; padding-top: 19px; }
+.semantic-generated-context > h3 { margin: 0; color: #26324a; font-size: 14px; }
+.semantic-review-context-sections { display: grid; gap: 16px; margin-top: 14px; }
+.semantic-review-context-section { border: 1px solid #e5eaf3; border-radius: 11px; background: #fbfcff; padding: 14px; }
+.semantic-review-context-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #26324a; font-size: 12px; }
+.semantic-review-context-heading span { min-width: 24px; border-radius: 99px; background: #eef0ff; color: #2563eb; font-size: 10px; padding: 4px 8px; text-align: center; }
+.semantic-review-object-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-top: 10px; }
+.semantic-review-object-card { min-width: 0; border: 1px solid #e5eaf3; border-radius: 9px; background: #fff; padding: 11px; }
+.semantic-review-object-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 9px; }
+.semantic-review-object-title strong { min-width: 0; overflow: hidden; color: #26324a; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.semantic-review-object-title span { flex: 0 0 auto; border-radius: 99px; background: #fff7ed; color: #c2410c; font-size: 9px; font-weight: 800; padding: 3px 6px; }
+.semantic-review-object-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.semantic-review-object-fields > div { min-width: 0; }
+.semantic-review-object-fields small { display: block; color: #8990a8; font-size: 8px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+.semantic-review-object-fields span { display: block; margin-top: 3px; overflow-wrap: anywhere; color: #526078; font-size: 10px; line-height: 1.4; }
+.semantic-review-context-empty { margin: 10px 0 0; color: #8990a8; font-size: 10px; }
 .semantic-review-comments { display: grid; gap: 6px; margin-top: 20px; color: #3f465b; font-size: 11px; font-weight: 700; }
 .semantic-review-comments > span { color: #8990a8; font-size: 10px; font-weight: 500; }
 .semantic-review-comments textarea { width: 100%; min-height: 82px; resize: vertical; border: 1px solid #dbe1ee; border-radius: 8px; color: #26324a; font: inherit; font-size: 11px; line-height: 1.5; padding: 10px; }
@@ -173,7 +196,11 @@
 .semantic-table-toggle input:focus-visible + span { outline: 2px solid #8ca8ff; outline-offset: 2px; }
 .semantic-table-toggle input:disabled + span { opacity: .55; }
 .semantic-table-toggle b { color: #5f6880; font-size: 10px; }
-.semantic-permissions-workspace { max-width: 840px; min-height: 0; height: auto; overflow: visible; }
+.semantic-permissions-workspace { display: grid; grid-template-columns: 500px minmax(0, 1fr); align-items: start; gap: 0 18px; max-width: none; min-height: 0; height: auto; overflow: visible; }
+.semantic-permissions-workspace > .semantic-management-heading,
+.semantic-permissions-workspace > .semantic-permission-loading,
+.semantic-permissions-workspace > .semantic-management-state,
+.semantic-permissions-workspace > .semantic-details-notice { grid-column: 1 / -1; }
 .semantic-permission-form { display: grid; grid-template-columns: 1.2fr .9fr 1.2fr auto; align-items: end; gap: 11px; margin-top: 17px; }
 .semantic-permission-form > label:not(.semantic-permission-choice) { display: grid; gap: 5px; color: #526078; font-size: 10px; font-weight: 700; }
 .semantic-permission-form input[type='email'], .semantic-permission-form select { height: 37px; min-width: 0; border: 1px solid #dbe1ee; border-radius: 8px; background: #fff; color: #26324a; font-size: 11px; padding: 0 10px; }
@@ -184,24 +211,30 @@
 .semantic-permission-choice small { color: #8990a8; font-size: 9px; line-height: 1.2; }
 .semantic-permission-form button { height: 37px; border: 1px solid #2563eb; border-radius: 8px; background: #2563eb; color: #fff; cursor: pointer; font-size: 11px; font-weight: 700; padding: 0 12px; white-space: nowrap; }
 .semantic-permission-form button:disabled { cursor: not-allowed; opacity: .6; }
-.semantic-permission-loading { display: flex; min-height: 120px; align-items: center; justify-content: center; gap: 8px; border: 1px dashed #dbe1ee; border-radius: 10px; color: #6f7890; font-size: 11px; }
-.semantic-permission-user-picker { display: grid; gap: 7px; max-width: 520px; margin-top: 18px; }
+.semantic-permission-loading { display: flex; min-height: 88px; align-items: center; justify-content: center; gap: 8px; border: 1px solid #e5eaf3; border-radius: 10px; background: #f8faff; color: #6f7890; font-size: 11px; }
+.semantic-permission-loading .copilot-processing-loader { width: 16px; height: 16px; }
+.semantic-revisions-content { min-height: 0; max-height: min(52vh, 520px); overflow-y: auto; padding-right: 4px; scrollbar-color: #cbd5e1 transparent; scrollbar-width: thin; }
+.semantic-revisions-content::-webkit-scrollbar { width: 6px; }
+.semantic-revisions-content::-webkit-scrollbar-thumb { border-radius: 999px; background: #cbd5e1; }
+.semantic-revisions-content::-webkit-scrollbar-track { background: transparent; }
+.semantic-details-main:not(.semantic-layer-details-main) .semantic-details-back { position: sticky; top: 0; z-index: 3; background: #f7f9fc; }
+.semantic-permission-user-picker { display: grid; grid-column: 1; grid-row: 2 / span 3; align-self: stretch; gap: 9px; max-width: none; min-height: 100%; margin-top: 0; border: 1px solid #e0e8f5; border-radius: 12px; background: #f9fbff; padding: 15px; }
 .semantic-permission-user-picker > label { color: #526078; font-size: 10px; font-weight: 700; }
 .semantic-permission-user-picker > input { height: 37px; border: 1px solid #dbe1ee; border-radius: 8px; background: #fff; color: #26324a; font: inherit; font-size: 11px; padding: 0 10px; }
 .semantic-permission-user-picker > input:focus { border-color: #8ca8ff; outline: 0; box-shadow: 0 0 0 3px #eef0ff; }
-.semantic-permission-user-list { display: grid; max-height: 174px; overflow-y: auto; border: 1px solid #e5eaf3; border-radius: 9px; background: #fff; }
+.semantic-permission-user-list { display: grid; max-height: 420px; overflow-y: auto; border: 1px solid #e5eaf3; border-radius: 9px; background: #fff; }
 .semantic-permission-user-list button { display: grid; gap: 3px; border: 0; border-bottom: 1px solid #eef0f5; background: #fff; color: #26324a; cursor: pointer; padding: 9px 11px; text-align: left; }
 .semantic-permission-user-list button:last-child { border-bottom: 0; }
 .semantic-permission-user-list button:hover, .semantic-permission-user-list button.selected { background: #f2f6ff; }
 .semantic-permission-user-list strong { font-size: 11px; }
 .semantic-permission-user-list span, .semantic-permission-user-picker > small { color: #8990a8; font-size: 10px; }
-.semantic-permission-selected { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; border: 1px solid #dbe5f3; border-radius: 9px; background: #f8faff; padding: 11px 13px; }
+.semantic-permission-selected { display: flex; grid-column: 2; align-items: center; justify-content: space-between; gap: 16px; margin-top: 0; border: 1px solid #dbe5f3; border-radius: 12px; background: #f8faff; padding: 15px 16px; }
 .semantic-permission-selected div { display: grid; gap: 3px; }
 .semantic-permission-selected strong { color: #26324a; font-size: 12px; }
 .semantic-permission-selected span { color: #6f7890; font-size: 10px; }
 .semantic-permission-selected b { color: #315b9b; font-size: 11px; white-space: nowrap; }
-.semantic-permission-table-list { display: grid; max-height: 360px; overflow-y: auto; gap: 7px; margin-top: 12px; padding-right: 4px; }
-.semantic-permission-table-list article { display: flex; align-items: center; justify-content: space-between; gap: 14px; border: 1px solid #e5eaf3; border-radius: 8px; background: #fff; padding: 10px 12px; }
+.semantic-permission-table-list { display: grid; grid-column: 2; gap: 8px; margin-top: 12px; padding-right: 2px; }
+.semantic-permission-table-list article { display: flex; min-height: 54px; align-items: center; justify-content: space-between; gap: 14px; border: 1px solid #e5eaf3; border-radius: 10px; background: #fff; padding: 10px 14px; }
 .semantic-permission-table-list article > div { display: grid; min-width: 0; gap: 4px; }
 .semantic-permission-table-list article strong { overflow: hidden; color: #26324a; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .semantic-permission-table-list article span { overflow: hidden; color: #8990a8; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
@@ -212,7 +245,15 @@
 .semantic-permission-table-list label input:checked + span { background: #2563eb; }
 .semantic-permission-table-list label input:checked + span::after { transform: translateX(14px); }
 .semantic-permission-table-list label input:focus-visible + span { outline: 3px solid #dbeafe; outline-offset: 2px; }
-.semantic-permission-savebar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 12px; border-top: 1px solid #eef0f5; padding-top: 12px; }
+.semantic-permission-savebar { display: flex; grid-column: 2; align-items: center; justify-content: space-between; gap: 14px; margin-top: 4px; border-top: 1px solid #eef0f5; padding-top: 14px; }
 .semantic-permission-savebar span { color: #8990a8; font-size: 10px; }
 .semantic-permission-savebar button { height: 36px; border: 1px solid #2563eb; border-radius: 8px; background: #2563eb; color: #fff; cursor: pointer; font: inherit; font-size: 11px; font-weight: 700; padding: 0 13px; }
 .semantic-permission-savebar button:disabled { cursor: not-allowed; opacity: .55; }
+
+@media (max-width: 900px) {
+  .semantic-permissions-workspace { display: block; }
+  .semantic-permission-user-picker,
+  .semantic-permission-selected,
+  .semantic-permission-table-list,
+  .semantic-permission-savebar { margin-top: 14px; }
+}

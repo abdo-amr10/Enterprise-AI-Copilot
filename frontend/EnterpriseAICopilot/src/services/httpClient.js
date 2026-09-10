@@ -41,6 +41,7 @@ export async function request(path, options = {}) {
     )
     error.status = response.status
     error.code = payload?.errorCode
+    error.payload = payload
     throw error
   }
 

@@ -168,6 +168,11 @@ export default function Copilot() {
       setTurns(turnsRef.current);
       saveActiveConversation(user, { conversationId: nextConversationId || conversationId, turns: turnsRef.current, conversation: conversationRef.current });
     } catch (error) {
+      const failedConversationId = extractConversationId(error.payload);
+      if (failedConversationId) {
+        setConversationId(failedConversationId);
+        saveActiveConversation(user, { conversationId: failedConversationId, turns: turnsRef.current, conversation: conversationRef.current });
+      }
       turnsRef.current = turnsRef.current.map((turn) => turn.id === turnId ? { ...turn, status: "failed", errorMessage: error.message || "Something went wrong. Please try again." } : turn);
       setTurns(turnsRef.current);
     } finally {
