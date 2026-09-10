@@ -123,8 +123,7 @@ namespace EnterpriseAiCopilot.Application.Services
                 {
                     Question = originalPrompt,
                     ConversationId = conversationId.ToString(),
-                    // These values are authoritative server-side context. Do not trust
-                    // equivalent values supplied by the client request body.
+                    TenantId = branchId,
                     UserId = userId,
                     BranchId = branchId,
                     SemanticRevisionId = layerId.ToString(),
