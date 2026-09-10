@@ -34,6 +34,12 @@ DEFAULT_PROTOTYPE_CATALOG: Mapping[ConversationIntent, tuple[str, ...]] = {
         "Top 5 only",
         "First 10 records",
         "Limit output to 5 entries",
+        "Extract the top 5",
+        "Extract top 5 from result",
+        "Extract top 5 from the result",
+        "Pull the first 10 records",
+        "Get the first 5 from the result",
+        "Give me top 5 from the previous result",
     ),
     ConversationIntent.SORT_CHANGE: (
         "Sort them by balance descending",

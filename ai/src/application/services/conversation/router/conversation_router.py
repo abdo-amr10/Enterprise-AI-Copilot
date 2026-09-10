@@ -96,6 +96,7 @@ class ConversationRouter:
         semantic_cache: Optional[ConditionalSemanticCache] = None,
         semantic_router: Any = _UNSET,
         slot_extractor: Optional[SlotExtractor] = None,
+        llm_intent_classifier: Any = _UNSET,
     ) -> None:
         self._replay_manager = replay_manager or ExactReplayManager()
         self._state_manager = state_manager or ConversationStateManager()
@@ -104,6 +105,11 @@ class ConversationRouter:
         self._continuation_resolver = continuation_resolver or ContinuationResolver()
         self._semantic_cache = semantic_cache or ConditionalSemanticCache(enabled=True)
         self._slot_extractor = slot_extractor or SlotExtractor()
+
+        if llm_intent_classifier is not _UNSET:
+            self._llm_intent_classifier = llm_intent_classifier
+        else:
+            self._llm_intent_classifier = None
 
         if semantic_router is not _UNSET:
             self._semantic_router: Optional[SemanticIntentRouter] = semantic_router
@@ -117,6 +123,10 @@ class ConversationRouter:
             except Exception as e:
                 logger.warning("Failed to initialize SemanticIntentRouter: %s", e)
                 self._semantic_router = None
+
+    @property
+    def llm_intent_classifier(self) -> Optional[Any]:
+        return self._llm_intent_classifier
 
     @property
     def replay_manager(self) -> ExactReplayManager:
@@ -188,6 +198,7 @@ class ConversationRouter:
         executor: Optional[Callable[[CopilotAskRequest], TextToSQLRuntimeResponse]] = None,
     ) -> RoutingDecision:
         """Route the user request through the authoritative cascade."""
+        llm_used = False
         if conversation_id and str(conversation_id).strip():
             conv_id = str(conversation_id).strip()
         elif correlation_id and str(correlation_id).strip():
@@ -259,6 +270,15 @@ class ConversationRouter:
             if backend_state.last_result_metadata is not None:
                 state.last_result_metadata = backend_state.last_result_metadata
 
+        # Dialog continuation: if there's a pending clarification request from previous turn
+        if state.pending_clarification:
+            orig_question = state.pending_clarification.get("original_question", "")
+            clarified_question = f"{orig_question} ({question})".strip()
+            state.pending_clarification = None
+            logger.info("Continuing dialog with pending clarification: %s", clarified_question)
+            question = clarified_question
+            normalized_q = RequestNormalizer.normalize(question)
+
         has_history = bool(raw_conversation or state.last_successful_execution)
         logger.debug("conversation.state_loaded=True has_history=%s", has_history)
 
@@ -276,7 +296,20 @@ class ConversationRouter:
         logger.debug("conversation.exact_replay.hit=%s", replay.is_valid and replay.entry is not None)
 
         if replay.is_valid and replay.entry is not None:
-            logger.info("Exact replay cache hit for question: %s", normalized_q)
+            logger.info("Exact replay cache hit for question: %s (negative=%s)", normalized_q, replay.entry.is_negative_result)
+            if replay.entry.is_negative_result:
+                return RoutingDecision(
+                    route=ConversationRoute.EXACT_REPLAY,
+                    is_success=False,
+                    generated_sql=None,
+                    text_summary=replay.entry.text_summary or "No results found for this query.",
+                    direct_answer=replay.entry.text_summary or "No results found for this query.",
+                    error_message=replay.entry.metadata.get("error_message") if replay.entry.metadata else None,
+                    presentation_type="DirectAnswer",
+                    cache_hit=True,
+                    cache_type="NEGATIVE_REPLAY",
+                    state_loaded=True,
+                )
             return RoutingDecision(
                 route=ConversationRoute.EXACT_REPLAY,
                 is_success=replay.entry.is_success,
@@ -285,6 +318,23 @@ class ConversationRouter:
                 presentation_type=replay.entry.presentation_type,
                 cache_hit=True,
                 cache_type="EXACT_REPLAY",
+                state_loaded=True,
+            )
+
+        # Negative result check from state
+        neg_record = state.negative_results.get(question) or state.negative_results.get(normalized_q)
+        if neg_record:
+            logger.info("Negative result state hit for question: %s", normalized_q)
+            return RoutingDecision(
+                route=ConversationRoute.EXACT_REPLAY,
+                is_success=False,
+                generated_sql=None,
+                text_summary=neg_record.details or "No results found for this query.",
+                direct_answer=neg_record.details or "No results found for this query.",
+                error_message=neg_record.details,
+                presentation_type="DirectAnswer",
+                cache_hit=True,
+                cache_type="NEGATIVE_REPLAY",
                 state_loaded=True,
             )
 
@@ -452,19 +502,54 @@ class ConversationRouter:
                         "Standalone question prefixed with conversational conjunction.",
                     )
                 ):
-                    return RoutingDecision(
-                        route=ConversationRoute.UNRESOLVED_CONTEXT,
-                        is_success=False,
-                        error_message=(
-                            "I'm not sure what that's referring to. Could you clarify which "
-                            "previous question or result you mean?"
-                        ),
-                        state_loaded=True,
-                        followup_detected=True,
-                        followup_confidence="UNRESOLVED",
-                        semantic_intent=semantic_intent.value,
-                        semantic_confidence=semantic_conf,
-                    )
+                    if self._llm_intent_classifier is not None:
+                        try:
+                            llm_result = self._llm_intent_classifier.classify(
+                                question, has_history=has_history
+                            )
+                            llm_used = True
+                            if llm_result.intent != ConversationIntent.AMBIGUOUS:
+                                logger.info(
+                                    "LLM intent fallback resolved ambiguous query '%s' to %s",
+                                    normalized_q,
+                                    llm_result.intent.value,
+                                )
+                                semantic_intent = llm_result.intent
+                                semantic_conf = llm_result.confidence_score
+                                if semantic_intent.is_followup and has_history:
+                                    op_type = self._map_intent_to_followup_type(semantic_intent)
+                                    target_val = self._slot_extractor.extract_slot(semantic_intent, normalized_q)
+                                    followup = FollowupDetectionResult(
+                                        confidence_level=FollowupConfidence.FOLLOW_UP_CONFIRMED,
+                                        operation_type=op_type,
+                                        target_value=target_val,
+                                        confidence_score=semantic_conf,
+                                        reason=f"LLM fallback classified as {semantic_intent.value}",
+                                    )
+                                elif semantic_intent == ConversationIntent.NEW_DATABASE_QUERY:
+                                    followup = FollowupDetectionResult(
+                                        confidence_level=FollowupConfidence.INDEPENDENT,
+                                        confidence_score=semantic_conf,
+                                        reason="LLM fallback classified as NEW_DATABASE_QUERY.",
+                                    )
+                        except Exception as e:
+                            logger.warning("LLM intent classifier fallback failed: %s", e)
+
+                    if semantic_intent == ConversationIntent.AMBIGUOUS:
+                        return RoutingDecision(
+                            route=ConversationRoute.UNRESOLVED_CONTEXT,
+                            is_success=False,
+                            error_message=(
+                                "I'm not sure what that's referring to. Could you clarify which "
+                                "previous question or result you mean?"
+                            ),
+                            state_loaded=True,
+                            followup_detected=True,
+                            followup_confidence="UNRESOLVED",
+                            semantic_intent=semantic_intent.value,
+                            semantic_confidence=semantic_conf,
+                            llm_used_by_conversation_layer=llm_used,
+                        )
 
         # Rule 1: Respect unresolved clarification requests (e.g. ambiguous entity mention like "And merchants?")
         if followup.confidence_level == FollowupConfidence.UNRESOLVED:
@@ -587,6 +672,7 @@ class ConversationRouter:
                             followup_confidence=followup.confidence_level.value,
                             semantic_intent=semantic_intent.value if semantic_intent else None,
                             semantic_confidence=semantic_conf,
+                            llm_used_by_conversation_layer=llm_used,
                         )
 
                 exec_req = CopilotAskRequest(
@@ -641,6 +727,26 @@ class ConversationRouter:
                         text_to_sql_called=True,
                         semantic_intent=semantic_intent.value if semantic_intent else None,
                         semantic_confidence=semantic_conf,
+                        llm_used_by_conversation_layer=llm_used,
+                    )
+                elif runtime_resp.status in ("ClarificationNeeded", "NeedsClarification"):
+                    state.pending_clarification = {
+                        "original_question": continuation.resolved_question or question,
+                        "clarification_request": runtime_resp.message or runtime_resp.failure_reason,
+                    }
+                    return RoutingDecision(
+                        route=ConversationRoute.UNRESOLVED_CONTEXT,
+                        is_success=False,
+                        error_message=runtime_resp.message or runtime_resp.failure_reason,
+                        direct_answer=runtime_resp.message or runtime_resp.failure_reason,
+                        text_summary=runtime_resp.message or runtime_resp.failure_reason,
+                        resolved_question=continuation.resolved_question,
+                        presentation_type="DirectAnswer",
+                        state_loaded=True,
+                        followup_detected=True,
+                        text_to_sql_called=True,
+                        semantic_intent=semantic_intent.value if semantic_intent else None,
+                        semantic_confidence=semantic_conf,
                     )
                 else:
                     self._state_manager.record_execution_failure(
@@ -648,6 +754,23 @@ class ConversationRouter:
                         sql=runtime_resp.sql,
                         error_code=runtime_resp.error_code or "SQL_GENERATION_FAILED",
                         error_message=runtime_resp.failure_reason or runtime_resp.message or "Execution failed",
+                    )
+                    self._state_manager.record_negative_result(
+                        conv_id,
+                        question=continuation.resolved_question or question,
+                        outcome_type=runtime_resp.error_code or "SQL_GENERATION_FAILED",
+                        details=runtime_resp.failure_reason or runtime_resp.message or "Execution failed",
+                    )
+                    self._replay_manager.record_negative_result(
+                        question,
+                        outcome_type=runtime_resp.error_code or "SQL_GENERATION_FAILED",
+                        text_summary=runtime_resp.failure_reason or runtime_resp.message or "Execution failed",
+                        tenant_id=effective_tenant_id,
+                        user_id=user_id,
+                        semantic_revision_id=semantic_revision_id,
+                        schema_version=schema_version,
+                        conversation_id=conv_id,
+                        metadata={"error_message": runtime_resp.failure_reason or runtime_resp.message},
                     )
                     return RoutingDecision(
                         route=ConversationRoute.EXECUTION_ERROR,
@@ -759,12 +882,46 @@ class ConversationRouter:
                     semantic_intent=semantic_intent.value if semantic_intent else None,
                     semantic_confidence=semantic_conf,
                 )
+            elif runtime_resp.status in ("ClarificationNeeded", "NeedsClarification"):
+                state.pending_clarification = {
+                    "original_question": question,
+                    "clarification_request": runtime_resp.message or runtime_resp.failure_reason,
+                }
+                return RoutingDecision(
+                    route=ConversationRoute.UNRESOLVED_CONTEXT,
+                    is_success=False,
+                    error_message=runtime_resp.message or runtime_resp.failure_reason,
+                    direct_answer=runtime_resp.message or runtime_resp.failure_reason,
+                    text_summary=runtime_resp.message or runtime_resp.failure_reason,
+                    presentation_type="DirectAnswer",
+                    state_loaded=True,
+                    text_to_sql_called=True,
+                    semantic_intent=semantic_intent.value if semantic_intent else None,
+                    semantic_confidence=semantic_conf,
+                )
             else:
                 self._state_manager.record_execution_failure(
                     conv_id,
                     sql=runtime_resp.sql,
                     error_code=runtime_resp.error_code or "SQL_GENERATION_FAILED",
                     error_message=runtime_resp.failure_reason or runtime_resp.message or "Execution failed",
+                )
+                self._state_manager.record_negative_result(
+                    conv_id,
+                    question=question,
+                    outcome_type=runtime_resp.error_code or "SQL_GENERATION_FAILED",
+                    details=runtime_resp.failure_reason or runtime_resp.message or "Execution failed",
+                )
+                self._replay_manager.record_negative_result(
+                    question,
+                    outcome_type=runtime_resp.error_code or "SQL_GENERATION_FAILED",
+                    text_summary=runtime_resp.failure_reason or runtime_resp.message or "Execution failed",
+                    tenant_id=effective_tenant_id,
+                    user_id=user_id,
+                    semantic_revision_id=semantic_revision_id,
+                    schema_version=schema_version,
+                    conversation_id=conv_id,
+                    metadata={"error_message": runtime_resp.failure_reason or runtime_resp.message},
                 )
                 return RoutingDecision(
                     route=ConversationRoute.EXECUTION_ERROR,

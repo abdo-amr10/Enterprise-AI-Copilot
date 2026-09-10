@@ -25,6 +25,115 @@ class BackendStateAdapter:
     """Extracts and serializes ConversationState from/to Backend payload contracts."""
 
     @classmethod
+    def _parse_result_metadata(
+        cls,
+        payload: dict[str, Any],
+        tenant_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> Optional[ResultMetadata]:
+        """Tolerant parser for ResultMetadata supporting flat or nested backend payloads."""
+        if not isinstance(payload, dict):
+            return None
+
+        # Check for nested 'result' wrapper from .NET Backend
+        container = payload.get("result") if isinstance(payload.get("result"), dict) else payload
+
+        # Check for nested TableData / tableData / table_data
+        table_data = (
+            container.get("TableData")
+            or container.get("tableData")
+            or container.get("table_data")
+            or {}
+        )
+        if not isinstance(table_data, dict):
+            table_data = {}
+
+        # 1. Columns
+        cols_raw = (
+            table_data.get("Columns")
+            or table_data.get("columns")
+            or container.get("columns")
+            or container.get("Columns")
+            or payload.get("columns")
+            or payload.get("Columns")
+            or ()
+        )
+
+        # 2. Rows
+        rows_raw = (
+            table_data.get("Rows")
+            or table_data.get("rows")
+            or container.get("rows")
+            or container.get("Rows")
+            or container.get("sample_rows")
+            or container.get("sampleRows")
+            or payload.get("rows")
+            or payload.get("sample_rows")
+            or ()
+        )
+
+        # 3. Fallback to 'Data' / 'data' list of dicts if TableData was empty
+        if not rows_raw:
+            data_list = container.get("Data") or container.get("data") or payload.get("data") or payload.get("Data")
+            if isinstance(data_list, list) and data_list and isinstance(data_list[0], dict):
+                seen_cols: dict[str, None] = {}
+                for row_dict in data_list:
+                    if isinstance(row_dict, dict):
+                        for k in row_dict.keys():
+                            seen_cols[str(k)] = None
+                if not cols_raw:
+                    cols_raw = tuple(seen_cols.keys())
+                rows_raw = [
+                    [row_dict.get(c) for c in cols_raw]
+                    for row_dict in data_list
+                    if isinstance(row_dict, dict)
+                ]
+
+        columns = tuple(str(c) for c in cols_raw)
+        sample_rows = tuple(tuple(r) for r in rows_raw)
+
+        # 4. Row count
+        rc_raw = (
+            table_data.get("TotalRows")
+            or table_data.get("totalRows")
+            or container.get("TotalRows")
+            or container.get("totalRows")
+            or container.get("rowCount")
+            or container.get("row_count")
+            or payload.get("rowCount")
+            or payload.get("row_count")
+            or len(sample_rows)
+        )
+        try:
+            row_count = int(rc_raw)
+        except (ValueError, TypeError):
+            row_count = len(sample_rows)
+
+        # 5. Summary
+        summary = (
+            container.get("TextSummary")
+            or container.get("textSummary")
+            or container.get("summary")
+            or container.get("Summary")
+            or payload.get("TextSummary")
+            or payload.get("textSummary")
+            or payload.get("summary")
+            or payload.get("Summary")
+        )
+
+        if not columns and not sample_rows and not summary and row_count == 0:
+            return None
+
+        return ResultMetadata(
+            columns=columns,
+            row_count=row_count,
+            sample_rows=sample_rows[:50],
+            summary=str(summary) if summary else None,
+            tenant_id=tenant_id,
+            user_id=user_id,
+        )
+
+    @classmethod
     def extract_state(
         cls,
         conversation_id: str,
@@ -47,19 +156,11 @@ class BackendStateAdapter:
 
         # Ingest explicit last_result_metadata if supplied in the request payload
         if last_result_metadata_dict and isinstance(last_result_metadata_dict, dict):
-            cols = tuple(last_result_metadata_dict.get("columns") or ())
-            raw_rows = last_result_metadata_dict.get("rows") or last_result_metadata_dict.get("sample_rows") or ()
-            rows = tuple(tuple(r) for r in raw_rows)
-            rc = int(last_result_metadata_dict.get("row_count") or last_result_metadata_dict.get("rowCount") or len(rows))
-            summ = last_result_metadata_dict.get("summary")
-            state.last_result_metadata = ResultMetadata(
-                columns=cols,
-                row_count=rc,
-                sample_rows=rows[:50],
-                summary=str(summ) if summ else None,
-                tenant_id=tenant_id,
-                user_id=user_id,
+            parsed_meta = cls._parse_result_metadata(
+                last_result_metadata_dict, tenant_id=tenant_id, user_id=user_id
             )
+            if parsed_meta:
+                state.last_result_metadata = parsed_meta
 
         if not raw_conversation:
             return state
@@ -119,25 +220,15 @@ class BackendStateAdapter:
                         state.active_query_state = SemanticQueryState(raw_sql=str(sql))
 
                 if exec_res or summary:
-                    columns: tuple[str, ...] = ()
-                    rows: tuple[tuple[Any, ...], ...] = ()
-                    row_count = 0
+                    meta_payload = dict(exec_res) if isinstance(exec_res, dict) else {}
+                    if summary and "summary" not in meta_payload and "TextSummary" not in meta_payload:
+                        meta_payload["summary"] = summary
 
-                    if isinstance(exec_res, dict):
-                        columns = tuple(exec_res.get("columns") or ())
-                        rows = tuple(tuple(r) for r in (exec_res.get("rows") or ()))
-                        row_count = int(exec_res.get("rowCount") or exec_res.get("row_count") or len(rows))
-
-                    # Keep the most recent result metadata (last one wins,
-                    # since we're walking forward in chronological order).
-                    state.last_result_metadata = ResultMetadata(
-                        columns=columns,
-                        row_count=row_count,
-                        sample_rows=rows[:50],  # bounded sample
-                        summary=str(summary) if summary else None,
-                        tenant_id=tenant_id,
-                        user_id=user_id,
+                    parsed_turn_meta = cls._parse_result_metadata(
+                        meta_payload, tenant_id=tenant_id, user_id=user_id
                     )
+                    if parsed_turn_meta:
+                        state.last_result_metadata = parsed_turn_meta
 
         return state
 

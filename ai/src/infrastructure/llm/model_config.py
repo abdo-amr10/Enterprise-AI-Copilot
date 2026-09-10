@@ -77,3 +77,12 @@ SQL_CORRECTION_CONFIG = ModelConfig(
     context_length=_DEFAULT_CTX,
     max_output_tokens=min(512, _DEFAULT_CTX),
 )
+
+
+INTENT_CLASSIFIER_CONFIG = ModelConfig(
+    model_name=_DEFAULT_MODEL,
+    runtime="ollama",
+    temperature=0.0,
+    context_length=2048,
+    max_output_tokens=64,
+)

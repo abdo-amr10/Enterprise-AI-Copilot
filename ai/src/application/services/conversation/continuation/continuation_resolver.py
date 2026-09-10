@@ -101,7 +101,8 @@ class ContinuationResolver:
             if base_question and self._TOP_N_REGEX.search(base_question):
                 resolved_q = self._TOP_N_REGEX.sub(f"top {new_limit}", base_question)
             elif base_question:
-                clean_base = re.sub(r"^(?:show|list|get|find)\s+", "", base_question, flags=re.IGNORECASE).strip()
+                clean_base = re.sub(r"^(?:show|list|get|find|extract|pull|fetch)\s+", "", base_question, flags=re.IGNORECASE).strip()
+                clean_base = re.sub(r"^all\s+", "", clean_base, flags=re.IGNORECASE).strip()
                 resolved_q = f"Show top {new_limit} {clean_base}"
             else:
                 resolved_q = f"Top {new_limit}"

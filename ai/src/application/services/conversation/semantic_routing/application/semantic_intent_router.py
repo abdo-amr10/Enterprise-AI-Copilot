@@ -230,6 +230,12 @@ class SemanticIntentRouter:
                 # If there is no active context, follow-up intents cannot compete with a new database query
                 elif not has_context and second_intent.is_followup and best_intent == ConversationIntent.NEW_DATABASE_QUERY:
                     pass
+                # If in active context, competing between a follow-up intent and a new query is not ambiguous
+                elif has_context and (
+                    (best_intent.is_followup and second_intent == ConversationIntent.NEW_DATABASE_QUERY)
+                    or (best_intent == ConversationIntent.NEW_DATABASE_QUERY and second_intent.is_followup)
+                ):
+                    pass
                 else:
                     is_ambiguous = True
                     reason = (

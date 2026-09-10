@@ -23,6 +23,7 @@ class ConversationSettings:
     min_similarity: float = float(os.getenv("CONVERSATION_SEMANTIC_MIN_SIMILARITY", "0.35"))
     min_margin: float = float(os.getenv("CONVERSATION_SEMANTIC_MIN_MARGIN", "0.025"))
     device: str | None = os.getenv("CONVERSATION_EMBEDDING_DEVICE", None)
+    llm_fallback_enabled: bool = os.getenv("CONVERSATION_LLM_FALLBACK_ENABLED", "true").lower() in ("true", "1", "yes")
 
 
 CONVERSATION_SETTINGS = ConversationSettings()

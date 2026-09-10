@@ -62,6 +62,47 @@ class ResultResolver:
         re.IGNORECASE,
     )
 
+    _SUMMARY_REPLAY_PATTERN = re.compile(
+        r"\b(?:(?:repeat|show|give|display|get|what\s+is|what\s+was|what\s+(?:is\s+)?the|tell\s+me|read)\s+(?:me\s+)?(?:the\s+)?(?:executive\s+)?summ?a?r?y|"
+        r"(?:executive\s+)?summ?a?r?y(?:\s+(?:of|about|for)?\s+(?:the\s+)?(?:result|results|query|data))?|"
+        r"summarize(?:\s+(?:the\s+)?(?:result|results|data))?|"
+        r"what\s+(?:is\s+)?(?:the\s+)?summ?a?r?y\s+(?:about|of|for)?\s*(?:the\s+)?(?:result|results)?|"
+        r"(?:عيد|أعد|اعرض|وريني|هات|طلع|إيه\s+هو|ما\s+هو)?\s*(?:ال)?ملخص(?:\s+(?:التنفيذي|النتيجة))?|"
+        r"لخص(?:\s+(?:لي\s+)?النتيجة)?)\b",
+        re.IGNORECASE | re.UNICODE,
+    )
+
+    _LIST_ROWS_PATTERN = re.compile(
+        r"\b(?:who\s+(?:are|were)\s+(?:they|these|those|them)|what\s+(?:are|were)\s+(?:they|these|those|the\s+results)|"
+        r"list\s+(?:them|the\s+results|the\s+rows)|show\s+(?:them|the\s+results|the\s+rows|me\s+the\s+results)|"
+        r"مين\s+(?:هم|هما|دول)|إيه\s+(?:هم|هما|دول)|اعرضهم|وريني\s+إياهم|اعرض\s+النتائج|وريني\s+النتائج|طلع\s+لي\s+النتائج|"
+        r"(?:ال)?(?:خمسة|عشرة|\d+)\s+دول|دول\s+مين)\b",
+        re.IGNORECASE | re.UNICODE,
+    )
+
+    _ARABIC_TO_LATIN_COMMON = {
+        "سارة": "sara",
+        "ساره": "sara",
+        "احمد": "ahmed",
+        "أحمد": "ahmed",
+        "محمد": "mohamed",
+        "علي": "ali",
+        "خالد": "khaled",
+        "تامر": "tamer",
+        "محمود": "mahmoud",
+        "عمرو": "amr",
+        "منى": "mona",
+        "مني": "mona",
+        "طارق": "tarek",
+        "حسن": "hassan",
+        "حسين": "hussein",
+        "ابراهيم": "ibrahim",
+        "إبراهيم": "ibrahim",
+        "مريم": "mariam",
+        "فاطمة": "fatima",
+        "نور": "nour",
+    }
+
     @staticmethod
     def _extract_column_tokens_and_phrases(col_name: str) -> tuple[str, str, list[str]]:
         """Return (clean, spaced, tokens) for a column name handling CamelCase and delimiters."""
@@ -91,6 +132,28 @@ class ResultResolver:
                 return ResultResolutionOutcome.not_answerable("Security user authorization mismatch with previous result.")
 
         norm_q = RequestNormalizer.normalize(question)
+
+        # 0. Summary Replay (e.g. "عيد الملخص", "what was the summary", "executive summary")
+        eff_summary = summary or (result_metadata.summary if result_metadata else None)
+        if self._SUMMARY_REPLAY_PATTERN.search(norm_q):
+            if eff_summary:
+                return ResultResolutionOutcome.answerable(eff_summary, confidence=1.0)
+            return ResultResolutionOutcome.not_answerable("No summary available for previous result.")
+
+        # 0b. List rows / Show results (e.g. "who are they", "list them", "الخمسة دول")
+        if self._LIST_ROWS_PATTERN.search(norm_q) and result_metadata and result_metadata.sample_rows:
+            formatted_rows = []
+            cols = result_metadata.columns
+            for r in result_metadata.sample_rows[:15]:
+                if cols and len(cols) == len(r):
+                    row_str = ", ".join(f"{c}: {v}" for c, v in zip(cols, r) if v is not None)
+                else:
+                    row_str = ", ".join(str(v) for v in r if v is not None)
+                formatted_rows.append(row_str)
+            return ResultResolutionOutcome.answerable(
+                "\n".join(formatted_rows),
+                confidence=0.95,
+            )
 
         # 1. Count / Row count queries
         count_match = self._COUNT_PATTERN.search(norm_q)
@@ -291,30 +354,81 @@ class ResultResolver:
                 if target_col_idx is not None:
                     break
 
-            # Identify target row by matching any string cell value against query words
-            target_row_idx = None
+            # Identify target rows by matching any string/numeric cell value against query words
+            matched_rows = []
             for row_idx, row in enumerate(rows):
                 for cell_idx, cell in enumerate(row):
-                    if cell is not None and isinstance(cell, str) and len(cell.strip()) >= 2:
-                        cell_clean = cell.strip().lower()
-                        if re.search(r"\b" + re.escape(cell_clean) + r"\b", norm_q):
-                            target_row_idx = row_idx
-                            break
-                if target_row_idx is not None:
-                    break
+                    if cell is not None and isinstance(cell, (str, int, float)):
+                        cell_clean = str(cell).strip().lower()
+                        if len(cell_clean) >= 2:
+                            is_match = bool(re.search(r"\b" + re.escape(cell_clean) + r"\b", norm_q))
+                            if not is_match:
+                                # Cross-script transliteration check
+                                ar_variant = self._ARABIC_TO_LATIN_COMMON.get(cell_clean)
+                                if ar_variant and re.search(r"\b" + re.escape(ar_variant) + r"\b", norm_q):
+                                    is_match = True
+                                elif not ar_variant:
+                                    for ar_w, en_w in self._ARABIC_TO_LATIN_COMMON.items():
+                                        if en_w == cell_clean and ar_w in norm_q:
+                                            is_match = True
+                                            break
+                            if is_match:
+                                matched_rows.append((row_idx, row))
+                                break
 
-            if target_row_idx is not None and target_col_idx is not None:
-                cell_value = rows[target_row_idx][target_col_idx]
+            if matched_rows:
+                # If a specific column was matched in the query
+                if target_col_idx is not None:
+                    if len(matched_rows) == 1:
+                        target_row_idx = matched_rows[0][0]
+                        cell_value = rows[target_row_idx][target_col_idx]
+                        return ResultResolutionOutcome.answerable(
+                            str(cell_value),
+                            column=target_col_name,
+                            row_index=target_row_idx,
+                        )
+                    else:
+                        lines = []
+                        for r_idx, r in matched_rows[:15]:
+                            ent_label = str(r[0]) if len(r) > 0 else f"Row {r_idx + 1}"
+                            lines.append(f"{ent_label}: {r[target_col_idx]}")
+                        return ResultResolutionOutcome.answerable(
+                            "\n".join(lines),
+                            column=target_col_name,
+                        )
+
+                # If no specific column was matched, check if an unrepresented attribute was explicitly requested
+                attr_match = re.search(r"\b(?:what|which)\s+([a-zA-Z_]+)\s+(?:is|was|are|were|does|has|had)\b", norm_q)
+                if not attr_match:
+                    attr_match = re.search(r"\b(?:what\s+is|what\s+was|tell\s+me)\s+(?:the\s+)?([a-zA-Z_]+)\s+of\b", norm_q)
+                if not attr_match:
+                    attr_match = re.search(r"[\w]+'s\s+([a-zA-Z_]+)\b", norm_q)
+
+                if attr_match:
+                    potential_attr = attr_match.group(1).lower()
+                    generic_attr_words = {
+                        "data", "info", "details", "record", "row", "profile",
+                        "status", "result", "about", "is", "was", "are", "were",
+                        "one", "person", "item", "the",
+                    }
+                    if potential_attr not in generic_attr_words:
+                        return ResultResolutionOutcome.not_answerable(
+                            f"Target entity found in result, but requested attribute '{potential_attr}' is not present."
+                        )
+
+                # If the user is asking about the matched entity or its row details (e.g. "بيانات سارة", "what about John"):
+                formatted = []
+                for r_idx, r in matched_rows[:15]:
+                    if result_metadata.columns and len(result_metadata.columns) == len(r):
+                        row_str = ", ".join(f"{c}: {v}" for c, v in zip(result_metadata.columns, r) if v is not None)
+                    else:
+                        row_str = ", ".join(str(v) for v in r if v is not None)
+                    formatted.append(row_str)
+
                 return ResultResolutionOutcome.answerable(
-                    str(cell_value),
-                    column=target_col_name,
-                    row_index=target_row_idx,
-                )
-
-            # Target entity found in result, but requested attribute column is not present
-            if target_row_idx is not None and target_col_idx is None:
-                return ResultResolutionOutcome.not_answerable(
-                    "Target entity found in result, but requested attribute column is not present."
+                    "\n".join(formatted),
+                    row_index=matched_rows[0][0] if len(matched_rows) == 1 else None,
+                    confidence=0.95,
                 )
 
         # 5. Text Summary Lookup

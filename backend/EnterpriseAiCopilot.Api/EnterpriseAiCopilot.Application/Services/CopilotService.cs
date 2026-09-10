@@ -1,4 +1,4 @@
-﻿using EnterpriseAiCopilot.Application.Common.Interfaces;
+using EnterpriseAiCopilot.Application.Common.Interfaces;
 using EnterpriseAiCopilot.Application.Common.Models;
 using EnterpriseAiCopilot.Application.DTOs.Copilot;
 using EnterpriseAiCopilot.Domain.Constants;
@@ -159,6 +159,9 @@ namespace EnterpriseAiCopilot.Application.Services
 
                 var route = aiResponse.Route?.Trim();
                 if (string.Equals(route, "DirectAnswer", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(route, "RESULT_ANSWER", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(route, "EXACT_REPLAY", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(aiResponse.GeneratedSql) ||
+                    string.Equals(route, "CAPABILITY", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(route, "SafeRejection", StringComparison.OrdinalIgnoreCase))
                 {
                     stopwatch.Stop();

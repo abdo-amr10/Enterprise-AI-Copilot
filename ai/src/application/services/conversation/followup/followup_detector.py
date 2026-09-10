@@ -30,13 +30,13 @@ class FollowupDetector:
     )
 
     _STANDALONE_QUERY_START = re.compile(
-        r"^(?:and\s+)?(?:show|list|get|find|what\s+is|what\s+are|how\s+many|display|give\s+me|select|fetch)\b",
+        r"^(?:and\s+)?(?:show|list|get|find|what\s+is|what\s+are|how\s+many|display|give\s+me|select|fetch|extract|pull)\b",
         re.IGNORECASE,
     )
 
     _LIMIT_PATTERN = re.compile(
-        r"^(?:(?:make\s+it\s+|only\s+|just\s+)?(?:show\s+)?(?:the\s+)?(?:top|first|limit\s+(?:to\s+)?)\s*(\d+)(?:\s+(?:only|rows|records|items|results|[a-zA-Z_]+))?)$|"
-        r"^(?:top|first|limit)\s+(\d+)$",
+        r"^(?:(?:make\s+it\s+|only\s+|just\s+)?(?:show|extract|pull|get|give|fetch|take\s+(?:out\s+)?|display)?\s*(?:me\s+|us\s+)?(?:the\s+)?(?:top|first|limit\s+(?:to\s+)?)\s*(\d+)(?:\s+(?:only|rows|records|items|results|customers|data|from\s+(?:the\s+)?(?:result|results|previous\s+result|table|query)|[a-zA-Z_\s]+))?)$|"
+        r"^(?:top|first|limit|extract|pull)\s+(\d+)(?:\s+(?:rows|records|items|results|from\s+.+|[a-zA-Z_\s]+))?$",
         re.IGNORECASE,
     )
 

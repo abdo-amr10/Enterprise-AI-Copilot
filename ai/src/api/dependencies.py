@@ -46,6 +46,7 @@ from src.config.preflight_settings import PreflightSettings
 from src.config.self_correction_settings import SelfCorrectionSettings
 from src.config.semantic_settings import SemanticSettings
 from src.infrastructure.llm.model_config import (
+    INTENT_CLASSIFIER_CONFIG,
     QWEN_CONFIG,
     SQL_CORRECTION_CONFIG,
     SQL_CRITIC_CONFIG,
@@ -229,13 +230,27 @@ _conversation_router: Any = None
 def get_conversation_router():
     global _conversation_router
     if _conversation_router is None:
+        from src.config.conversation_settings import CONVERSATION_SETTINGS
         from src.application.services.conversation.router.conversation_router import (
             ConversationRouter,
         )
+
+        llm_classifier = None
+        if CONVERSATION_SETTINGS.llm_fallback_enabled:
+            from src.application.services.conversation.semantic_routing.application.llm_intent_classifier import (
+                LLMIntentClassifier,
+            )
+            llm_classifier = LLMIntentClassifier(
+                llm_client=OllamaClient(config=INTENT_CLASSIFIER_CONFIG)
+            )
+
         # Similarity is not enough to replay SQL: a date, amount, or other
         # filter change can be close in embedding space but needs new SQL.
-        _conversation_router = ConversationRouter()
+        _conversation_router = ConversationRouter(
+            llm_intent_classifier=llm_classifier,
+        )
     return _conversation_router
+
 
 
 # End of local-state composition root.

@@ -112,6 +112,7 @@ class ConversationState:
     # for backward compatibility with existing readers.
     execution_history: list[ExecutionRecord] = field(default_factory=list)
     negative_results: dict[str, NegativeResultRecord] = field(default_factory=dict)
+    pending_clarification: Optional[dict[str, Any]] = None
     updated_at: datetime.datetime = field(
         default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
     )
