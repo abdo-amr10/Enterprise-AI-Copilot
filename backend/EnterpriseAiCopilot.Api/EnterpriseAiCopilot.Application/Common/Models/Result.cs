@@ -20,5 +20,7 @@ namespace EnterpriseAiCopilot.Application.Common.Models
         public static Result<T> Success(T data) => new(true, data, null);
 
         public static Result<T> Failure(string errorMessage) => new(false, default, errorMessage);
+
+        public static Result<T> Failure(string errorMessage, T data) => new(false, data, errorMessage);
     }
 }

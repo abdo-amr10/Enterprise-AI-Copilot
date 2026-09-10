@@ -37,6 +37,12 @@ namespace EnterpriseAiCopilot.Infrastructure.Persistence.Configurations
 
             builder.Property(u => u.BranchId)
                 .IsRequired(false);
+
+            builder.HasOne(u => u.Branch)
+                .WithMany()
+                .HasForeignKey(u => u.BranchId)
+                .HasPrincipalKey(branch => branch.BranchId)
+                .OnDelete(DeleteBehavior.NoAction);
         }
     }
 }

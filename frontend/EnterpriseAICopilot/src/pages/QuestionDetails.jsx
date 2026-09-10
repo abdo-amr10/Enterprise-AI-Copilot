@@ -48,13 +48,15 @@ export default function QuestionDetails() {
 
   return (
     <AppShell active="history" title="Conversation Details" mainClassName="question-details-main">
-      <Link className="back" to="/history"><IconArrowLeft aria-hidden="true" />Back to conversations</Link>
-      <div className="chat-thread">
-        {state === "loading" ? <div className="history-state history-loading"><div className="history-state-icon loading-icon"><IconLoader aria-hidden="true" /></div><span className="history-state-kicker">Please wait</span><h2>Loading this conversation</h2><p>We’re retrieving all questions and answers.</p></div> : null}
-        {state === "success" && messages.length ? <ConversationMessages messages={messages} role={user?.role} /> : null}
-        {state === "success" && !messages.length ? <ConversationFeedback title="This conversation has no messages yet.">Start a new question in Copilot to continue it.</ConversationFeedback> : null}
-        {state === "error" ? <div className="history-state history-error"><div className="history-state-icon error-icon"><span aria-hidden="true">!</span></div><span className="history-state-kicker">Something went wrong</span><h2>We couldn’t load this conversation</h2><p>Please try again in a moment.</p><button className="history-primary-action" type="button" onClick={load}>Try again</button></div> : null}
-        {state === "unavailable" ? <ConversationFeedback title="This conversation is unavailable.">You no longer have access to this conversation.</ConversationFeedback> : null}
+      <Link className="back question-details-back" to="/history"><IconArrowLeft aria-hidden="true" />Back to conversations</Link>
+      <div className="question-details-content">
+        <div className="chat-thread">
+          {state === "loading" ? <div className="history-state history-loading"><div className="history-state-icon loading-icon"><IconLoader aria-hidden="true" /></div><span className="history-state-kicker">Please wait</span><h2>Loading this conversation</h2><p>We’re retrieving all questions and answers.</p></div> : null}
+          {state === "success" && messages.length ? <ConversationMessages messages={messages} role={user?.role} /> : null}
+          {state === "success" && !messages.length ? <ConversationFeedback title="This conversation has no messages yet.">Start a new question in Copilot to continue it.</ConversationFeedback> : null}
+          {state === "error" ? <div className="history-state history-error"><div className="history-state-icon error-icon"><span aria-hidden="true">!</span></div><span className="history-state-kicker">Something went wrong</span><h2>We couldn’t load this conversation</h2><p>Please try again in a moment.</p><button className="history-primary-action" type="button" onClick={load}>Try again</button></div> : null}
+          {state === "unavailable" ? <ConversationFeedback title="This conversation is unavailable.">You no longer have access to this conversation.</ConversationFeedback> : null}
+        </div>
       </div>
     </AppShell>
   );

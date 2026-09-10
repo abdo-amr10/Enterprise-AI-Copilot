@@ -13,7 +13,6 @@ namespace EnterpriseAiCopilot.Api.Controllers;
 public sealed class UsersController : ControllerBase
 {
     private readonly IApplicationDbContext _context;
-
     public UsersController(IApplicationDbContext context)
     {
         _context = context;
@@ -45,6 +44,7 @@ public sealed class UsersController : ControllerBase
                 Email = item.Email,
                 Role = item.Role,
                 BranchId = item.BranchId,
+                BranchName = item.Branch == null ? null : item.Branch.BranchName,
                 CreatedAt = item.CreatedAt,
                 LastModifiedAt = item.LastModifiedAt
             })
@@ -95,6 +95,7 @@ public sealed class UsersController : ControllerBase
             Email = user.Email,
             Role = user.Role,
             BranchId = user.BranchId,
+            BranchName = user.Branch == null ? null : user.Branch.BranchName,
             CreatedAt = user.CreatedAt,
             LastModifiedAt = user.LastModifiedAt,
             ConversationCount = _context.Conversations.Count(conversation => conversation.UserId == user.Id.ToString()),
