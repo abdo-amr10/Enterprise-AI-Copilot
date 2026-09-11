@@ -24,6 +24,7 @@ from src.application.pipelines.text_to_sql.copilot_runtime_pipeline import (
     CopilotRuntimePipeline,
 )
 from typing import Any
+from src.observability.conversation_trace_logger import log_trace
 
 from src.api.contracts import (
     CopilotRequest,
@@ -91,6 +92,27 @@ def text_to_sql(
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
+    _trace_id = request.correlation_id or "no-trace-id"
+    log_trace(
+        "ai_runtime.request.received",
+        _trace_id,
+        question=ask_request.question,
+        conversation_count=len(ask_request.conversation),
+        conversation_id=request.conversation_id,
+        tenant_id=request.tenant_id,
+    )
+    _conv_roles = [
+        (m.get("role", "?") if isinstance(m, dict) else getattr(m, "role", "?"))
+        for m in (request.conversation or [])
+    ]
+    log_trace(
+        "ai_runtime.conversation.payload",
+        _trace_id,
+        roles=_conv_roles,
+        message_count=len(request.conversation or []),
+        last_result_metadata_present=request.last_result_metadata is not None,
+    )
+
     decision = conversation_router.route(
         question=ask_request.question,
         raw_conversation=ask_request.conversation,
@@ -103,6 +125,19 @@ def text_to_sql(
         schema_version=request.schema_version,
         last_result_metadata=request.last_result_metadata,
         executor=pipeline.run,
+    )
+
+    log_trace(
+        "conversation_router.output",
+        _trace_id,
+        route=decision.route.value if hasattr(decision.route, "value") else str(decision.route),
+        is_success=decision.is_success,
+        generated_sql_present=bool(decision.generated_sql),
+        generated_sql_preview=(decision.generated_sql[:200] if decision.generated_sql else None),
+        direct_answer_present=bool(decision.direct_answer),
+        direct_answer_preview=(decision.direct_answer[:200] if decision.direct_answer else None),
+        resolved_question=decision.resolved_question,
+        error_message=decision.error_message,
     )
 
     return CopilotResponse(

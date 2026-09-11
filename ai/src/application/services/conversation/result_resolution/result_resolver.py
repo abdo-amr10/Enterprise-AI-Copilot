@@ -42,14 +42,48 @@ class ResultResolver:
         "9th": 9,
         "tenth": 10,
         "10th": 10,
+        "eleventh": 11,
+        "11th": 11,
+        "twelfth": 12,
+        "12th": 12,
+        "thirteenth": 13,
+        "13th": 13,
+        "fourteenth": 14,
+        "14th": 14,
+        "fifteenth": 15,
+        "15th": 15,
+        "sixteenth": 16,
+        "16th": 16,
+        "seventeenth": 17,
+        "17th": 17,
+        "eighteenth": 18,
+        "18th": 18,
+        "nineteenth": 19,
+        "19th": 19,
+        "twentieth": 20,
+        "20th": 20,
+        "الأول": 1,
+        "الاول": 1,
+        "الثاني": 2,
+        "التاني": 2,
+        "الثالث": 3,
+        "التالت": 3,
+        "الرابع": 4,
+        "الخامس": 5,
+        "السادس": 6,
+        "السابع": 7,
+        "الثامن": 8,
+        "التاسع": 9,
+        "العاشر": 10,
     }
 
     _ORDINAL_PATTERN = re.compile(
-        r"\b(?:who|what|which)(?:\s+one)?\s+is\s+(?:#|number|no\.?|num\.?)?\s*(\d+)\b|"
-        r"\b(?:who|what|which)(?:\s+is|\s+was)?\s+(?:the\s+)?(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th)(?:\s+(?:one|row|item|record|result))?\b|"
-        r"\b(?:the\s+)?(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th)\s+(?:one|row|item|record|result)\b|"
-        r"^(?:#|number|no\.?)\s*(\d+)\??$",
-        re.IGNORECASE,
+        r"\b(?:who|what|which|how\s+about|what\s+about|and)(?:\s+one)?(?:\s+(?:is|was|about))?\s+(?:#|number|no\.?|num\.?)?\s*(\d+)\b|"
+        r"\b(?:who|what|which)(?:\s+is|\s+was)?\s+(?:the\s+)?([a-z0-9\u0600-\u06FF]+)(?:\s+(?:one|row|item|record|result))?\b|"
+        r"\b(?:the\s+)?([a-z0-9\u0600-\u06FF]+)\s+(?:one|row|item|record|result)\b|"
+        r"^(?:#|number|no\.?)\s*(\d+)\??$|"
+        r"\b(?:مين|إيه|ما|وريني|اعرض)?\s*(?:هو|هي)?\s*(?:رقم|الرقم|المرتبة|المركز)\s*(\d+)\b",
+        re.IGNORECASE | re.UNICODE,
     )
 
     _COUNT_PATTERN = re.compile(
@@ -101,6 +135,23 @@ class ResultResolver:
         "مريم": "mariam",
         "فاطمة": "fatima",
         "نور": "nour",
+    }
+
+    _DATABASE_QUERY_INSTRUCTION_PATTERN = re.compile(
+        r"\b(?:show|list|get|find|select|fetch|query|calculate|sum|count|average|extract|pull|"
+        r"for\s+(?:those|these|the\s+same|each|them)|"
+        r"among\s+(?:those|these|them)|"
+        r"where|whose|using|group\s+by|order\s+by|greater\s+than|less\s+than|[><=])\b",
+        re.IGNORECASE,
+    )
+
+    _SCHEMA_AND_COMMON_TERMS = {
+        "branch", "branches", "account", "accounts", "transaction", "transactions",
+        "customer", "customers", "loan", "loans", "card", "cards", "merchant", "merchants",
+        "id", "name", "date", "status", "type", "amount", "balance", "total", "city",
+        "country", "rate", "score", "credit", "first", "last", "email", "created",
+        "open", "value", "table", "data", "query", "record", "row", "usd", "code",
+        "all", "top", "only", "same", "new", "each", "these", "those",
     }
 
     @staticmethod
@@ -192,6 +243,8 @@ class ResultResolver:
                     rank = self._ORDINAL_WORDS.get(groups[2].lower())
                 elif groups[3]:
                     rank = int(groups[3])
+                elif len(groups) > 4 and groups[4]:
+                    rank = int(groups[4])
 
                 if rank is not None and rank > 0:
                     if not result_metadata or not result_metadata.sample_rows:
@@ -328,7 +381,13 @@ class ResultResolver:
                 answer = f"{best_cat} has the {adjective} {metric_name} ({best_val})."
                 return ResultResolutionOutcome.answerable(answer, column=cols[cat_col_idx])
 
-        # 4. Cell / Attribute lookup (e.g. "What department is Sara in?", "What was Sara's salary?")
+        # If the question is a database query/instruction, NEVER answer from result metadata/summary
+        if self._DATABASE_QUERY_INSTRUCTION_PATTERN.search(norm_q):
+            return ResultResolutionOutcome.not_answerable(
+                "Database query instruction must proceed to context resolution and Text-to-SQL pipeline."
+            )
+
+        # 4. Cell / Attribute lookup (e.g. "What department is Sara in?", "What was Sara's salary?", "Tell me about Ahmed")
         if result_metadata and result_metadata.columns and result_metadata.sample_rows:
             cols = [c.lower() for c in result_metadata.columns]
             rows = result_metadata.sample_rows
@@ -360,21 +419,24 @@ class ResultResolver:
                 for cell_idx, cell in enumerate(row):
                     if cell is not None and isinstance(cell, (str, int, float)):
                         cell_clean = str(cell).strip().lower()
-                        if len(cell_clean) >= 2:
-                            is_match = bool(re.search(r"\b" + re.escape(cell_clean) + r"\b", norm_q))
-                            if not is_match:
-                                # Cross-script transliteration check
-                                ar_variant = self._ARABIC_TO_LATIN_COMMON.get(cell_clean)
-                                if ar_variant and re.search(r"\b" + re.escape(ar_variant) + r"\b", norm_q):
-                                    is_match = True
-                                elif not ar_variant:
-                                    for ar_w, en_w in self._ARABIC_TO_LATIN_COMMON.items():
-                                        if en_w == cell_clean and ar_w in norm_q:
-                                            is_match = True
-                                            break
-                            if is_match:
-                                matched_rows.append((row_idx, row))
-                                break
+                        # Strictly skip common schema/domain terms (like "branch", "account", "status")
+                        if cell_clean in self._SCHEMA_AND_COMMON_TERMS or len(cell_clean) < 3:
+                            continue
+
+                        is_match = bool(re.search(r"\b" + re.escape(cell_clean) + r"\b", norm_q))
+                        if not is_match:
+                            # Cross-script transliteration check
+                            ar_variant = self._ARABIC_TO_LATIN_COMMON.get(cell_clean)
+                            if ar_variant and re.search(r"\b" + re.escape(ar_variant) + r"\b", norm_q):
+                                is_match = True
+                            elif not ar_variant:
+                                for ar_w, en_w in self._ARABIC_TO_LATIN_COMMON.items():
+                                    if en_w == cell_clean and ar_w in norm_q:
+                                        is_match = True
+                                        break
+                        if is_match:
+                            matched_rows.append((row_idx, row))
+                            break
 
             if matched_rows:
                 # If a specific column was matched in the query
@@ -417,35 +479,25 @@ class ResultResolver:
                         )
 
                 # If the user is asking about the matched entity or its row details (e.g. "بيانات سارة", "what about John"):
-                formatted = []
-                for r_idx, r in matched_rows[:15]:
-                    if result_metadata.columns and len(result_metadata.columns) == len(r):
-                        row_str = ", ".join(f"{c}: {v}" for c, v in zip(result_metadata.columns, r) if v is not None)
-                    else:
-                        row_str = ", ".join(str(v) for v in r if v is not None)
-                    formatted.append(row_str)
-
-                return ResultResolutionOutcome.answerable(
-                    "\n".join(formatted),
-                    row_index=matched_rows[0][0] if len(matched_rows) == 1 else None,
-                    confidence=0.95,
-                )
-
-        # 5. Text Summary Lookup
-        eff_summary = summary or (result_metadata.summary if result_metadata else None)
-        if eff_summary:
-            words = [w for w in re.split(r"[\s,;?.'\"]+", norm_q) if len(w) > 3]
-            for w in words:
-                pattern = re.compile(
-                    r"\b" + re.escape(w) + r"[\'\w]*\s*(?::|was|were|totaled|is|=)\s*([^\n,;.]+)",
+                # Only answer if query explicitly exhibits entity-inspection intent
+                is_entity_inspection = bool(re.search(
+                    r"\b(?:tell\s+me\s+about|what\s+about|details\s+of|profile\s+of|بيانات|معلومات|عن)\b",
+                    norm_q,
                     re.IGNORECASE,
-                )
-                match = pattern.search(eff_summary)
-                if match:
-                    val = match.group(1).strip()
+                ))
+                if is_entity_inspection:
+                    formatted = []
+                    for r_idx, r in matched_rows[:15]:
+                        if result_metadata.columns and len(result_metadata.columns) == len(r):
+                            row_str = ", ".join(f"{c}: {v}" for c, v in zip(result_metadata.columns, r) if v is not None)
+                        else:
+                            row_str = ", ".join(str(v) for v in r if v is not None)
+                        formatted.append(row_str)
+
                     return ResultResolutionOutcome.answerable(
-                        f"{w.title()}'s value was {val}.",
-                        confidence=0.9,
+                        "\n".join(formatted),
+                        row_index=matched_rows[0][0] if len(matched_rows) == 1 else None,
+                        confidence=0.95,
                     )
 
         return ResultResolutionOutcome.not_answerable("Question cannot be answered directly from the previous result.")

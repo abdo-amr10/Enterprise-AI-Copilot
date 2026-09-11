@@ -88,6 +88,21 @@ class FollowupDetector:
         re.IGNORECASE,
     )
 
+    _REFERENTIAL_SIGNAL_PATTERN = re.compile(
+        r"\b(?:for\s+those\s+same|for\s+the\s+same|for\s+each\s+of\s+(?:those|them)|for\s+those|"
+        r"for\s+these|for\s+the\s+[a-zA-Z0-9_]+\s+(?:above|from\s+before|previously\s+mentioned|listed\s+above)|"
+        r"for\s+(?:those|these|the\s+same)\s+[a-zA-Z0-9_]+|"
+        r"go\s+back\s+to\b|"
+        r"from\s+before\b|as\s+before\b|mentioned\s+above\b|listed\s+above\b|"
+        r"those\s+same\b|these\s+same\b|the\s+same\s+[a-zA-Z0-9_]+|"
+        r"those\s+top\s+\d+|those\s+\d+|of\s+those(?:\s+top\s+\d+)?|"
+        r"show\s+their\b|display\s+their\b|list\s+their\b|get\s+their\b|"
+        r"\btheir\s+[a-zA-Z0-9_]+|"
+        r"(?:now\s+)?show\s+only\s+[a-zA-Z0-9_]+\s+whose\b|"
+        r"only\s+those\s+whose\b)\b",
+        re.IGNORECASE,
+    )
+
     _FILTER_PREPOSITIONS = {
         "in", "for", "at", "from", "with", "by", "under", "over", "between", "during", "before", "after",
     }
@@ -122,6 +137,7 @@ class FollowupDetector:
             is_standalone = bool(
                 self._STANDALONE_QUERY_START.search(norm_q)
                 and not self._PRONOUN_PATTERN.search(norm_q)
+                and not self._REFERENTIAL_SIGNAL_PATTERN.search(norm_q)
             )
             return FollowupDetectionResult(
                 confidence_level=FollowupConfidence.INDEPENDENT,
@@ -137,8 +153,26 @@ class FollowupDetector:
                 reason="Ambiguous anaphoric pronoun without explicit modifier.",
             )
 
+        # 1b. Explicit referential signals referencing previous entities/results
+        if self._REFERENTIAL_SIGNAL_PATTERN.search(norm_q):
+            if re.search(r"\bwhose\b", norm_q, re.IGNORECASE):
+                op_type = FollowupType.FILTER_ADDITION
+            else:
+                op_type = FollowupType.PRONOUN_REFERENCE
+            return FollowupDetectionResult(
+                confidence_level=FollowupConfidence.FOLLOW_UP_CONFIRMED,
+                operation_type=op_type,
+                target_value=norm_q,
+                confidence_score=0.95,
+                reason="Referential continuity signal referencing prior query scope.",
+            )
+
         # 2. Standalone complete queries that begin with standard question words
-        if self._STANDALONE_QUERY_START.search(norm_q) and not self._PRONOUN_PATTERN.search(norm_q):
+        if (
+            self._STANDALONE_QUERY_START.search(norm_q)
+            and not self._PRONOUN_PATTERN.search(norm_q)
+            and not self._REFERENTIAL_SIGNAL_PATTERN.search(norm_q)
+        ):
             limit_match = self._LIMIT_PATTERN.search(norm_q)
             if limit_match:
                 num = limit_match.group(1) or limit_match.group(2)

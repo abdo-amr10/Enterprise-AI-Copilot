@@ -7,6 +7,8 @@ import re
 from typing import Any, Callable, Optional
 import uuid
 
+from src.observability.conversation_trace_logger import log_trace
+
 from src.application.dto.backend.copilot.copilot_ask_request import CopilotAskRequest
 from src.application.dto.backend.copilot.text_to_sql_runtime_response import (
     TextToSQLRuntimeResponse,
@@ -209,6 +211,16 @@ class ConversationRouter:
         # Derive effective tenant scope (authoritative RLS context from tenant_id or branch_id)
         effective_tenant_id = (tenant_id or branch_id or "").strip() or None
 
+        _trace_id = correlation_id or conv_id or "no-trace-id"
+        log_trace(
+            "conversation_router.entry",
+            _trace_id,
+            question=question,
+            conv_id=conv_id,
+            raw_conversation_count=len(raw_conversation) if raw_conversation else 0,
+            last_result_metadata_present=last_result_metadata is not None,
+        )
+
         # ----------------------------------------------------------------------
         # 1. Normalization
         # ----------------------------------------------------------------------
@@ -253,6 +265,10 @@ class ConversationRouter:
             )
             if extracted.last_result_metadata is not None:
                 state.last_result_metadata = extracted.last_result_metadata
+            if extracted.last_successful_execution is not None:
+                state.last_successful_execution = extracted.last_successful_execution
+            if extracted.active_query_state is not None:
+                state.active_query_state = extracted.active_query_state
         elif isinstance(last_result_metadata, ResultMetadata):
             state.last_result_metadata = last_result_metadata
         elif state.last_successful_execution is None and raw_conversation:
@@ -269,6 +285,16 @@ class ConversationRouter:
                 state.active_query_state = backend_state.active_query_state
             if backend_state.last_result_metadata is not None:
                 state.last_result_metadata = backend_state.last_result_metadata
+
+        log_trace(
+            "conversation_router.state",
+            _trace_id,
+            last_successful_execution_present=state.last_successful_execution is not None,
+            last_successful_question=getattr(state.last_successful_execution, "user_question", None) if state.last_successful_execution else None,
+            last_result_metadata_present=state.last_result_metadata is not None,
+            active_query_state_present=state.active_query_state is not None,
+            pending_clarification=state.pending_clarification is not None,
+        )
 
         # Dialog continuation: if there's a pending clarification request from previous turn
         if state.pending_clarification:
@@ -348,6 +374,16 @@ class ConversationRouter:
             current_tenant_id=effective_tenant_id,
             current_user_id=user_id,
         )
+
+        log_trace(
+            "conversation_router.result_resolution",
+            _trace_id,
+            status=res_outcome.status.value if hasattr(res_outcome.status, "value") else str(res_outcome.status),
+            answer_present=res_outcome.answer is not None,
+            answer_preview=res_outcome.answer[:200] if res_outcome.answer else None,
+            metadata_present=state.last_result_metadata is not None,
+        )
+
         logger.debug(
             "conversation.result_resolver.hit=%s",
             res_outcome.status == ResultResolutionStatus.ANSWERABLE,
@@ -606,27 +642,120 @@ class ConversationRouter:
                 reason=followup.reason or "Semantic router classified as NEW_DATABASE_QUERY.",
             )
 
+        log_trace(
+            "conversation_router.followup_detector",
+            _trace_id,
+            confidence_level=followup.confidence_level.value if hasattr(followup.confidence_level, "value") else str(followup.confidence_level),
+            confidence_score=followup.confidence_score,
+            reason=followup.reason,
+        )
+
         if followup.confidence_level == FollowupConfidence.FOLLOW_UP_CONFIRMED:
             prior_q = None
-            if raw_conversation:
-                for raw in reversed(raw_conversation):
-                    if isinstance(raw, dict):
-                        if raw.get("user_question"):
-                            prior_q = raw["user_question"]
-                            break
-                        if raw.get("role") == "user" and raw.get("content"):
-                            prior_q = raw["content"]
+            prior_sql = None
+            source_used = "none"
+
+            # 1. Check for explicit "go back to <target>" command
+            go_back_match = re.search(
+                r"\bgo\s+back\s+to\s+(?:the\s+)?(.+?)(?:\s+from\s+before)?(?:\s+and\b|$)",
+                normalized_q,
+                re.IGNORECASE,
+            )
+            if go_back_match:
+                target_phrase = go_back_match.group(1).strip().lower()
+                target_tokens = [w for w in re.split(r"\s+", target_phrase) if len(w) > 2 or w.isdigit()]
+
+                # First search state execution history (reverse order)
+                if state and state.execution_history:
+                    for rec in reversed(state.execution_history):
+                        if rec.user_question and all(tok in rec.user_question.lower() for tok in target_tokens):
+                            prior_q = rec.user_question
+                            prior_sql = rec.sql
+                            source_used = "execution_history_goback"
                             break
 
-            if not prior_q and state and state.last_successful_execution:
+                # If not found, search raw_conversation
+                if not prior_q and raw_conversation:
+                    for raw in reversed(raw_conversation):
+                        if isinstance(raw, dict):
+                            q_cand = raw.get("user_question") or raw.get("userQuestion") or raw.get("question") or (
+                                raw.get("content") if str(raw.get("role") or "").lower() in ("user", "turn") else None
+                            )
+                            if q_cand and all(tok in str(q_cand).lower() for tok in target_tokens):
+                                prior_q = str(q_cand).strip()
+                                prior_sql = raw.get("generated_sql") or raw.get("generatedSql") or raw.get("sql")
+                                source_used = "raw_conversation_goback"
+                                break
+
+            # 2. If not "go back to" or target not found, retrieve the active/successful context turn
+            if not prior_q and state and state.execution_history:
+                # Find the most recent successful execution record
+                for rec in reversed(state.execution_history):
+                    if rec.status in ("Completed", "Success") and rec.user_question:
+                        prior_q = rec.user_question
+                        prior_sql = rec.sql
+                        source_used = "execution_history_last_success"
+                        break
+
+            if not prior_q and state and state.last_successful_execution and state.last_successful_execution.user_question:
                 prior_q = state.last_successful_execution.user_question
+                prior_sql = state.last_successful_execution.sql
+                source_used = "last_successful_execution"
+
+            # 3. Check raw_conversation backwards, skipping failed/rejected turns
+            if not prior_q and raw_conversation:
+                for raw in reversed(raw_conversation):
+                    if isinstance(raw, dict):
+                        status = str(raw.get("execution_status") or raw.get("status") or "").strip().lower()
+                        if status in ("failed", "error", "rejected"):
+                            continue  # Skip failed/rejected turns!
+                        q_candidate = raw.get("user_question") or raw.get("userQuestion") or raw.get("question")
+                        if not q_candidate:
+                            role = str(raw.get("role") or "").strip().lower()
+                            if role in ("user", "turn") and raw.get("content"):
+                                q_candidate = raw["content"]
+                        if q_candidate:
+                            prior_q = str(q_candidate).strip()
+                            prior_sql = raw.get("generated_sql") or raw.get("generatedSql") or raw.get("sql")
+                            source_used = "raw_conversation"
+                            break
+
+            # 4. Fallback to last_result_metadata
+            if not prior_q and last_result_metadata and isinstance(last_result_metadata, dict):
+                meta_q = last_result_metadata.get("question") or last_result_metadata.get("userQuestion") or last_result_metadata.get("user_question")
+                if meta_q:
+                    prior_q = str(meta_q).strip()
+                    prior_sql = last_result_metadata.get("generatedSql") or last_result_metadata.get("sql")
+                    source_used = "last_result_metadata"
+
+            # Fallback to active query state raw_sql if prior_sql still not set
+            if not prior_sql and state and state.active_query_state and state.active_query_state.raw_sql:
+                prior_sql = state.active_query_state.raw_sql
+
+            log_trace(
+                "conversation_router.continuation.prior_question",
+                _trace_id,
+                prior_question=prior_q,
+                prior_sql=prior_sql,
+                source=source_used,
+            )
 
             continuation = self._continuation_resolver.resolve(
                 question,
                 state,
                 followup,
                 prior_question=prior_q,
+                prior_sql=prior_sql,
             )
+
+            log_trace(
+                "conversation_router.continuation.output",
+                _trace_id,
+                resolved_question=continuation.resolved_question,
+                is_resolved=continuation.is_resolved,
+                original_question=question,
+            )
+
             logger.debug(
                 "conversation.canonical_query=%s resolved=%s",
                 continuation.resolved_question,
@@ -675,9 +804,17 @@ class ConversationRouter:
                             llm_used_by_conversation_layer=llm_used,
                         )
 
+                augmented_convo = list(raw_conversation) if raw_conversation else []
+                scope_summary = self._continuation_resolver._extract_base_entity_scope(prior_q or "")
+                if scope_summary:
+                    augmented_convo.append({
+                        "role": "system",
+                        "content": f"CONVERSATION_CONTEXT: Established active entity scope: {scope_summary}",
+                    })
+
                 exec_req = CopilotAskRequest(
                     question=continuation.resolved_question,
-                    conversation=raw_conversation,
+                    conversation=tuple(augmented_convo),
                     correlation_id=correlation_id,
                 )
                 logger.info(

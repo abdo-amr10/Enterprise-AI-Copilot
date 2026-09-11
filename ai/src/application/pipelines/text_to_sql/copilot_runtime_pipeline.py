@@ -10,6 +10,7 @@ from typing import Any
 
 import uuid
 from src.observability.latency_audit import request_lifecycle, stage as audit_stage
+from src.observability.conversation_trace_logger import log_trace
 from src.observability.mlflow_observer import MLflowObserver
 from src.application.dto.backend.copilot.copilot_ask_request import CopilotAskRequest
 from src.application.dto.backend.copilot.text_to_sql_runtime_response import (
@@ -217,10 +218,27 @@ class CopilotRuntimePipeline:
                                 if message.get("role") == "system"
                                 and str(message.get("content", "")).startswith("RLS_CORRECTION:")
                             )
-                            conversation_context = "\n".join(
-                                f"{message.get('role', 'user')}: {message.get('content', '')}"
-                                for message in request.conversation
-                                if message.get("role") in ("user", "assistant")
+                            # Text-to-SQL receives the canonical resolved question from Conversation Layer.
+                            # When compact context (e.g. established entity scope) is provided in request.conversation,
+                            # include it compactly without dumping raw conversational token history.
+                            conversation_context_parts = []
+                            for msg in (request.conversation or ()):
+                                if isinstance(msg, dict):
+                                    if msg.get("role") == "system" and str(msg.get("content", "")).startswith("CONVERSATION_CONTEXT:"):
+                                        conversation_context_parts.append(str(msg["content"]).replace("CONVERSATION_CONTEXT:", "").strip())
+                                    elif msg.get("context_summary"):
+                                        conversation_context_parts.append(str(msg["context_summary"]).strip())
+                            conversation_context = "\n".join(conversation_context_parts).strip()
+
+                            _t2s_trace_id = getattr(request, "correlation_id", None) or "no-trace-id"
+                            log_trace(
+                                "text_to_sql.context",
+                                _t2s_trace_id,
+                                question=request.question,
+                                conversation_context_length=len(conversation_context),
+                                conversation_context_preview=conversation_context[:300] if conversation_context else "empty",
+                                correction_feedback_present=bool(correction_feedback),
+                                conversation_message_count=len(request.conversation) if request.conversation else 0,
                             )
 
                         with audit_stage("sql_generation", operation="llm_inference", is_leaf=True):
@@ -323,6 +341,13 @@ class CopilotRuntimePipeline:
                                 return response
 
                             sql = sql.strip()
+
+                            log_trace(
+                                "text_to_sql.generated_sql",
+                                _t2s_trace_id,
+                                sql_preview=sql[:300] if sql else "null",
+                                sql_length=len(sql) if sql else 0,
+                            )
 
                 except Exception as exc:
                     if response is not None:

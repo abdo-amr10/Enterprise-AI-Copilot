@@ -85,4 +85,14 @@ INTENT_CLASSIFIER_CONFIG = ModelConfig(
     temperature=0.0,
     context_length=2048,
     max_output_tokens=64,
-)
+)
+
+
+CONTEXT_RESOLVER_CONFIG = ModelConfig(
+    model_name=_DEFAULT_MODEL,
+    runtime="ollama",
+    temperature=0.0,
+    context_length=2048,
+    max_output_tokens=256,
+)
+

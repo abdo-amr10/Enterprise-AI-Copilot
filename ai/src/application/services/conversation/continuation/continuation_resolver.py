@@ -5,7 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 import re
-from typing import Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from src.application.services.conversation.context_resolver import ContextResolver
 
 from src.application.services.conversation.followup.models import (
     FollowupConfidence,
@@ -40,6 +43,9 @@ class ContinuationResolver:
     _TOP_N_REGEX = re.compile(r"\b(?:top|first|limit)\s+(\d+)\b", re.IGNORECASE)
     _YEAR_REGEX = re.compile(r"\b\d{4}\b")
 
+    def __init__(self, *, context_resolver: Optional[Any] = None) -> None:
+        self._context_resolver = context_resolver
+
     @staticmethod
     def _replace_syntactic_slot(base_question: str, target: str) -> tuple[bool, str]:
         """Dynamically replace a prepositional argument slot in base_question with target.
@@ -51,20 +57,78 @@ class ContinuationResolver:
         clean_target = target.strip()
         formatted_target = clean_target.title() if (clean_target.islower() and " " not in clean_target) else clean_target
 
+        # Avoid matching "by <metric>" when looking for scope/filter slots (in/for/from/at).
+        # Also ensure slot words do not swallow subsequent prepositions.
         prep_pattern = re.compile(
-            r"\b(in|for|from|at|by|with)\s+([A-Za-z0-9_\-]+(?:\s+[A-Za-z0-9_\-]+){0,3})\b",
+            r"\b(in|for|from|at)\s+((?:(?!\b(?:in|for|from|at|by|with)\b)[A-Za-z0-9_\-])+(?:\s+(?:(?!\b(?:in|for|from|at|by|with)\b)[A-Za-z0-9_\-]+)){0,2})(?:\s*[\.\?]?\s*)$",
             re.IGNORECASE,
         )
-        matches = list(prep_pattern.finditer(base_question))
-        if matches:
-            last_match = matches[-1]
-            if re.match(r"^(?:in|for|from|at|by|with)\s+", clean_target, re.IGNORECASE):
-                resolved_q = base_question[:last_match.start()] + clean_target + base_question[last_match.end():]
+        match = prep_pattern.search(base_question)
+        if not match:
+            all_preps = re.compile(
+                r"\b(in|for|from|at)\s+((?:(?!\b(?:in|for|from|at|by|with)\b)[A-Za-z0-9_\-])+(?:\s+(?:(?!\b(?:in|for|from|at|by|with)\b)[A-Za-z0-9_\-]+)){0,2})\b",
+                re.IGNORECASE,
+            )
+            matches = list(all_preps.finditer(base_question))
+            if matches:
+                match = matches[-1]
+
+        if match:
+            if re.match(r"^(?:in|for|from|at)\s+", clean_target, re.IGNORECASE):
+                resolved_q = base_question[:match.start()] + clean_target + base_question[match.end():]
             else:
-                resolved_q = base_question[:last_match.start(2)] + formatted_target + base_question[last_match.end(2):]
+                resolved_q = base_question[:match.start(2)] + formatted_target + base_question[match.end(2):]
             return True, resolved_q
 
         return False, base_question
+
+    @staticmethod
+    def _extract_base_entity_scope(base_question: str) -> str:
+        """Dynamically extract the established entity scope / subject from a base query.
+
+        Domain and schema agnostic:
+        "Now show only the top 5 customers by credit score." -> "the top 5 customers by credit score"
+        "Show account balances for the top 5 customers by credit score." -> "the top 5 customers by credit score"
+        "Show all patients admitted to oncology." -> "all patients admitted to oncology"
+        "Show transactions in 2025." -> "transactions in 2025"
+        "Top 10 products by revenue." -> "the top 10 products by revenue"
+        """
+        if not base_question:
+            return ""
+
+        cleaned = re.sub(
+            r"^(?:now\s+)?(?:finally,?\s+)?(?:please\s+)?(?:show|list|get|find|extract|pull|fetch|display|give\s+me|select)\s+(?:only\s+)?",
+            "",
+            base_question.strip(),
+            flags=re.IGNORECASE,
+        ).strip()
+
+        cleaned = re.sub(r"[\.\?\!]+$", "", cleaned).strip()
+        if not cleaned:
+            return base_question.strip()
+
+        # If question has "for <entity_scope>" (e.g. "account balances for the top 5 customers by credit score"),
+        # extract the entity scope after "for"
+        for_match = re.search(r"\bfor\s+(?:the\s+)?([a-zA-Z0-9_\s]+?)(?:\s+using\s+.+)?$", cleaned, re.IGNORECASE)
+        if for_match:
+            entity_part = for_match.group(1).strip()
+            # Ensure not just a simple date/year (e.g., "for 2025")
+            if not re.match(r"^\d{4}$", entity_part) and entity_part.lower() not in (
+                "january", "february", "march", "april", "may", "june",
+                "july", "august", "september", "october", "november", "december",
+            ):
+                return f"the {entity_part}" if not entity_part.lower().startswith("the ") else entity_part
+
+        # If question has "From <entity_scope>, show only those whose..."
+        from_match = re.search(r"^from\s+(?:the\s+)?(.+?),\s*show", cleaned, re.IGNORECASE)
+        if from_match:
+            entity_part = from_match.group(1).strip()
+            return f"the {entity_part}" if not entity_part.lower().startswith("the ") else entity_part
+
+        # Ensure definite article if it starts with top N or numeric quantifier without article
+        if re.match(r"^(?:top|first|\d+)\b", cleaned, re.IGNORECASE):
+            return f"the {cleaned}"
+        return cleaned
 
     def resolve(
         self,
@@ -73,6 +137,7 @@ class ContinuationResolver:
         followup: FollowupDetectionResult,
         *,
         prior_question: Optional[str] = None,
+        prior_sql: Optional[str] = None,
     ) -> ContinuationResolution:
         """Resolve query continuation semantically."""
         base_state = (state.active_query_state if state and state.active_query_state else SemanticQueryState())
@@ -182,6 +247,52 @@ class ContinuationResolver:
         # 5. FILTER_CHANGE / FILTER_ADDITION / SAME_QUERY_DIFFERENT_SCOPE
         if op in (FollowupType.FILTER_CHANGE, FollowupType.FILTER_ADDITION, FollowupType.SAME_QUERY_DIFFERENT_SCOPE):
             filters = dict(base_state.filters)
+
+            # First attempt LLM-based context resolution if available
+            if self._context_resolver and base_question:
+                try:
+                    retrieved_ctx: dict[str, Any] = {"prior_question": base_question}
+                    if base_state.raw_sql:
+                        retrieved_ctx["prior_sql"] = base_state.raw_sql
+                    llm_resolved = self._context_resolver.resolve(current_question, retrieved_ctx)
+                    if (
+                        llm_resolved
+                        and llm_resolved.strip()
+                        and llm_resolved.strip().lower() != current_question.strip().lower()
+                    ):
+                        logger.info(
+                            "ContextResolver (LLM) resolved follow-up: %r + %r -> %r",
+                            base_question,
+                            current_question,
+                            llm_resolved,
+                        )
+                        filters["filter"] = target or current_question
+                        return ContinuationResolution(
+                            is_resolved=True,
+                            resolved_question=llm_resolved.strip(),
+                            updated_semantic_state=base_state.clone_with(filters=filters),
+                            operation_applied=op,
+                        )
+                except Exception as exc:
+                    logger.warning("ContextResolver LLM resolution failed, using deterministic fallback: %s", exc)
+
+            # If the user asks to filter by condition: "Now show only <entities> whose <condition>"
+            m_whose = re.search(
+                r"^(?:now\s+)?show\s+only\s+([a-zA-Z0-9_]+)\s+whose\s+(.+)$",
+                current_question.strip(),
+                re.IGNORECASE,
+            )
+            if m_whose:
+                condition = m_whose.group(2).strip()
+                scope = self._extract_base_entity_scope(base_question)
+                resolved_q = f"From {scope}, show only those whose {condition}"
+                filters["filter"] = condition
+                return ContinuationResolution(
+                    is_resolved=True,
+                    resolved_question=resolved_q,
+                    updated_semantic_state=base_state.clone_with(filters=filters),
+                    operation_applied=op,
+                )
 
             replaced = False
             for k, v in list(filters.items()):
@@ -303,12 +414,146 @@ class ContinuationResolver:
 
         # 7. PRONOUN_REFERENCE
         if op == FollowupType.PRONOUN_REFERENCE:
-            clean_prior = re.sub(r"^(?:show|list|get|find)\s+", "", base_question, flags=re.IGNORECASE).rstrip(".?")
-            clean_curr = re.sub(r"\b(?:of\s+them|among\s+them|from\s+them)\b", "", current_question, flags=re.IGNORECASE).strip(" ?.")
-            if clean_prior and clean_curr:
-                resolved_q = f"Among {clean_prior}, {clean_curr}"
+            # First attempt LLM-based context resolution if available
+            if self._context_resolver and base_question:
+                try:
+                    retrieved_ctx: dict[str, Any] = {"prior_question": base_question}
+                    eff_sql = prior_sql or (base_state.raw_sql if base_state else None)
+                    if eff_sql:
+                        retrieved_ctx["prior_sql"] = eff_sql
+                    scope_hint = self._extract_base_entity_scope(base_question)
+                    if scope_hint:
+                        retrieved_ctx["established_scope"] = scope_hint
+                    llm_resolved = self._context_resolver.resolve(current_question, retrieved_ctx)
+                    if (
+                        llm_resolved
+                        and llm_resolved.strip()
+                        and llm_resolved.strip().lower() != current_question.strip().lower()
+                    ):
+                        logger.info(
+                            "ContextResolver (LLM) resolved pronoun reference: %r + %r -> %r",
+                            base_question,
+                            current_question,
+                            llm_resolved,
+                        )
+                        return ContinuationResolution(
+                            is_resolved=True,
+                            resolved_question=llm_resolved.strip(),
+                            updated_semantic_state=base_state,
+                            operation_applied=op,
+                        )
+                except Exception as exc:
+                    logger.warning("ContextResolver LLM resolution failed, using deterministic fallback: %s", exc)
+
+            scope = self._extract_base_entity_scope(base_question)
+            clean_curr = current_question.strip()
+
+            # Pattern A: "Go back to ... from before and <action>"
+            m_goback = re.search(
+                r"^go\s+back\s+to\s+(?:the\s+)?(.+?)(?:\s+from\s+before)?\s+and\s+(.+)$",
+                clean_curr,
+                re.IGNORECASE,
+            )
+            if m_goback:
+                action = m_goback.group(2).strip()
+                if re.search(r"\btheir\b", action, re.IGNORECASE):
+                    action_cleaned = re.sub(r"\btheir\s+", "", action, flags=re.IGNORECASE).strip()
+                    resolved_q = f"{action_cleaned.capitalize()} for {scope}"
+                else:
+                    resolved_q = f"{action.capitalize()} for {scope}"
+                return ContinuationResolution(
+                    is_resolved=True,
+                    resolved_question=resolved_q,
+                    updated_semantic_state=base_state,
+                    operation_applied=op,
+                )
+
+            # Pattern B: "For those same <entities>, <action>" / "For those <entities>, <action>" / "For the same <entities>, <action>" / "For the <entities> above, <action>"
+            m_for_those = re.search(
+                r"^for\s+(?:those\s+same|those|the\s+same|these\s+same|these|the)\s+([a-zA-Z0-9_]+)(?:\s+above|\s+from\s+before)?,\s*(.+)$",
+                clean_curr,
+                re.IGNORECASE,
+            )
+            if m_for_those:
+                action = m_for_those.group(2).strip()
+                if re.search(r"\btheir\b", action, re.IGNORECASE):
+                    action_cleaned = re.sub(r"\btheir\s+", "", action, flags=re.IGNORECASE).strip()
+                    resolved_q = f"{action_cleaned.capitalize()} for {scope}"
+                else:
+                    resolved_q = f"{action.capitalize()} for {scope}"
+                return ContinuationResolution(
+                    is_resolved=True,
+                    resolved_question=resolved_q,
+                    updated_semantic_state=base_state,
+                    operation_applied=op,
+                )
+
+            # Pattern C: "Finally, show ... for the same <entities>" / "... for the same <entities>"
+            m_for_same = re.search(
+                r"\bfor\s+(?:the\s+same|those\s+same|those)\s+([a-zA-Z0-9_]+)\b",
+                clean_curr,
+                re.IGNORECASE,
+            )
+            if m_for_same:
+                resolved_q = clean_curr[:m_for_same.start()] + f"for {scope}" + clean_curr[m_for_same.end():]
+                return ContinuationResolution(
+                    is_resolved=True,
+                    resolved_question=resolved_q.strip(),
+                    updated_semantic_state=base_state,
+                    operation_applied=op,
+                )
+
+            # Pattern D: "... of those top N <entities>" / "... for each of those <entities>"
+            m_of_those = re.search(
+                r"\b(?:of|for\s+each\s+of)\s+those(?:\s+top\s+\d+)?\s+([a-zA-Z0-9_]+)\b",
+                clean_curr,
+                re.IGNORECASE,
+            )
+            if m_of_those:
+                resolved_q = clean_curr[:m_of_those.start()] + f"for {scope}" + clean_curr[m_of_those.end():]
+                return ContinuationResolution(
+                    is_resolved=True,
+                    resolved_question=resolved_q.strip(),
+                    updated_semantic_state=base_state,
+                    operation_applied=op,
+                )
+
+            # Pattern E: "Now show only <entities> whose <condition>" / "show only <entities> whose <condition>"
+            m_whose = re.search(
+                r"^(?:now\s+)?show\s+only\s+([a-zA-Z0-9_]+)\s+whose\s+(.+)$",
+                clean_curr,
+                re.IGNORECASE,
+            )
+            if m_whose:
+                condition = m_whose.group(2).strip()
+                resolved_q = f"From {scope}, show only those whose {condition}"
+                return ContinuationResolution(
+                    is_resolved=True,
+                    resolved_question=resolved_q,
+                    updated_semantic_state=base_state,
+                    operation_applied=op,
+                )
+
+            # Pattern F: "Which of them...", "Sort them...", "Filter them..."
+            if re.search(r"\b(?:of\s+them|among\s+them|from\s+them|them)\b", clean_curr, re.IGNORECASE):
+                clean_prior = scope or base_question
+                clean_curr_sub = re.sub(r"\b(?:of\s+them|among\s+them|from\s+them)\b", "", clean_curr, flags=re.IGNORECASE).strip(" ?.")
+                if clean_curr_sub != clean_curr.strip(" ?."):
+                    resolved_q = f"Among {clean_prior}, {clean_curr_sub}"
+                else:
+                    resolved_q = re.sub(r"\bthem\b", clean_prior, clean_curr, flags=re.IGNORECASE)
+                return ContinuationResolution(
+                    is_resolved=True,
+                    resolved_question=resolved_q,
+                    updated_semantic_state=base_state,
+                    operation_applied=op,
+                )
+
+            # Fallback for general pronoun / referential question
+            if scope:
+                resolved_q = f"{clean_curr} (for {scope})"
             else:
-                resolved_q = current_question
+                resolved_q = clean_curr
 
             return ContinuationResolution(
                 is_resolved=True,

@@ -162,6 +162,21 @@ class BackendStateAdapter:
             if parsed_meta:
                 state.last_result_metadata = parsed_meta
 
+            meta_sql = last_result_metadata_dict.get("generatedSql") or last_result_metadata_dict.get("generated_sql") or last_result_metadata_dict.get("sql")
+            meta_q = last_result_metadata_dict.get("question") or last_result_metadata_dict.get("userQuestion") or last_result_metadata_dict.get("user_question")
+            if meta_sql and state.last_successful_execution is None:
+                record = ExecutionRecord(
+                    sql=str(meta_sql),
+                    status="Completed",
+                    timestamp="",
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    user_question=str(meta_q) if meta_q else None,
+                )
+                state.append_execution(record)
+                if state.active_query_state is None:
+                    state.active_query_state = SemanticQueryState(raw_sql=str(meta_sql))
+
         if not raw_conversation:
             return state
 
@@ -170,8 +185,14 @@ class BackendStateAdapter:
         # stopping at the first match found. last_successful_execution /
         # last_result_metadata still end up as the most recent one, same
         # as before, via append_execution's side effect.
+        pending_user_q = None
         for raw in raw_conversation:
             if not isinstance(raw, dict):
+                continue
+
+            role = str(raw.get("role") or "").strip().lower()
+            if role == "user":
+                pending_user_q = raw.get("content") or raw.get("user_question") or raw.get("userQuestion") or raw.get("question")
                 continue
 
             # Check for structured state attached by backend
@@ -193,22 +214,27 @@ class BackendStateAdapter:
                     )
 
             # Check for turn or assistant message convention
-            role = raw.get("role")
-            if role in ("turn", "assistant"):
+            if role in ("turn", "assistant", ""):
                 sql = raw.get("generated_sql") or raw.get("generatedSql") or raw.get("sql")
                 if not sql and raw.get("content") and "Generated SQL:" in raw["content"]:
                     parts = raw["content"].split("Generated SQL:", 1)
                     if len(parts) > 1 and parts[1].strip():
                         sql = parts[1].strip()
 
-                question_text = raw.get("user_question") or raw.get("userQuestion")
+                question_text = (
+                    raw.get("user_question")
+                    or raw.get("userQuestion")
+                    or raw.get("question")
+                    or pending_user_q
+                )
+                pending_user_q = None
                 summary = raw.get("execution_result_summary") or raw.get("text_summary") or raw.get("textSummary")
                 exec_res = raw.get("execution_result") or raw.get("executionResult")
 
                 if sql:
                     record = ExecutionRecord(
                         sql=str(sql),
-                        status=str(raw.get("execution_status") or raw.get("status") or "Success"),
+                        status=str(raw.get("execution_status") or raw.get("status") or "Completed"),
                         timestamp=str(raw.get("timestamp") or ""),
                         row_count=raw.get("row_count") or raw.get("rowCount"),
                         tenant_id=tenant_id,
