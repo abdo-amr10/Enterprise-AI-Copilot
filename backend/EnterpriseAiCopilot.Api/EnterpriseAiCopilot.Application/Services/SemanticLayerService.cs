@@ -28,6 +28,7 @@ namespace EnterpriseAiCopilot.Application.Services
         private readonly ILogger<SemanticLayerService> _logger;
         private readonly IAuditService _auditService;
         private readonly ISemanticIndexStorage _semanticIndexStorage;
+        private readonly IDatabaseMetadataReader _databaseMetadataReader;
 
         public SemanticLayerService(
             IApplicationDbContext context,
@@ -37,7 +38,8 @@ namespace EnterpriseAiCopilot.Application.Services
             IMemoryCache cache,
             ILogger<SemanticLayerService> logger,
             IAuditService auditService,
-            ISemanticIndexStorage semanticIndexStorage)
+            ISemanticIndexStorage semanticIndexStorage,
+            IDatabaseMetadataReader databaseMetadataReader)
         {
             _context = context;
             _fileStorage = fileStorage;
@@ -47,6 +49,7 @@ namespace EnterpriseAiCopilot.Application.Services
             _logger = logger;
             _auditService = auditService;
             _semanticIndexStorage = semanticIndexStorage;
+            _databaseMetadataReader = databaseMetadataReader;
         }
 
         private static string AllowedTablesCacheKey(Guid layerId) => $"AllowedTables_{layerId}";
@@ -246,6 +249,120 @@ namespace EnterpriseAiCopilot.Application.Services
             return Result<UploadDataSourcesResponse>.Success(response);
         }
 
+        public async Task<Result<DatabaseMetadataResponse>> SyncMetadataAsync(
+            Guid layerId,
+            CancellationToken cancellationToken = default)
+        {
+            var layer = await _context.SemanticLayers.FirstOrDefaultAsync(layer => layer.Id == layerId, cancellationToken);
+            if (layer == null)
+                return Result<DatabaseMetadataResponse>.Failure("Semantic Layer not found.");
+
+            var snapshotResult = await _databaseMetadataReader.ReadTargetAsync(cancellationToken);
+            if (!snapshotResult.IsSuccess || snapshotResult.Data == null)
+                return Result<DatabaseMetadataResponse>.Failure(snapshotResult.ErrorMessage ?? "Failed to read database metadata.");
+
+            var snapshot = snapshotResult.Data;
+            layer.DatabaseMetadataJson = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
+
+            var allowedTables = await _context.AllowedTables
+                .Where(table => table.SemanticLayerId == layerId)
+                .ToListAsync(cancellationToken);
+            var targetTableNames = snapshot.Tables
+                .Select(table => table.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var existingTableSet = allowedTables
+                .Select(table => table.TableName)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            // Keep old permission records for history, but disable tables that
+            // no longer exist in the currently connected Target database.
+            foreach (var allowedTable in allowedTables)
+            {
+                if (!targetTableNames.Contains(allowedTable.TableName))
+                {
+                    allowedTable.IsAllowed = false;
+                }
+            }
+
+            foreach (var table in snapshot.Tables)
+            {
+                if (!existingTableSet.Contains(table.Name))
+                {
+                    _context.AllowedTables.Add(new AllowedTable
+                    {
+                        SemanticLayerId = layerId,
+                        TableName = table.Name,
+                        IsAllowed = true,
+                        CreatedBy = _currentUserService.UserId ?? "SYSTEM"
+                    });
+                }
+            }
+
+            await _context.SaveChangesAsync(cancellationToken);
+
+            var activeRevision = await _context.SemanticRevisions
+                .Where(revision => revision.SemanticLayerId == layerId &&
+                    (revision.Status == "Approved" || revision.Status == "Active"))
+                .OrderByDescending(revision => revision.VersionNumber)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (activeRevision != null)
+            {
+                activeRevision.PhysicalSchemaJson = layer.DatabaseMetadataJson;
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+
+            return Result<DatabaseMetadataResponse>.Success(new DatabaseMetadataResponse
+            {
+                SemanticLayerId = layerId.ToString(),
+                DatabaseName = snapshot.DatabaseName,
+                SyncedAtUtc = snapshot.SyncedAtUtc,
+                Metadata = snapshot
+            });
+        }
+
+        public async Task<Result<object>> GetRlsPolicyAsync(Guid layerId, CancellationToken cancellationToken = default)
+        {
+            var policy = await _context.SemanticLayers
+                .AsNoTracking()
+                .Where(layer => layer.Id == layerId)
+                .Select(layer => layer.RlsPolicyJson)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (policy == null)
+                return Result<object>.Failure("Semantic Layer not found.");
+
+            if (string.IsNullOrWhiteSpace(policy))
+                return Result<object>.Success(new { enabled = false, rules = Array.Empty<object>() });
+
+            try
+            {
+                return Result<object>.Success(JsonSerializer.Deserialize<JsonElement>(policy));
+            }
+            catch (JsonException)
+            {
+                return Result<object>.Failure("RLS_POLICY_ERROR: Stored RLS policy is invalid JSON.");
+            }
+        }
+
+        public async Task<Result<bool>> SaveRlsPolicyAsync(
+            Guid layerId,
+            RlsPolicyRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            var layer = await _context.SemanticLayers.FirstOrDefaultAsync(layer => layer.Id == layerId, cancellationToken);
+            if (layer == null)
+                return Result<bool>.Failure("Semantic Layer not found.");
+            if (request == null || string.IsNullOrWhiteSpace(request.ScopeParameter))
+                return Result<bool>.Failure("RLS_POLICY_ERROR: ScopeParameter is required.");
+
+            if (request.Rules.Any(rule => string.IsNullOrWhiteSpace(rule.Table) || string.IsNullOrWhiteSpace(rule.ScopeColumn)))
+                return Result<bool>.Failure("RLS_POLICY_ERROR: Every rule must contain table and scopeColumn.");
+
+            layer.RlsPolicyJson = JsonSerializer.Serialize(request, new JsonSerializerOptions { WriteIndented = true });
+            await _context.SaveChangesAsync(cancellationToken);
+            return Result<bool>.Success(true);
+        }
+
         public async Task<Result<GenerateDraftResponse>> GenerateDraftAsync(GenerateDraftRequest request, CancellationToken cancellationToken = default)
         {
             if (!Guid.TryParse(request.SemanticLayerId, out Guid layerId))
@@ -392,8 +509,6 @@ namespace EnterpriseAiCopilot.Application.Services
 
             if (revision.Status == "Approved")
             {
-                // Approval validates the revision only. Activation is an
-                // explicit operation handled by ActivateSemanticLayerAsync.
                 response.Version = $"v{revision.VersionNumber}.0";
                 response.ApprovedBy = currentUser;
                 response.ApprovedAt = timeNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
@@ -843,37 +958,80 @@ namespace EnterpriseAiCopilot.Application.Services
 
         public async Task<Result<UploadIndexArtifactResponse>> UploadIndexArtifactAsync(Guid revisionId, UploadIndexArtifactRequest request, CancellationToken cancellationToken = default)
         {
-            var revision = await _context.SemanticRevisions.AsNoTracking().FirstOrDefaultAsync(r => r.Id == revisionId, cancellationToken);
-            if (revision == null) return Result<UploadIndexArtifactResponse>.Failure("Revision not found.");
-            if (request.FaissIndex == null || request.FaissIndex.Length == 0) return Result<UploadIndexArtifactResponse>.Failure("faissIndex is required and cannot be empty.");
+            var revision = await _context.SemanticRevisions.AsNoTracking()
+                .FirstOrDefaultAsync(r => r.Id == revisionId, cancellationToken);
+            if (revision == null)
+                return Result<UploadIndexArtifactResponse>.Failure("Revision not found.");
+
+            if (request.FaissIndex == null || request.FaissIndex.Length == 0)
+                return Result<UploadIndexArtifactResponse>.Failure("faissIndex is required and cannot be empty.");
+
             var indexMetadata = await request.ReadIndexMetadataJsonAsync(cancellationToken);
             var documentMetadata = await request.ReadDocumentMetadataJsonAsync(cancellationToken);
-            if (string.IsNullOrWhiteSpace(indexMetadata) || string.IsNullOrWhiteSpace(documentMetadata)) return Result<UploadIndexArtifactResponse>.Failure("indexMetadata and documentMetadata are required.");
-            try { using var i = JsonDocument.Parse(indexMetadata); using var d = JsonDocument.Parse(documentMetadata); }
-            catch (JsonException) { return Result<UploadIndexArtifactResponse>.Failure("indexMetadata and documentMetadata must be valid JSON."); }
-            if (await _semanticIndexStorage.ArtifactExistsAsync(revision.SemanticLayerId, revisionId, cancellationToken)) return Result<UploadIndexArtifactResponse>.Failure("ALREADY_EXISTS: An index artifact already exists for this revision.");
+            if (string.IsNullOrWhiteSpace(indexMetadata) || string.IsNullOrWhiteSpace(documentMetadata))
+                return Result<UploadIndexArtifactResponse>.Failure("indexMetadata and documentMetadata are required.");
+
+            try
+            {
+                using var indexDocument = JsonDocument.Parse(indexMetadata);
+                using var documentDocument = JsonDocument.Parse(documentMetadata);
+            }
+            catch (JsonException)
+            {
+                return Result<UploadIndexArtifactResponse>.Failure("indexMetadata and documentMetadata must be valid JSON.");
+            }
+
+            if (await _semanticIndexStorage.ArtifactExistsAsync(revision.SemanticLayerId, revisionId, cancellationToken))
+                return Result<UploadIndexArtifactResponse>.Failure("ALREADY_EXISTS: An index artifact already exists for this revision.");
+
             await using var faissStream = request.FaissIndex.OpenReadStream();
-            var save = await _semanticIndexStorage.SaveArtifactBundleAsync(revision.SemanticLayerId, revisionId, faissStream, indexMetadata, documentMetadata, cancellationToken);
-            if (!save.IsSuccess) return Result<UploadIndexArtifactResponse>.Failure(save.ErrorMessage ?? "Failed to save index artifact.");
-            return Result<UploadIndexArtifactResponse>.Success(new UploadIndexArtifactResponse { SemanticLayerId = revision.SemanticLayerId.ToString(), RevisionId = revisionId.ToString(), Status = "READY", ArtifactReady = true, UpdatedAt = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") });
+            var saveResult = await _semanticIndexStorage.SaveArtifactBundleAsync(
+                revision.SemanticLayerId, revisionId, faissStream, indexMetadata, documentMetadata, cancellationToken);
+            if (!saveResult.IsSuccess)
+                return Result<UploadIndexArtifactResponse>.Failure(saveResult.ErrorMessage ?? "Failed to save index artifact.");
+
+            return Result<UploadIndexArtifactResponse>.Success(new UploadIndexArtifactResponse
+            {
+                SemanticLayerId = revision.SemanticLayerId.ToString(),
+                RevisionId = revisionId.ToString(),
+                Status = "READY",
+                ArtifactReady = true,
+                UpdatedAt = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+            });
         }
 
         public async Task<Result<byte[]>> GetIndexArtifactZipAsync(Guid revisionId, CancellationToken cancellationToken = default)
         {
-            var revision = await _context.SemanticRevisions.AsNoTracking().FirstOrDefaultAsync(r => r.Id == revisionId, cancellationToken);
-            if (revision == null) return Result<byte[]>.Failure("Revision not found.");
+            var revision = await _context.SemanticRevisions.AsNoTracking()
+                .FirstOrDefaultAsync(r => r.Id == revisionId, cancellationToken);
+            if (revision == null)
+                return Result<byte[]>.Failure("Revision not found.");
+
             return await _semanticIndexStorage.GetArtifactBundleZipAsync(revision.SemanticLayerId, revisionId, cancellationToken);
         }
 
         public async Task<Result<bool>> DeleteRevisionAsync(Guid revisionId, CancellationToken cancellationToken = default)
         {
             var revision = await _context.SemanticRevisions.FirstOrDefaultAsync(r => r.Id == revisionId, cancellationToken);
-            if (revision == null) return Result<bool>.Failure("Revision not found.");
+            if (revision == null)
+                return Result<bool>.Failure("Revision not found.");
+
             var layerId = revision.SemanticLayerId;
-            try { _context.SemanticRevisions.Remove(revision); await _context.SaveChangesAsync(cancellationToken); }
-            catch (DbUpdateException ex) { _logger.LogWarning(ex, "Revision {RevisionId} could not be deleted.", revisionId); return Result<bool>.Failure("Revision cannot be deleted because it is referenced by existing records."); }
+            try
+            {
+                _context.SemanticRevisions.Remove(revision);
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogWarning(ex, "Revision {RevisionId} could not be deleted.", revisionId);
+                return Result<bool>.Failure("Revision cannot be deleted because it is referenced by existing records.");
+            }
+
             var cleanup = await _semanticIndexStorage.DeleteRevisionArtifactAsync(layerId, revisionId, cancellationToken);
-            if (!cleanup.IsSuccess) _logger.LogWarning("Index artifact cleanup failed for revision {RevisionId}: {Error}", revisionId, cleanup.ErrorMessage);
+            if (!cleanup.IsSuccess)
+                _logger.LogWarning("Index artifact cleanup failed for revision {RevisionId}: {Error}", revisionId, cleanup.ErrorMessage);
+
             return Result<bool>.Success(true);
         }
 
@@ -909,7 +1067,8 @@ namespace EnterpriseAiCopilot.Application.Services
             }
 
             var indexCleanup = await _semanticIndexStorage.DeleteLayerArtifactsAsync(layerId, cancellationToken);
-            if (!indexCleanup.IsSuccess) _logger.LogWarning("Semantic index artifact cleanup failed for layer {LayerId}: {Error}", layerId, indexCleanup.ErrorMessage);
+            if (!indexCleanup.IsSuccess)
+                _logger.LogWarning("Semantic index artifact cleanup failed for layer {LayerId}: {Error}", layerId, indexCleanup.ErrorMessage);
 
             _cache.Remove(AllowedTablesCacheKey(layerId));
 

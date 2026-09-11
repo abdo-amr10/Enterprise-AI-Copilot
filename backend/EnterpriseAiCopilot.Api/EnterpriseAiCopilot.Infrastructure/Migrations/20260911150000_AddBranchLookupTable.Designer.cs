@@ -1,13 +1,14 @@
-using EnterpriseAiCopilot.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using EnterpriseAiCopilot.Infrastructure.Persistence;
 
 #nullable disable
 
 namespace EnterpriseAiCopilot.Infrastructure.Migrations;
 
 [DbContext(typeof(ApplicationDbContext))]
-partial class AddConversations
+partial class AddBranchLookupTable
 {
     protected override void BuildTargetModel(ModelBuilder modelBuilder)
     {

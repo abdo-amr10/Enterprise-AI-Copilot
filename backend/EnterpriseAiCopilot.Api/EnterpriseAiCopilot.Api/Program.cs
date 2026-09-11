@@ -4,6 +4,7 @@ using EnterpriseAiCopilot.Application;
 using FluentValidation.AspNetCore;
 using Microsoft.OpenApi;
 using Scalar.AspNetCore;
+using EnterpriseAiCopilot.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -57,6 +58,12 @@ builder.Services.AddDistributedMemoryCache();
 
 builder.Services.AddMemoryCache();
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var databaseSeeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+    await databaseSeeder.SeedAdminAsync();
+}
 
 app.UseExceptionHandler();
 

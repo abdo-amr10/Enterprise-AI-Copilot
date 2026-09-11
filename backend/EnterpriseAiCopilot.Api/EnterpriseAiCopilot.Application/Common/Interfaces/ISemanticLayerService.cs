@@ -30,5 +30,8 @@ namespace EnterpriseAiCopilot.Application.Common.Interfaces
         Task<Result<UploadIndexArtifactResponse>> UploadIndexArtifactAsync(Guid revisionId, UploadIndexArtifactRequest request, CancellationToken cancellationToken = default);
         Task<Result<byte[]>> GetIndexArtifactZipAsync(Guid revisionId, CancellationToken cancellationToken = default);
         Task<Result<bool>> DeleteRevisionAsync(Guid revisionId, CancellationToken cancellationToken = default);
+        Task<Result<DatabaseMetadataResponse>> SyncMetadataAsync(Guid layerId, CancellationToken cancellationToken = default);
+        Task<Result<object>> GetRlsPolicyAsync(Guid layerId, CancellationToken cancellationToken = default);
+        Task<Result<bool>> SaveRlsPolicyAsync(Guid layerId, RlsPolicyRequest request, CancellationToken cancellationToken = default);
     }
 }

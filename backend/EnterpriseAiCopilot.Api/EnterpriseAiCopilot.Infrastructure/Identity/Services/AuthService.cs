@@ -106,6 +106,7 @@ namespace EnterpriseAiCopilot.Infrastructure.Identity.Services
             if (!string.IsNullOrEmpty(user.BranchId))
             {
                 claims.Add(new Claim("branchId", user.BranchId));
+                claims.Add(new Claim("store_id", user.BranchId));
             }
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["JwtSettings:Secret"]!));

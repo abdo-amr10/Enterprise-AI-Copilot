@@ -35,7 +35,7 @@ namespace EnterpriseAiCopilot.Api.Controllers
                 });
             }
 
-            var branchId = User.FindFirstValue("branchId");
+            var branchId = User.FindFirstValue("store_id") ?? User.FindFirstValue("storeId") ?? User.FindFirstValue("branchId");
 
             if (string.IsNullOrWhiteSpace(branchId))
             {
