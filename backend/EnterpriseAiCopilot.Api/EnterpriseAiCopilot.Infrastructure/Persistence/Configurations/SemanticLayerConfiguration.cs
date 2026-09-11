@@ -21,6 +21,12 @@ namespace EnterpriseAiCopilot.Infrastructure.Persistence.Configurations
                 .IsRequired()
                 .HasMaxLength(100);
 
+            builder.Property(s => s.DatabaseMetadataJson)
+                .HasColumnType("nvarchar(max)");
+
+            builder.Property(s => s.RlsPolicyJson)
+                .HasColumnType("nvarchar(max)");
+
             builder.Property(s => s.Description)
                 .HasMaxLength(500);
 

@@ -8,6 +8,9 @@ namespace EnterpriseAiCopilot.Application.DTOs.Copilot
     {
         public string Role { get; set; } = string.Empty;
         public string Content { get; set; } = string.Empty;
+
+        // Turn-shaped conversation data consumed by the AI Conversation Layer.
+        // Role/Content remain available for system correction messages.
         public string? TurnId { get; set; }
         public string? UserQuestion { get; set; }
         public string? ResolvedQuestion { get; set; }

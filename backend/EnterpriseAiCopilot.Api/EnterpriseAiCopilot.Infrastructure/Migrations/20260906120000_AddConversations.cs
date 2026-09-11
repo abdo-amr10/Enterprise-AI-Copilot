@@ -1,10 +1,10 @@
-using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace EnterpriseAiCopilot.Infrastructure.Migrations;
 
+[Migration("20260906120000_AddConversations")]
 public partial class AddConversations : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
@@ -38,21 +38,9 @@ public partial class AddConversations : Migration
             type: "uniqueidentifier",
             nullable: true);
 
-        migrationBuilder.CreateIndex(
-            name: "IX_Conversations_SemanticLayerId",
-            table: "Conversations",
-            column: "SemanticLayerId");
-
-        migrationBuilder.CreateIndex(
-            name: "IX_Conversations_UserId_BranchId_UpdatedAt",
-            table: "Conversations",
-            columns: new[] { "UserId", "BranchId", "UpdatedAt" });
-
-        migrationBuilder.CreateIndex(
-            name: "IX_CopilotQueryHistories_ConversationId",
-            table: "CopilotQueryHistories",
-            column: "ConversationId");
-
+        migrationBuilder.CreateIndex("IX_Conversations_SemanticLayerId", "Conversations", "SemanticLayerId");
+        migrationBuilder.CreateIndex("IX_Conversations_UserId_BranchId_UpdatedAt", "Conversations", new[] { "UserId", "BranchId", "UpdatedAt" });
+        migrationBuilder.CreateIndex("IX_CopilotQueryHistories_ConversationId", "CopilotQueryHistories", "ConversationId");
         migrationBuilder.AddForeignKey(
             name: "FK_CopilotQueryHistories_Conversations_ConversationId",
             table: "CopilotQueryHistories",
@@ -64,9 +52,11 @@ public partial class AddConversations : Migration
 
     protected override void Down(MigrationBuilder migrationBuilder)
     {
-        migrationBuilder.DropForeignKey("FK_CopilotQueryHistories_Conversations_ConversationId", "CopilotQueryHistories");
-        migrationBuilder.DropTable("Conversations");
+        migrationBuilder.DropForeignKey(
+            name: "FK_CopilotQueryHistories_Conversations_ConversationId",
+            table: "CopilotQueryHistories");
         migrationBuilder.DropIndex("IX_CopilotQueryHistories_ConversationId", "CopilotQueryHistories");
         migrationBuilder.DropColumn("ConversationId", "CopilotQueryHistories");
+        migrationBuilder.DropTable("Conversations");
     }
 }

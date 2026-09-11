@@ -9,6 +9,8 @@ namespace EnterpriseAiCopilot.Domain.Entities
     {
         public string Name { get; set; } = string.Empty;
         public string DatabaseName { get; set; } = string.Empty;
+        public string? DatabaseMetadataJson { get; set; }
+        public string? RlsPolicyJson { get; set; }
         public string Description { get; set; } = string.Empty;
         public bool IsActive { get; set; } = false;
 

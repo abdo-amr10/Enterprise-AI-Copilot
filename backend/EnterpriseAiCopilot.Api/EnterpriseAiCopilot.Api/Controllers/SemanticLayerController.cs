@@ -2,6 +2,7 @@
 using EnterpriseAiCopilot.Application.DTOs.SemanticLayer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
 
 namespace EnterpriseAiCopilot.Api.Controllers
 {
@@ -275,6 +276,62 @@ namespace EnterpriseAiCopilot.Api.Controllers
             return Ok(result.Data);
         }
 
+        [HttpPost("{layerId}/sync-metadata")]
+        public async Task<IActionResult> SyncMetadata(Guid layerId, CancellationToken cancellationToken)
+        {
+            var result = await _semanticLayerService.SyncMetadataAsync(layerId, cancellationToken);
+            if (!result.IsSuccess)
+                return BadRequest(new { status = "Failed", errorCode = "DATABASE_METADATA_ERROR", message = result.ErrorMessage });
+
+            return Ok(result.Data);
+        }
+
+        [HttpGet("{layerId}/rls-policy")]
+        public async Task<IActionResult> GetRlsPolicy(Guid layerId, CancellationToken cancellationToken)
+        {
+            var result = await _semanticLayerService.GetRlsPolicyAsync(layerId, cancellationToken);
+            if (!result.IsSuccess)
+                return NotFound(new { status = "Failed", errorCode = "NOT_FOUND", message = result.ErrorMessage });
+
+            return Ok(result.Data);
+        }
+
+        [HttpPut("{layerId}/rls-policy/file")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadRlsPolicyFile(
+            Guid layerId,
+            IFormFile file,
+            CancellationToken cancellationToken)
+        {
+            if (file == null || file.Length == 0)
+                return BadRequest(new { status = "Failed", errorCode = "RLS_POLICY_ERROR", message = "A non-empty JSON file is required." });
+
+            try
+            {
+                await using var stream = file.OpenReadStream();
+                using var reader = new StreamReader(stream);
+                var json = await reader.ReadToEndAsync(cancellationToken);
+                var request = JsonSerializer.Deserialize<RlsPolicyRequest>(json, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+
+                if (request == null)
+                    return BadRequest(new { status = "Failed", errorCode = "RLS_POLICY_ERROR", message = "The uploaded file contains invalid JSON." });
+
+                var result = await _semanticLayerService.SaveRlsPolicyAsync(layerId, request, cancellationToken);
+                if (!result.IsSuccess)
+                    return BadRequest(new { status = "Failed", errorCode = "RLS_POLICY_ERROR", message = result.ErrorMessage });
+
+                return Ok(new { status = "Success", message = "RLS policy file uploaded and saved successfully." });
+            }
+            catch (JsonException)
+            {
+                return BadRequest(new { status = "Failed", errorCode = "RLS_POLICY_ERROR", message = "The uploaded file contains invalid JSON." });
+            }
+        }
+
+
         [HttpGet("{layerId}/users/table-permissions")]
         public async Task<IActionResult> GetTablePermissions(Guid layerId, CancellationToken cancellationToken)
         {
@@ -345,10 +402,17 @@ namespace EnterpriseAiCopilot.Api.Controllers
         {
             var result = await _semanticLayerService.UploadIndexArtifactAsync(revisionId, request, cancellationToken);
             if (result.IsSuccess) return Ok(result.Data);
+
             var message = result.ErrorMessage ?? "Failed to upload index artifact.";
             var notFound = message.StartsWith("Revision not found", StringComparison.OrdinalIgnoreCase);
-            var conflict = message.StartsWith("ALREADY_EXISTS:", StringComparison.OrdinalIgnoreCase) || message.StartsWith("CONCURRENT_OPERATION:", StringComparison.OrdinalIgnoreCase);
-            return StatusCode(conflict ? StatusCodes.Status409Conflict : notFound ? StatusCodes.Status404NotFound : StatusCodes.Status400BadRequest, new { status = "Failed", errorCode = conflict ? "CONFLICT" : notFound ? "NOT_FOUND" : "VALIDATION_ERROR", message });
+            var conflict = message.StartsWith("ALREADY_EXISTS:", StringComparison.OrdinalIgnoreCase)
+                || message.StartsWith("CONCURRENT_OPERATION:", StringComparison.OrdinalIgnoreCase);
+            return StatusCode(conflict ? StatusCodes.Status409Conflict : notFound ? StatusCodes.Status404NotFound : StatusCodes.Status400BadRequest, new
+            {
+                status = "Failed",
+                errorCode = conflict ? "CONFLICT" : notFound ? "NOT_FOUND" : "VALIDATION_ERROR",
+                message
+            });
         }
 
         [HttpGet("internal/revisions/{revisionId}/index-artifact")]
@@ -358,8 +422,14 @@ namespace EnterpriseAiCopilot.Api.Controllers
             if (!result.IsSuccess)
             {
                 var notFound = result.ErrorMessage?.Contains("not found", StringComparison.OrdinalIgnoreCase) == true;
-                return StatusCode(notFound ? StatusCodes.Status404NotFound : StatusCodes.Status400BadRequest, new { status = "Failed", errorCode = notFound ? "NOT_FOUND" : "BUSINESS_ERROR", message = result.ErrorMessage });
+                return StatusCode(notFound ? StatusCodes.Status404NotFound : StatusCodes.Status400BadRequest, new
+                {
+                    status = "Failed",
+                    errorCode = notFound ? "NOT_FOUND" : "BUSINESS_ERROR",
+                    message = result.ErrorMessage
+                });
             }
+
             return File(result.Data!, "application/zip", $"semantic_index_rev_{revisionId}.zip");
         }
 
@@ -370,8 +440,14 @@ namespace EnterpriseAiCopilot.Api.Controllers
             if (!result.IsSuccess)
             {
                 var notFound = result.ErrorMessage?.StartsWith("Revision not found", StringComparison.OrdinalIgnoreCase) == true;
-                return StatusCode(notFound ? StatusCodes.Status404NotFound : StatusCodes.Status400BadRequest, new { status = "Failed", errorCode = notFound ? "NOT_FOUND" : "BUSINESS_ERROR", message = result.ErrorMessage });
+                return StatusCode(notFound ? StatusCodes.Status404NotFound : StatusCodes.Status400BadRequest, new
+                {
+                    status = "Failed",
+                    errorCode = notFound ? "NOT_FOUND" : "BUSINESS_ERROR",
+                    message = result.ErrorMessage
+                });
             }
+
             return NoContent();
         }
     }
