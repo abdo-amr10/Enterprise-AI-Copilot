@@ -1,4 +1,4 @@
-﻿using EnterpriseAiCopilot.Application.Common.Interfaces;
+using EnterpriseAiCopilot.Application.Common.Interfaces;
 using EnterpriseAiCopilot.Application.Common.Models;
 using EnterpriseAiCopilot.Application.DTOs.Copilot;
 using EnterpriseAiCopilot.Domain.Constants;

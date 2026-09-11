@@ -1,8 +1,6 @@
 from src.application.dto.backend.semantic_layer.semantic_layer_revision_response import (
     SemanticLayerRevisionResponse,
 )
-from src.application.dto.backend.semantic_layer.semantic_layer_revision_update_request import SemanticLayerRevisionUpdateRequest
-from src.application.dto.backend.semantic_layer.semantic_layer_revision_update_response import SemanticLayerRevisionUpdateResponse
 from src.application.dto.backend.semantic_layer.semantic_layer_review_request import SemanticLayerReviewRequest
 from src.application.dto.backend.semantic_layer.semantic_layer_review_response import SemanticLayerReviewResponse
 from src.infrastructure.backend.backend_http_client import BackendHttpClient
@@ -51,16 +49,6 @@ class SemanticLayerRevisionClientImpl:
             last_regeneration_type=response["lastRegenerationType"],
             content=response["content"],
             created_at=response["createdAt"],
-        )
-
-    def update_revision(self, request: SemanticLayerRevisionUpdateRequest) -> SemanticLayerRevisionUpdateResponse:
-        response = self._http_client.put(
-            f"/api/v1/semantic-layer/{request.semantic_layer_id}/revisions/{request.revision_id}",
-            {"content": request.content},
-        )
-        return SemanticLayerRevisionUpdateResponse(
-            semantic_layer_id=response["semanticLayerId"], revision_id=response["revisionId"],
-            status=response["status"], message=response["message"],
         )
 
     def review_revision(self, request: SemanticLayerReviewRequest) -> SemanticLayerReviewResponse:

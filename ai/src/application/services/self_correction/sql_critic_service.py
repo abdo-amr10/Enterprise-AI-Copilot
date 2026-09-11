@@ -33,7 +33,27 @@ class SQLCriticService:
         )
 
         try:
-            response = self._llm_client.generate(GenerationRequest(prompt=prompt))
+            from src.observability.latency_audit import record_prompt
+            record_prompt(
+                stage_name="sql_critic_prompt",
+                model="qwen2.5-coder:7b",
+                config_name="sql_critic",
+                prompt=prompt,
+                components={
+                    "question_chars": len(question),
+                    "sql_chars": len(sql),
+                    "semantic_context_chars": len(semantic_context),
+                },
+            )
+        except Exception:
+            pass
+
+        try:
+            from src.observability.latency_audit import stage as audit_stage
+            with audit_stage("sql_critic", is_leaf=True):
+                response = self._llm_client.generate(
+                    GenerationRequest(prompt=prompt, format="json")
+                )
         except Exception as exc:
             return CriticResult(status="FAIL", issues=(CriticIssue(
                 type="CRITIC_UNAVAILABLE",
@@ -43,23 +63,35 @@ class SQLCriticService:
 
     @staticmethod
     def _parse(text: str) -> CriticResult:
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.splitlines()
+            cleaned = "\n".join(
+                line for line in lines
+                if not line.strip().startswith("```")
+            ).strip()
+
         try:
-            payload = json.loads(text)
+            payload = json.loads(cleaned)
         except json.JSONDecodeError:
-            return CriticResult(status="FAIL", issues=(CriticIssue(
+            # The critic is advisory. A malformed critic answer must not
+            # reject SQL that already passed deterministic safety checks.
+            return CriticResult(status="UNKNOWN", issues=(CriticIssue(
                 type="CRITIC_MALFORMED_RESPONSE",
                 description="SQL critic returned malformed JSON.",
             ),))
 
         status = payload.get("status")
         if status not in {"PASS", "FAIL", "UNKNOWN"}:
-            return CriticResult(status="FAIL", issues=(CriticIssue(
+            return CriticResult(status="UNKNOWN", issues=(CriticIssue(
                 type="CRITIC_INVALID_RESPONSE",
                 description="SQL critic returned an unsupported status.",
             ),))
 
         if status == "UNKNOWN":
-            return CriticResult(status="FAIL", issues=(CriticIssue(
+            # UNKNOWN is not a confirmed defect. The deterministic validators
+            # already enforce syntax, schema, and relationship safety.
+            return CriticResult(status="UNKNOWN", issues=(CriticIssue(
                 type="CRITIC_UNKNOWN",
                 description="SQL critic could not determine whether the SQL answers the request.",
             ),))

@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from src.observability.mlflow_observer import MLflowObserver
 from src.application.pipelines.context_retrieval.semantic_retrieval_pipeline import (
     SemanticRetrievalPipeline,
 )
@@ -32,6 +33,7 @@ from src.application.services.self_correction.validators.sql_schema_validator im
 from src.application.services.self_correction.validators.sql_syntax_validator import (
     SQLSyntaxValidator,
 )
+from src.application.services.self_correction.validators.sql_rls_validator import SQLRlsValidator
 from src.application.services.context_retrieval.context_retrieval_service import (
     ContextRetrievalService,
 )
@@ -39,9 +41,13 @@ from src.application.services.text_to_sql.sql_generation_service import (
     SQLGenerationService,
 )
 from src.application.services.text_to_sql.text_to_sql_pipeline import TextToSQLPipeline
+from src.application.services.preflight.preflight_service import PreflightService
+from src.config.preflight_settings import PreflightSettings
 from src.config.self_correction_settings import SelfCorrectionSettings
 from src.config.semantic_settings import SemanticSettings
 from src.infrastructure.llm.model_config import (
+    CONTEXT_RESOLVER_CONFIG,
+    INTENT_CLASSIFIER_CONFIG,
     QWEN_CONFIG,
     SQL_CORRECTION_CONFIG,
     SQL_CRITIC_CONFIG,
@@ -51,6 +57,8 @@ from src.infrastructure.semantic_layer.ingestion.database_schema_provider import
     DatabaseSchemaProvider,
 )
 from src.infrastructure.semantic_layer.retrieval.backend_semantic_repository import BackendSemanticRepository
+from src.infrastructure.semantic_layer.retrieval.embedding_service import EmbeddingService
+from src.infrastructure.semantic_layer.retrieval.faiss_vector_index import FaissVectorIndex
 from src.infrastructure.semantic_layer.ingestion.backend_database_schema_provider import BackendDatabaseSchemaProvider
 from src.infrastructure.semantic_layer.retrieval.file_semantic_repository import (
     FileSemanticRepository,
@@ -58,6 +66,7 @@ from src.infrastructure.semantic_layer.retrieval.file_semantic_repository import
 
 _SETTINGS = SemanticSettings()
 _SELF_CORRECTION_SETTINGS = SelfCorrectionSettings()
+_PREFLIGHT_SETTINGS = PreflightSettings()
 _AI_ROOT = Path(__file__).resolve().parents[2]
 _REPO_ROOT = _AI_ROOT.parent
 _LOCAL_APPROVED_LAYER = _AI_ROOT / "outputs" / "semantic_layer" / "approved_semantic_layer.json"
@@ -72,6 +81,8 @@ _LOCAL_SCHEMA = _REPO_ROOT / "docs" / "database_metadata" / "schema.json"
 _semantic_repository: BackendSemanticRepository | FileSemanticRepository | None = None
 _context_retrieval_service: ContextRetrievalService | None = None
 _self_correction_service: SelfCorrectionService | None = None
+_schema_provider: BackendDatabaseSchemaProvider | DatabaseSchemaProvider | None = None
+_preflight_service: PreflightService | None = None
 
 
 def is_local_development_mode() -> bool:
@@ -80,13 +91,40 @@ def is_local_development_mode() -> bool:
     return os.getenv("AI_LOCAL_DEV_MODE", "").casefold() == "true"
 
 
+_embedding_service: EmbeddingService | None = None
+
+
+def get_embedding_service() -> EmbeddingService:
+    global _embedding_service
+    if _embedding_service is None:
+        _embedding_service = EmbeddingService(
+            _SETTINGS.production_embedding_model_path,
+            model_name=_SETTINGS.production_embedding_model_name,
+            device=_SETTINGS.embedding_device,
+            batch_size=_SETTINGS.embedding_batch_size,
+            normalize=_SETTINGS.normalize_embeddings,
+        )
+    return _embedding_service
+
+
 def get_semantic_repository() -> BackendSemanticRepository | FileSemanticRepository:
     global _semantic_repository
     if _semantic_repository is None:
+        embedding_service = get_embedding_service()
         _semantic_repository = (
-            FileSemanticRepository(_LOCAL_APPROVED_LAYER)
+            FileSemanticRepository(
+                _LOCAL_APPROVED_LAYER,
+                embedding_service=embedding_service,
+                vector_store=FaissVectorIndex(
+                    _AI_ROOT / "outputs" / "semantic_layer" / _SETTINGS.vector_index_filename
+                ),
+            )
             if is_local_development_mode()
-            else BackendSemanticRepository()
+            else BackendSemanticRepository(
+                embedding_service=embedding_service,
+                vector_index=FaissVectorIndex(),
+                settings=_SETTINGS,
+            )
         )
     return _semantic_repository
 
@@ -97,14 +135,20 @@ def get_context_service() -> ContextRetrievalService:
         _context_retrieval_service = ContextRetrievalService(
             semantic_repository=get_semantic_repository(),
             default_top_k=_SETTINGS.default_top_k,
+            schema_provider=get_schema_provider(),
         )
     return _context_retrieval_service
 
 
-def get_schema_provider():
-    if is_local_development_mode():
-        return DatabaseSchemaProvider(_LOCAL_SCHEMA)
-    return BackendDatabaseSchemaProvider()
+def get_schema_provider() -> BackendDatabaseSchemaProvider | DatabaseSchemaProvider:
+    global _schema_provider
+    if _schema_provider is None:
+        _schema_provider = (
+            DatabaseSchemaProvider(_LOCAL_SCHEMA)
+            if is_local_development_mode()
+            else BackendDatabaseSchemaProvider()
+        )
+    return _schema_provider
 
 
 def get_self_correction_service() -> SelfCorrectionService:
@@ -120,6 +164,11 @@ def get_self_correction_service() -> SelfCorrectionService:
             syntax_validator=syntax_validator,
             schema_validator=schema_validator,
         )
+        rls_validator = SQLRlsValidator(
+            syntax_validator=syntax_validator,
+            schema_validator=schema_validator,
+            semantic_repository=get_semantic_repository(),
+        )
         critic_service = SQLCriticService(
             llm_client=OllamaClient(config=SQL_CRITIC_CONFIG)
         )
@@ -133,11 +182,27 @@ def get_self_correction_service() -> SelfCorrectionService:
             schema_validator=schema_validator,
             relationship_validator=relationship_validator,
             critic_service=critic_service,
-            finding_verifier=CriticFindingVerifier(get_schema_provider()),
+            finding_verifier=CriticFindingVerifier(
+                get_schema_provider(),
+                semantic_repository=get_semantic_repository(),
+            ),
             correction_service=correction_service,
             max_attempts=_SELF_CORRECTION_SETTINGS.max_attempts,
+            rls_validator=rls_validator,
         )
     return _self_correction_service
+
+
+def get_preflight_service() -> PreflightService | None:
+    global _preflight_service
+    if _preflight_service is None:
+        if not _PREFLIGHT_SETTINGS.enabled:
+            return None
+
+        _preflight_service = PreflightService(
+            schema_provider=get_schema_provider(),
+        )
+    return _preflight_service
 
 
 def get_copilot_pipeline() -> CopilotRuntimePipeline:
@@ -151,11 +216,56 @@ def get_copilot_pipeline() -> CopilotRuntimePipeline:
     return CopilotRuntimePipeline(
         text_to_sql_pipeline=text_to_sql_pipeline,
         self_correction_service=get_self_correction_service(),
+        observer=MLflowObserver(),
+        preflight_service=get_preflight_service(),
     )
 
 
 def get_semantic_retrieval_pipeline() -> SemanticRetrievalPipeline:
     return SemanticRetrievalPipeline(retrieval_service=get_context_service())
+
+
+_conversation_router: Any = None
+
+
+def get_conversation_router():
+    global _conversation_router
+    if _conversation_router is None:
+        from src.config.conversation_settings import CONVERSATION_SETTINGS
+        from src.application.services.conversation.router.conversation_router import (
+            ConversationRouter,
+        )
+        from src.application.services.conversation.context_resolver import (
+            ContextResolver,
+        )
+        from src.application.services.conversation.continuation.continuation_resolver import (
+            ContinuationResolver,
+        )
+
+        llm_classifier = None
+        if CONVERSATION_SETTINGS.llm_fallback_enabled:
+            from src.application.services.conversation.semantic_routing.application.llm_intent_classifier import (
+                LLMIntentClassifier,
+            )
+            llm_classifier = LLMIntentClassifier(
+                llm_client=OllamaClient(config=INTENT_CLASSIFIER_CONFIG)
+            )
+
+        context_resolver = ContextResolver(
+            llm_client=OllamaClient(config=CONTEXT_RESOLVER_CONFIG)
+        )
+        continuation_resolver = ContinuationResolver(
+            context_resolver=context_resolver
+        )
+
+        # Similarity is not enough to replay SQL: a date, amount, or other
+        # filter change can be close in embedding space but needs new SQL.
+        _conversation_router = ConversationRouter(
+            llm_intent_classifier=llm_classifier,
+            continuation_resolver=continuation_resolver,
+        )
+    return _conversation_router
+
 
 
 # End of local-state composition root.

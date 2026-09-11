@@ -8,10 +8,17 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+import uuid
+from src.observability.latency_audit import request_lifecycle, stage as audit_stage
+from src.observability.conversation_trace_logger import log_trace
+from src.observability.mlflow_observer import MLflowObserver
 from src.application.dto.backend.copilot.copilot_ask_request import CopilotAskRequest
 from src.application.dto.backend.copilot.text_to_sql_runtime_response import (
     TextToSQLRuntimeResponse,
 )
+from src.application.services.preflight.enums import PreflightAction
+from src.application.services.preflight.models import PreflightResult
+from src.application.services.preflight.preflight_service import PreflightService
 from src.application.services.self_correction.self_correction_service import (
     SelfCorrectionService,
 )
@@ -19,31 +26,48 @@ from src.application.services.text_to_sql.text_to_sql_pipeline import TextToSQLP
 
 logger = logging.getLogger(__name__)
 
-class CopilotRuntimePipeline:
-    """AI-owned portion of `POST /api/v1/copilot/ask`.
 
-    This pipeline never executes SQL. The Backend remains responsible for
-    authorization, RLS, SQL Server execution, result formatting, and history.
+class CopilotRuntimePipeline:
+    """AI orchestration pipeline for Natural Language to SQL generation.
+
+    Coordinates read-only intent validation, context retrieval, initial SQL generation,
+    and self-correction loops with fail-safe MLflow tracing and correlation metadata.
+    This pipeline never connects to SQL Server or executes queries; it generates and
+    validates SQL candidate strings to hand off to the Backend.
     """
-    
+
     @staticmethod
     def _parse_generation_response(text: str) -> dict:
+        """Parse structured JSON payload from the raw LLM generation response.
+
+        Args:
+            text: Raw string output from the LLM.
+
+        Returns:
+            Parsed JSON dictionary.
+
+        Raises:
+            ValueError: If the text is not a valid JSON object.
+        """
         cleaned = text.strip()
 
         # Remove Markdown code fences if the model wraps JSON in them.
-        if cleaned.startswith("```") and cleaned.endswith("```"):
+        if cleaned.startswith("```"):
             lines = cleaned.splitlines()
-
-            # Remove opening fence: ```json / ```
             lines = lines[1:]
-
-            # Remove closing fence
             if lines and lines[-1].strip() == "```":
                 lines = lines[:-1]
-
             cleaned = "\n".join(lines).strip()
 
-        payload = json.loads(cleaned)
+        try:
+            payload = json.loads(cleaned)
+        except Exception:
+            start = cleaned.find("{")
+            end = cleaned.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                payload = json.loads(cleaned[start : end + 1])
+            else:
+                raise ValueError("LLM response must be a JSON object.")
 
         if not isinstance(payload, dict):
             raise ValueError("LLM response must be a JSON object.")
@@ -55,120 +79,401 @@ class CopilotRuntimePipeline:
         r"EXEC(?:UTE)?|SELECT\s+INTO|USE|GRANT|REVOKE|DENY|DBCC|BACKUP|RESTORE)\b",
         re.IGNORECASE,
     )
+    _WRITE_INTENT = re.compile(
+        r"\b(insert|add|create|update|edit|modify|delete|remove|drop|alter|truncate)\b",
+        re.IGNORECASE,
+    )
 
     def __init__(
         self,
         text_to_sql_pipeline: TextToSQLPipeline,
         self_correction_service: SelfCorrectionService,
+        observer: MLflowObserver | None = None,
+        preflight_service: PreflightService | None = None,
     ) -> None:
+        """Initialize the Copilot runtime pipeline.
+
+        Args:
+            text_to_sql_pipeline: Initial generation pipeline handling context & prompt.
+            self_correction_service: Deterministic and LLM self-correction service.
+            observer: Optional MLflow observer for diagnostic telemetry and tracing.
+            preflight_service: Optional deterministic preflight validation service.
+        """
         self._text_to_sql_pipeline = text_to_sql_pipeline
         self._self_correction_service = self_correction_service
+        self._observer = observer
+        self._preflight_service = preflight_service
 
     def run(
         self,
         request: CopilotAskRequest,
         trace_observer: Callable[[dict[str, Any]], None] | None = None,
     ) -> TextToSQLRuntimeResponse:
-        try:
-            semantic_context = self._text_to_sql_pipeline.build_context(request.question)
-            generated = self._text_to_sql_pipeline.run(
-                question=request.question,
-                semantic_context=semantic_context,
-            )
-        except Exception as exc:
-            logger.exception("Text-to-SQL generation failed")
-            return TextToSQLRuntimeResponse.failure(
-                "SQL_GENERATION_FAILED",
-                "The system could not generate SQL for this request.",
-                failure_reason=f"Generation service failed: {type(exc).__name__}.",
-            )
-        try:
-            payload = self._parse_generation_response(generated.text)
-        except (json.JSONDecodeError, ValueError):
-            logger.info("Generated model output was not a valid structured response")
-            return TextToSQLRuntimeResponse.failure(
-                "SQL_VALIDATION_FAILED",
-                "The model response was not a valid structured SQL result.",
-                failure_reason="The generation model did not return the required JSON SQL contract.",
-            )
+        """Process a natural language question into a validated read-only SQL query.
 
-        if payload.get("status") != "success":
-            warnings = payload.get("warnings")
-            reason = "; ".join(str(item) for item in warnings) if isinstance(warnings, list) else None
-            logger.info("Generated model output requested clarification")
-            return TextToSQLRuntimeResponse.failure(
-                "SQL_NEEDS_CLARIFICATION",
-                "The request cannot be translated into a safe query without more information.",
-                failure_reason=reason or "The model did not identify a safe, supported query.",
-            )
+        Args:
+            request: The Copilot ask request containing question and conversation history.
+            trace_observer: Optional callback for streaming diagnostic telemetry events.
 
-        sql = payload.get("sql")
-        if (
-            not isinstance(sql, str)
-            or not sql.strip()
-            or payload.get("is_read_only") is not True
-            or self._FORBIDDEN_SQL.search(sql)
+        Returns:
+            TextToSQLRuntimeResponse with success status and SQL string, or failure details.
+        """
+        correlation_id = getattr(request, "correlation_id", None)
+        traceparent = getattr(request, "traceparent", None)
+        ai_trace_id = str(uuid.uuid4())
+
+        with request_lifecycle(
+            request_id=correlation_id or ai_trace_id,
+            correlation_id=correlation_id,
+            traceparent=traceparent,
         ):
-            logger.info("Generated model output was unsafe or incomplete")
-            return TextToSQLRuntimeResponse.failure(
-                "SQL_VALIDATION_FAILED",
-                "The system could not generate a safe read-only query for this request.",
-                failure_reason=(
-                    "The generated payload was missing SQL, was not marked read-only, "
-                    "or contained a forbidden write/administrative operation."
-                ),
+            return self._run_pipeline(
+                request, trace_observer, ai_trace_id, correlation_id, traceparent
             )
 
-        sql = sql.strip()
-        self._notify_trace_observer(
-            trace_observer,
-            {"event": "initial_generation", "sql": sql},
-        )
+    def _run_pipeline(
+        self,
+        request: CopilotAskRequest,
+        trace_observer: Callable[[dict[str, Any]], None] | None,
+        ai_trace_id: str,
+        correlation_id: str | None,
+        traceparent: str | None,
+    ) -> TextToSQLRuntimeResponse:
+        observer = self._observer or MLflowObserver()
+        tags: dict[str, Any] = {
+            "ai_trace_id": ai_trace_id,
+            "pipeline": "CopilotRuntimePipeline",
+        }
+        if correlation_id:
+            tags["correlation_id"] = correlation_id
+        if traceparent:
+            tags["traceparent"] = traceparent
 
         try:
-            correction_kwargs: dict[str, Any] = {
-                "question": request.question,
-                "sql": sql,
-                "semantic_context": semantic_context,
-            }
-            if trace_observer is not None:
-                correction_kwargs["trace_observer"] = trace_observer
-            outcome = self._self_correction_service.run(**correction_kwargs)
+            observer.start(tags=tags)
         except Exception as exc:
-            logger.exception("Text-to-SQL validation/correction failed")
-            return TextToSQLRuntimeResponse.failure(
-                "SQL_VALIDATION_FAILED",
-                "The system could not validate the generated SQL.",
-                failure_reason=f"Validation service failed: {type(exc).__name__}.",
-            )
+            logger.warning("MLflow trace start failed: %s", exc)
 
-        if not outcome.is_valid:
-            self._notify_trace_observer(
-                trace_observer,
-                {
-                    "event": "final_result",
-                    "sql": None,
-                    "attemptsUsed": outcome.attempts_used,
-                    "status": "failed",
-                    "issues": list(outcome.issues),
-                },
-            )
-            return TextToSQLRuntimeResponse.failure(
-                "MAX_RETRIES_EXCEEDED",
-                "The system could not generate a valid read-only SQL query.",
-                failure_reason="; ".join(outcome.issues) or "The query remained invalid after correction attempts.",
-            )
+        response: TextToSQLRuntimeResponse | None = None
+        preflight_result: PreflightResult | None = None
+        try:
+            with audit_stage("pipeline", is_leaf=False):
+                question = (
+                    getattr(request, "user_question", None)
+                    or getattr(request, "question", "")
+                )
 
-        self._notify_trace_observer(
-            trace_observer,
-            {
-                "event": "final_result",
-                "sql": outcome.sql,
-                "attemptsUsed": outcome.attempts_used,
-                "status": "passed",
-            },
-        )
-        return TextToSQLRuntimeResponse.success(outcome.sql)
+                # Preflight stage with input_checks and table_checks sub-spans
+                with observer.stage("preflight"), audit_stage("preflight", is_leaf=False):
+                    with audit_stage("preflight", operation="input_checks", is_leaf=True):
+                        write_intent_detected = bool(self._WRITE_INTENT.search(request.question))
+
+                    if write_intent_detected:
+                        response = TextToSQLRuntimeResponse.failure(
+                            "READ_ONLY_REQUEST_REQUIRED",
+                            "This Copilot supports read-only questions only.",
+                            failure_reason=(
+                                "The request asks to create, modify, or delete data. "
+                                "INSERT, UPDATE, DELETE, and other write operations are not supported."
+                            ),
+                            suggestions=(
+                                "Ask to view or summarize existing data instead.",
+                            ),
+                        )
+                        return response
+
+                    if self._preflight_service is not None:
+                        with audit_stage("preflight", operation="table_checks", is_leaf=True):
+                            preflight_result = self._preflight_service.check(question)
+
+                        if preflight_result.action is PreflightAction.BLOCK:
+                            logger.info(
+                                "Preflight blocked question [%s]: %s",
+                                preflight_result.code,
+                                preflight_result.message,
+                            )
+                            response = TextToSQLRuntimeResponse.failure(
+                                preflight_result.code,
+                                preflight_result.message or "Preflight check blocked this request.",
+                                failure_reason=preflight_result.message,
+                                suggestions=(
+                                    f"Verify that the requested {preflight_result.metadata.get('entity_type', 'entity')} is available.",
+                                )
+                                if "entity_type" in preflight_result.metadata
+                                else (),
+                            )
+                            return response
+
+                # Context Retrieval stage
+                try:
+                    with observer.stage("context_retrieval"), audit_stage("context_retrieval", is_leaf=False):
+                        semantic_context = self._text_to_sql_pipeline.build_context(request.question)
+
+                    # SQL Generation stage with prompt_construction, llm_inference, output_parsing sub-spans
+                    with observer.stage("llm_generation"), audit_stage("sql_generation", is_leaf=False):
+                        with audit_stage("sql_generation", operation="prompt_construction", is_leaf=True):
+                            correction_feedback = "\n".join(
+                                str(message.get("content", ""))
+                                for message in request.conversation
+                                if message.get("role") == "system"
+                                and str(message.get("content", "")).startswith("RLS_CORRECTION:")
+                            )
+                            # Text-to-SQL receives the canonical resolved question from Conversation Layer.
+                            # When compact context (e.g. established entity scope) is provided in request.conversation,
+                            # include it compactly without dumping raw conversational token history.
+                            conversation_context_parts = []
+                            for msg in (request.conversation or ()):
+                                if isinstance(msg, dict):
+                                    if msg.get("role") == "system" and str(msg.get("content", "")).startswith("CONVERSATION_CONTEXT:"):
+                                        conversation_context_parts.append(str(msg["content"]).replace("CONVERSATION_CONTEXT:", "").strip())
+                                    elif msg.get("context_summary"):
+                                        conversation_context_parts.append(str(msg["context_summary"]).strip())
+                            conversation_context = "\n".join(conversation_context_parts).strip()
+
+                            _t2s_trace_id = getattr(request, "correlation_id", None) or "no-trace-id"
+                            log_trace(
+                                "text_to_sql.context",
+                                _t2s_trace_id,
+                                question=request.question,
+                                conversation_context_length=len(conversation_context),
+                                conversation_context_preview=conversation_context[:300] if conversation_context else "empty",
+                                correction_feedback_present=bool(correction_feedback),
+                                conversation_message_count=len(request.conversation) if request.conversation else 0,
+                            )
+
+                        with audit_stage("sql_generation", operation="llm_inference", is_leaf=True):
+                            try:
+                                generated = self._text_to_sql_pipeline.run(
+                                    question=request.question,
+                                    semantic_context=semantic_context,
+                                    correction_feedback=correction_feedback,
+                                    conversation_context=conversation_context,
+                                )
+                            except TypeError:
+                                generated = self._text_to_sql_pipeline.run(
+                                    question=request.question,
+                                    semantic_context=semantic_context,
+                                    correction_feedback=correction_feedback,
+                                )
+
+                        try:
+                            if hasattr(observer, "log_llm_span"):
+                                observer.log_llm_span(
+                                    "llm_sql_generation",
+                                    prompt=request.question,
+                                    response_text=generated.text,
+                                    model_name=getattr(generated, "model_name", None) or "qwen2.5-coder:7b",
+                                    provider=getattr(generated, "provider", None) or "ollama",
+                                    input_tokens=getattr(generated, "input_tokens", None),
+                                    output_tokens=getattr(generated, "output_tokens", None),
+                                )
+                        except Exception as span_exc:
+                            logger.debug("Failed logging LLM span: %s", span_exc)
+
+                        with audit_stage("sql_generation", operation="output_parsing", is_leaf=True):
+                            try:
+                                payload = self._parse_generation_response(generated.text)
+                            except (json.JSONDecodeError, ValueError) as exc:
+                                logger.info("Generated model output was not a valid structured response: %s", exc)
+                                response = TextToSQLRuntimeResponse.failure(
+                                    "INVALID_MODEL_OUTPUT",
+                                    "The model response was not a valid structured SQL result.",
+                                    failure_reason="The generation model did not return the required JSON SQL contract.",
+                                )
+                                return response
+
+                            model_status = str(payload.get("status", "")).strip().lower()
+
+                            # Handle 'needs_clarification' explicitly with ZERO SQL execution or validation
+                            if model_status == "needs_clarification":
+                                warnings = payload.get("warnings") or []
+                                suggestions = tuple(str(s) for s in warnings) if isinstance(warnings, list) else ()
+                                reason = "; ".join(suggestions) if suggestions else "The model requested clarification."
+                                logger.info("Generated model output requested clarification: %s", reason)
+                                response = TextToSQLRuntimeResponse.failure(
+                                    "NEEDS_CLARIFICATION",
+                                    "The request cannot be translated into a safe query without more information.",
+                                    failure_reason=reason,
+                                    suggestions=suggestions,
+                                )
+                                return response
+
+                            # Handle 'unsafe_request' explicitly
+                            if model_status == "unsafe_request":
+                                warnings = payload.get("warnings") or []
+                                reason = "; ".join(str(w) for w in warnings) if isinstance(warnings, list) else "The request was deemed unsafe."
+                                logger.info("Generated model output flagged unsafe request: %s", reason)
+                                response = TextToSQLRuntimeResponse.failure(
+                                    "UNSAFE_REQUEST",
+                                    "The requested operation is not allowed.",
+                                    failure_reason=reason,
+                                )
+                                return response
+
+                            if model_status not in ("success", "ok", "valid", "complete", "done", ""):
+                                logger.info("Generated model output returned unexpected status: %s", model_status)
+                                response = TextToSQLRuntimeResponse.failure(
+                                    "INVALID_MODEL_OUTPUT",
+                                    f"Unexpected model status '{model_status}'.",
+                                    failure_reason=f"The model returned an unknown status code '{model_status}' in its JSON payload.",
+                                )
+                                return response
+
+                            sql = payload.get("sql")
+                            if not isinstance(sql, str) or not sql.strip():
+                                logger.info("Model success payload missing SQL string")
+                                response = TextToSQLRuntimeResponse.failure(
+                                    "INVALID_MODEL_OUTPUT",
+                                    "The system could not generate a SQL query.",
+                                    failure_reason="The generation model returned success status but missing or null SQL.",
+                                )
+                                return response
+
+                            if payload.get("is_read_only") is not True or self._FORBIDDEN_SQL.search(sql):
+                                logger.info("Generated model output was unsafe or not read-only")
+                                response = TextToSQLRuntimeResponse.failure(
+                                    "SQL_VALIDATION_FAILED",
+                                    "The system could not generate a safe read-only query for this request.",
+                                    failure_reason=(
+                                        "The generated payload was not marked read-only or contained a forbidden operation."
+                                    ),
+                                )
+                                return response
+
+                            sql = sql.strip()
+
+                            log_trace(
+                                "text_to_sql.generated_sql",
+                                _t2s_trace_id,
+                                sql_preview=sql[:300] if sql else "null",
+                                sql_length=len(sql) if sql else 0,
+                            )
+
+                except Exception as exc:
+                    if response is not None:
+                        return response
+                    logger.exception("Text-to-SQL generation failed")
+                    response = TextToSQLRuntimeResponse.failure(
+                        "SQL_GENERATION_FAILED",
+                        "The system could not generate SQL for this request.",
+                        failure_reason=f"Generation service failed: {type(exc).__name__}: {exc}",
+                    )
+                    return response
+
+                logger.info("INITIAL_GENERATION SQL: %s", sql)
+
+                self._notify_trace_observer(
+                    trace_observer,
+                    {"event": "initial_generation", "sql": sql},
+                )
+
+                # Self-Correction stage
+                try:
+                    correction_kwargs: dict[str, Any] = {
+                        "question": request.question,
+                        "sql": sql,
+                        "semantic_context": semantic_context,
+                        "enforce_rls": True,
+                    }
+                    if trace_observer is not None:
+                        correction_kwargs["trace_observer"] = trace_observer
+
+                    with observer.stage("self_correction"), audit_stage("self_correction", is_leaf=False):
+                        outcome = self._self_correction_service.run(**correction_kwargs)
+                except Exception as exc:
+                    logger.exception("Text-to-SQL validation/correction failed")
+                    response = TextToSQLRuntimeResponse.failure(
+                        "SQL_VALIDATION_FAILED",
+                        "The system could not validate the generated SQL.",
+                        failure_reason=f"Validation service failed: {type(exc).__name__}: {exc}",
+                    )
+                    return response
+
+                if not outcome.is_valid:
+                    self._notify_trace_observer(
+                        trace_observer,
+                        {
+                            "event": "final_result",
+                            "sql": None,
+                            "attemptsUsed": outcome.attempts_used,
+                            "status": "failed",
+                            "issues": list(outcome.issues),
+                        },
+                    )
+                    is_oscillation = any("CORRECTION_OSCILLATION" in str(iss) or "oscillat" in str(iss).lower() for iss in outcome.issues)
+                    is_silent_omission = any("SILENT_OMISSION" in str(iss) or "silently omitted" in str(iss).lower() for iss in outcome.issues)
+                    is_unresolvable = is_silent_omission or any("UNRESOLVABLE" in str(iss) for iss in outcome.issues)
+
+                    if is_unresolvable:
+                        error_code = "NEEDS_CLARIFICATION"
+                        message = "The request cannot be translated into a safe query because requested data is not available in the database schema."
+                    elif is_oscillation:
+                        error_code = "CORRECTION_OSCILLATION"
+                        message = "The system could not generate a valid read-only SQL query."
+                    else:
+                        error_code = "MAX_RETRIES_EXCEEDED"
+                        message = "The system could not generate a valid read-only SQL query."
+
+                    response = TextToSQLRuntimeResponse.failure(
+                        error_code,
+                        message,
+                        failure_reason="; ".join(outcome.issues) or "The query remained invalid after correction attempts.",
+                    )
+                    return response
+
+                self._notify_trace_observer(
+                    trace_observer,
+                    {
+                        "event": "final_result",
+                        "sql": outcome.sql,
+                        "attemptsUsed": outcome.attempts_used,
+                        "status": "passed",
+                    },
+                )
+                response = TextToSQLRuntimeResponse.success(outcome.sql)
+                return response
+        finally:
+            try:
+                from src.observability.audit_context import get_current_audit
+                from src.observability.audit_summary import build_request_summary
+
+                ctx = get_current_audit()
+                summary = build_request_summary(ctx) if ctx else {}
+
+                status_str = (
+                    "SUCCESS"
+                    if response is not None and response.status == "Success"
+                    else "FAILURE"
+                )
+                tags: dict[str, Any] = {
+                    "runtime_status": status_str,
+                    "error_code": (
+                        response.error_code
+                        if response and response.error_code
+                        else "NONE"
+                    ),
+                }
+                if preflight_result is not None:
+                    tags["preflight_action"] = preflight_result.action.value
+                    tags["preflight_code"] = preflight_result.code
+
+                metrics: dict[str, float] = {}
+                if summary:
+                    if "total_duration_ms" in summary:
+                        metrics["pipeline_total_duration_ms"] = float(summary["total_duration_ms"])
+                    if "leaf_stage_durations_ms" in summary:
+                        for stage_k, dur in summary["leaf_stage_durations_ms"].items():
+                            metrics[f"stage.{stage_k}.latency_ms"] = float(dur)
+                    if "counts" in summary:
+                        for count_k, c_val in summary["counts"].items():
+                            metrics[f"count.{count_k}"] = float(c_val)
+
+                observer.log(metrics=metrics, tags=tags)
+                if summary and hasattr(observer, "log_artifact_dict"):
+                    observer.log_artifact_dict(summary, "latency_summary.json")
+                observer.finish()
+            except Exception as exc:
+                logger.warning("MLflow trace finish failed: %s", exc)
 
     @staticmethod
     def _notify_trace_observer(
@@ -183,5 +488,3 @@ class CopilotRuntimePipeline:
             trace_observer(dict(event))
         except Exception:
             logger.warning("Text-to-SQL trace observer failed", exc_info=True)
-
-

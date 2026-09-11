@@ -6,8 +6,14 @@ import json
 from pathlib import Path
 from typing import Any
 
+from src.application.pipelines.semantic_layer.semantic_layer_embedding_pipeline import (
+    SemanticLayerEmbeddingPipeline,
+)
 from src.infrastructure.semantic_layer.retrieval.embedding_service import (
     EmbeddingService,
+)
+from src.infrastructure.semantic_layer.retrieval.semantic_index_builder import (
+    SemanticIndexBuilder,
 )
 from src.infrastructure.semantic_layer.retrieval.vector_index import (
     VectorIndex,
@@ -15,6 +21,7 @@ from src.infrastructure.semantic_layer.retrieval.vector_index import (
 from src.infrastructure.semantic_layer.retrieval.semantic_document_builder import (
     SemanticDocumentBuilder,
 )
+from src.observability.latency_audit import stage
 
 
 class FileSemanticRepository:
@@ -25,12 +32,20 @@ class FileSemanticRepository:
         semantic_layer_path: str | Path,
         embedding_service: EmbeddingService | None = None,
         vector_store: VectorIndex | None = None,
+        indexing_pipeline: SemanticLayerEmbeddingPipeline | None = None,
     ) -> None:
         self._semantic_layer_path = Path(
             semantic_layer_path
         )
         self._embedding_service = embedding_service
         self._vector_store = vector_store
+        self._indexing_pipeline = indexing_pipeline or (
+            SemanticLayerEmbeddingPipeline(
+                SemanticIndexBuilder(embedding_service, vector_store)
+            )
+            if embedding_service is not None and vector_store is not None
+            else None
+        )
 
     def load(self) -> dict[str, Any]:
         """Load the approved Semantic Layer."""
@@ -81,19 +96,38 @@ class FileSemanticRepository:
 
         layer = self.load()
         metadata = layer["metadata"]
-        self._vector_store.validate_metadata({
+        expected_metadata = {
             "index_version": 1,
             "semantic_layer_id": metadata["semantic_layer_id"],
             "revision_id": metadata["revision_id"],
             "embedding_dimension": self._embedding_service.embedding_dimension,
             "embedding_model": self._embedding_service.model_name,
-        })
-        query_embedding = self._embedding_service.encode_query(question)
+        }
 
-        return self._vector_store.search(
-            query_embedding,
-            top_k,
-        )
+        try:
+            self._vector_store.validate_metadata(expected_metadata)
+        except (FileNotFoundError, ValueError, KeyError):
+            if self._indexing_pipeline is not None:
+                self._indexing_pipeline.run(layer)
+
+        with stage("query_embedding", operation="query_embedding", is_leaf=True):
+            query_embedding = self._embedding_service.encode_query(question)
+
+        with stage("vector_search", operation="vector_search", is_leaf=False):
+            results = self._vector_store.search(
+                query_embedding,
+                top_k,
+            )
+            return [
+                {
+                    **result,
+                    "type": result.get("object_type") or result.get("type"),
+                    "object_type": result.get("object_type") or result.get("type"),
+                    "semanticLayerId": result.get("semantic_layer_id") or result.get("semanticLayerId"),
+                    "revisionId": result.get("revision_id") or result.get("revisionId"),
+                }
+                for result in results
+            ]
 
     def _keyword_retrieve(
         self,
@@ -102,39 +136,40 @@ class FileSemanticRepository:
     ) -> list[dict[str, Any]]:
         """Fallback keyword-based retrieval."""
 
-        documents = self._documents()
+        with stage("context_retrieval", operation="keyword_search", is_leaf=False):
+            documents = self._documents()
 
-        terms = [
-            term
-            for term in question.lower()
-            .replace("?", "")
-            .split()
-            if term
-        ]
+            terms = [
+                term
+                for term in question.lower()
+                .replace("?", "")
+                .split()
+                if term
+            ]
 
-        scored: list[dict[str, Any]] = []
+            scored: list[dict[str, Any]] = []
 
-        for document in documents:
-            text = document["text"].lower()
+            for document in documents:
+                text = document["text"].lower()
 
-            score = sum(
-                term in text
-                for term in terms
-            )
-
-            if score:
-                scored.append(
-                    {
-                        **document,
-                        "score": float(score),
-                    }
+                score = sum(
+                    term in text
+                    for term in terms
                 )
 
-        return sorted(
-            scored,
-            key=lambda item: item["score"],
-            reverse=True,
-        )[:top_k]
+                if score:
+                    scored.append(
+                        {
+                            **document,
+                            "score": float(score),
+                        }
+                    )
+
+            return sorted(
+                scored,
+                key=lambda item: item["score"],
+                reverse=True,
+            )[:top_k]
 
     def _documents(self) -> list[dict[str, Any]]:
         layer = self.load()
@@ -157,9 +192,10 @@ class FileSemanticRepository:
         return [
             {
                 **document,
-                "type": document["object_type"],
-                "semanticLayerId": document["semantic_layer_id"],
-                "revisionId": document["revision_id"],
+                "type": document.get("object_type") or document.get("type"),
+                "object_type": document.get("object_type") or document.get("type"),
+                "semanticLayerId": document.get("semantic_layer_id") or document.get("semanticLayerId"),
+                "revisionId": document.get("revision_id") or document.get("revisionId"),
             }
             for document in SemanticDocumentBuilder().build(layer)
         ]

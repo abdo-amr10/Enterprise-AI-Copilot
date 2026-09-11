@@ -1,0 +1,25 @@
+{
+  "benchmark_name": "enterprise-banking-v1",
+  "version": "1.0.0",
+  "description": "Fixed enterprise benchmark dataset for retrieval, prompt, generation and validation evaluation.",
+  "cases": [
+    {
+      "case_id": "case-01-active-customers-balance",
+      "question": "Show all active customers with their account balance",
+      "tags": ["customers", "accounts", "balance"],
+      "expected_tables": ["customers", "accounts"]
+    },
+    {
+      "case_id": "case-02-customer-transactions",
+      "question": "List all transactions for customer with ID 101",
+      "tags": ["customers", "accounts", "transactions"],
+      "expected_tables": ["customers", "accounts", "transactions"]
+    },
+    {
+      "case_id": "case-03-merchants-high-spending",
+      "question": "Which merchants have total transaction amounts exceeding 50000 USD?",
+      "tags": ["merchants", "transactions", "aggregation"],
+      "expected_tables": ["merchants", "transactions"]
+    }
+  ]
+}

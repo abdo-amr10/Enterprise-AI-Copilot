@@ -1,19 +1,126 @@
-"""FastAPI entrypoint for the AI runtime service.
+from pathlib import Path
+import os
 
-Run with:
-    uvicorn main:app --reload --port 8000
-"""
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parent / ".env")
+except ImportError:
+    env_path = Path(__file__).resolve().parent / ".env"
+    if env_path.is_file():
+        with open(env_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+import asyncio
+import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from src.api.routers import copilot_router, semantic_router
+from src.api.dependencies import get_schema_provider, get_semantic_repository
+from src.api.routers import copilot_router, debug_router, semantic_router
 
-app = FastAPI(title="Enterprise AI Copilot - AI Runtime")
+logger = logging.getLogger("ai_runtime.semantic_watcher")
+_POLL_INTERVAL_SECONDS = float(os.getenv("SEMANTIC_SYNC_INTERVAL_SECONDS", "60"))
+
+
+def _environment_flag(name: str, default: bool = False) -> bool:
+    """Read a conventional boolean environment flag."""
+    return os.getenv(name, str(default)).strip().casefold() in {"1", "true", "yes", "on"}
+
+
+async def _semantic_index_watcher(interval_seconds: float = _POLL_INTERVAL_SECONDS) -> None:
+    """Periodically check Backend status and update in-memory index and schema when active revision changes."""
+    loop = asyncio.get_running_loop()
+    while True:
+        try:
+            repo = get_semantic_repository()
+            if hasattr(repo, "sync_active_index"):
+                updated = await loop.run_in_executor(None, repo.sync_active_index)
+                if updated:
+                    logger.info("Semantic in-memory index synchronized with revision: %s", repo.indexed_revision_id)
+            schema_provider = get_schema_provider()
+            if hasattr(schema_provider, "sync_schema"):
+                await loop.run_in_executor(None, schema_provider.sync_schema)
+        except asyncio.CancelledError:
+            break
+        except Exception as err:
+            logger.debug("Semantic index watcher check skipped: %s", err)
+
+        try:
+            await asyncio.sleep(interval_seconds)
+        except asyncio.CancelledError:
+            break
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Swagger and lightweight local development do not need to load both the
+    # embedding model and the Ollama model at startup.  On low-memory machines
+    # that concurrent warmup can exhaust virtual memory before the first request.
+    lightweight_startup = _environment_flag("AI_RUNTIME_LIGHTWEIGHT_STARTUP")
+    watcher_task = (
+        None
+        if lightweight_startup or not _environment_flag("SEMANTIC_SYNC_ENABLED", True)
+        else asyncio.create_task(_semantic_index_watcher())
+    )
+
+    # Pre-warm LLM model in background to eliminate cold-load delay on the first query
+    loop = asyncio.get_running_loop()
+
+    def _warmup_llm() -> None:
+        try:
+            from src.infrastructure.llm.model_config import QWEN_CONFIG
+            from src.infrastructure.llm.ollama_client import OllamaClient
+            client = OllamaClient(QWEN_CONFIG)
+            client.warmup()
+            logger.info("Ollama model '%s' pre-warmed into memory.", QWEN_CONFIG.model_name)
+        except Exception as err:
+            logger.debug("Ollama warmup skipped: %s", err)
+
+    def _warmup_semantic() -> None:
+        try:
+            repo = get_semantic_repository()
+            if hasattr(repo, "ensure_initialized"):
+                repo.ensure_initialized()
+            schema_provider = get_schema_provider()
+            if hasattr(schema_provider, "get_schema"):
+                schema_provider.get_schema()
+            logger.info("Semantic state and schema pre-warmed into memory.")
+        except Exception as err:
+            logger.debug("Semantic warmup deferred: %s", err)
+
+    if not lightweight_startup:
+        if _environment_flag("AI_PREWARM_LLM", True):
+            loop.run_in_executor(None, _warmup_llm)
+        if _environment_flag("AI_PREWARM_SEMANTIC", True):
+            loop.run_in_executor(None, _warmup_semantic)
+    else:
+        logger.info("Lightweight startup enabled: semantic sync and LLM warmup are deferred until requested.")
+
+    yield
+    if watcher_task is not None:
+        watcher_task.cancel()
+        try:
+            await watcher_task
+        except asyncio.CancelledError:
+            pass
+
+
+from src.observability.asgi_middleware import LatencyAuditASGIMiddleware
+
+app = FastAPI(title="Enterprise AI Copilot - AI Runtime", lifespan=lifespan)
+app.add_middleware(LatencyAuditASGIMiddleware)
 
 app.include_router(copilot_router.router)
 app.include_router(semantic_router.router)
+app.include_router(debug_router.router)
 
 
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+

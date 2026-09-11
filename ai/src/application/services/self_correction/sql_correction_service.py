@@ -30,6 +30,7 @@ class SQLCorrectionService:
         issues: list[ValidationIssue],
         relevant_schema: dict[str, Any],
         relevant_relationships: list[dict[str, Any]],
+        rejected_candidates: list[tuple[str, list[ValidationIssue]]] | None = None,
     ) -> str | None:
         prompt = SQL_CORRECTION_PROMPT.format(
             question=question,
@@ -37,11 +38,50 @@ class SQLCorrectionService:
             issues=self._render_issues(issues),
             relevant_schema=self._render_schema(relevant_schema),
             relevant_relationships=self._render_relationships(relevant_relationships),
+            rejected_candidates=self._render_rejected_candidates(rejected_candidates),
         )
 
-        response = self._llm_client.generate(GenerationRequest(prompt=prompt))
+        try:
+            from src.observability.latency_audit import record_prompt
+            record_prompt(
+                stage_name="sql_correction_prompt",
+                model="qwen2.5-coder:7b",
+                config_name="sql_correction",
+                prompt=prompt,
+                components={
+                    "question_chars": len(question),
+                    "current_sql_chars": len(current_sql),
+                    "issues_count": len(issues),
+                },
+            )
+        except Exception:
+            pass
+
+        try:
+            from src.observability.latency_audit import stage as audit_stage
+            with audit_stage("sql_correction_llm", is_leaf=True):
+                response = self._llm_client.generate(GenerationRequest(prompt=prompt))
+        except Exception:
+            response = self._llm_client.generate(GenerationRequest(prompt=prompt))
 
         return self._extract_sql(response.text)
+
+    @staticmethod
+    def _render_rejected_candidates(
+        rejected_candidates: list[tuple[str, list[ValidationIssue]]] | None,
+    ) -> str:
+        if not rejected_candidates:
+            return "(no previous candidates rejected in this run)"
+
+        blocks = []
+        for idx, (cand_sql, cand_issues) in enumerate(rejected_candidates, 1):
+            issue_lines = "\n".join(f"  - [{issue.type}] {issue.message}" for issue in cand_issues)
+            blocks.append(
+                f"Candidate #{idx}:\n"
+                f"{cand_sql.strip()}\n"
+                f"Issues that caused rejection:\n{issue_lines if issue_lines else '  - (unspecified issue)'}"
+            )
+        return "\n\n".join(blocks)
 
     @staticmethod
     def _render_issues(issues: list[ValidationIssue]) -> str:
@@ -66,8 +106,12 @@ class SQLCorrectionService:
         lines = [
             f"{rel['from_table']}.{rel['from_column']} -> {rel['to_table']}.{rel['to_column']}"
             for rel in relationships
+            if all(
+                isinstance(rel.get(field), str) and rel[field]
+                for field in ("from_table", "from_column", "to_table", "to_column")
+            )
         ]
-        return "\n".join(lines)
+        return "\n".join(lines) or "(no complete relationships resolved)"
 
     @staticmethod
     def _extract_sql(text: str) -> str | None:

@@ -3,9 +3,9 @@
 Starts the AI Runtime after loading optional local configuration from ai/.env.
 
 .DESCRIPTION
-The .env file is intentionally local and is not committed. This script only
-loads simple KEY=VALUE lines; operating-system environment variables take
-precedence so deployed environments can configure the service normally.
+The .env file is intentionally local and is not committed. This script loads
+its current values for the local runtime so expired values from an older
+terminal session cannot override them.
 #>
 
 [CmdletBinding()]
@@ -24,9 +24,7 @@ if (Test-Path -LiteralPath $envFile) {
         if ($parts.Count -ne 2) { throw "Invalid .env line: $line" }
         $name = $parts[0].Trim()
         $value = $parts[1].Trim().Trim('"').Trim("'")
-        if (-not [Environment]::GetEnvironmentVariable($name, 'Process')) {
-            [Environment]::SetEnvironmentVariable($name, $value, 'Process')
-        }
+        [Environment]::SetEnvironmentVariable($name, $value, 'Process')
     }
 }
 

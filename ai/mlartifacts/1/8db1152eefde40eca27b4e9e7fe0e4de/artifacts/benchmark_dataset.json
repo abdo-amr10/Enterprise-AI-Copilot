@@ -1,0 +1,20 @@
+{
+  "cases": [
+    {
+      "case_id": "1",
+      "question": "q1",
+      "expected_tables": [
+        "Sales"
+      ],
+      "tags": []
+    },
+    {
+      "case_id": "2",
+      "question": "q2",
+      "expected_tables": [
+        "Sales"
+      ],
+      "tags": []
+    }
+  ]
+}

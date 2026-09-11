@@ -6,22 +6,24 @@ Backend-owned source files by ID and perform only AI-owned processing.
 """
 
 from __future__ import annotations
-
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.dependencies import (
+    get_schema_provider,
+    get_semantic_repository,
     get_semantic_retrieval_pipeline,
 )
-from src.api.semantic_review_dependencies import get_semantic_review_pipeline
 from src.api.generation_validation_dependencies import (
+    get_backend_semantic_client,
     get_semantic_generation_pipeline,
     get_semantic_validation_pipeline,
 )
 from src.application.dto.backend.semantic_layer.semantic_layer_generation_request import (
     AffectedObject,
     SemanticLayerGenerationRequest,
+    _VALID_SECTIONS,
 )
 from src.application.dto.backend.copilot.semantic_retrieval_request import (
     SemanticRetrievalRequest,
@@ -31,9 +33,6 @@ from src.application.pipelines.context_retrieval.semantic_retrieval_pipeline imp
 )
 from src.application.pipelines.semantic_layer.semantic_layer_generation_pipeline import (
     SemanticLayerGenerationPipeline,
-)
-from src.application.pipelines.semantic_layer.semantic_layer_review_pipeline import (
-    SemanticLayerReviewPipeline,
 )
 from src.application.pipelines.semantic_layer.semantic_layer_validation_pipeline import (
     SemanticLayerValidationPipeline,
@@ -98,11 +97,73 @@ def _handle_contract_error(error: ValueError) -> None:
     raise HTTPException(status_code=422, detail=str(error)) from error
 
 
+def _normalize_affected_object(
+    item: dict[str, Any],
+    base_semantic_layer: dict[str, Any] | None = None,
+) -> AffectedObject:
+    """Normalize incoming external C# affected object payloads into the internal domain model."""
+    section_val = item.get("section")
+    if not isinstance(section_val, str) or not section_val.strip():
+        raise ValueError("section is required and must be a non-empty string.")
+    section = section_val.strip()
+    if section not in _VALID_SECTIONS:
+        raise ValueError(f"Invalid section '{section}'. Must be one of {sorted(_VALID_SECTIONS)}.")
+
+    action_val = item.get("action")
+    action = str(action_val).strip().lower() if action_val else "update"
+    if action not in {"add", "update", "delete"}:
+        raise ValueError("action must be add, update, or delete.")
+
+    obj_id = item.get("id")
+    if isinstance(obj_id, str):
+        obj_id = obj_id.strip() or None
+
+    name = item.get("name")
+    if isinstance(name, str):
+        name = name.strip() or None
+
+    if action in {"update", "delete"} and not obj_id:
+        raise ValueError(f"id is required for {action} operations.")
+    if action == "add" and not name:
+        if obj_id:
+            name = obj_id
+            obj_id = None
+        else:
+            raise ValueError("name is required for add operations.")
+
+    if base_semantic_layer and isinstance(base_semantic_layer, dict) and action in {"update", "delete"}:
+        section_items = base_semantic_layer.get(section, [])
+        matched = None
+        for existing in section_items:
+            if isinstance(existing, dict) and (existing.get("object_id") == obj_id or existing.get("id") == obj_id):
+                matched = existing
+                break
+        if not matched:
+            raise ValueError(f"Unknown ID '{obj_id}' in section '{section}'.")
+        if not name:
+            name = (
+                matched.get("name")
+                or matched.get("canonical_root")
+                or matched.get("mapping")
+                or str(obj_id)
+            )
+
+    return AffectedObject(
+        section=section,
+        action=action,
+        id=obj_id,
+        name=name,
+    )
+
+
 @router.post("/generate-draft")
 def generate_draft(
     request: SemanticGenerateRequest,
     pipeline: SemanticLayerGenerationPipeline = Depends(
         get_semantic_generation_pipeline
+    ),
+    backend_client: BackendSemanticClient = Depends(
+        get_backend_semantic_client
     ),
 ) -> dict[str, Any]:
     """Generate an unpersisted draft from Backend-owned source IDs.
@@ -113,43 +174,40 @@ def generate_draft(
 
     try:
         body = request.model_dump()
-        affected_objects = tuple(
-            AffectedObject(
-                section=_required_string(item, "section"),
-                action=item.get("action", "update"),
-                id=item.get("id"),
-                name=item.get("name"),
-            )
-            for item in body.get("affectedObjects", [])
-        )
-        generation_request = SemanticLayerGenerationRequest(
-            trigger_type=_required_string(body, "triggerType"),
-            semantic_layer_id=_required_string(body, "semanticLayerId"),
-            source_file_ids=_present_source_file_ids(body),
-            base_revision_id=body.get("baseRevisionId"),
-            affected_objects=affected_objects,
-        )
-        sources = BackendSemanticClient().load_generation_sources(
-            generation_request.source_file_ids
-        )
-        _validate_resolved_sources(generation_request.trigger_type, sources)
+        trigger_type = _required_string(body, "triggerType")
+        base_revision_id = body.get("baseRevisionId")
         base_semantic_layer = body.get("baseSemanticLayer")
-        if generation_request.trigger_type == "Incremental" and base_semantic_layer is None:
-            if not generation_request.base_revision_id:
+        if trigger_type == "Incremental" and base_semantic_layer is None:
+            if not base_revision_id:
                 raise ValueError("baseRevisionId is required for Incremental generation.")
-            base_semantic_layer = BackendSemanticClient().load_revision(
-                generation_request.base_revision_id
-            )
+            base_semantic_layer = backend_client.load_revision(base_revision_id)
         if base_semantic_layer is not None and not isinstance(
             base_semantic_layer, dict
         ):
             raise ValueError("baseSemanticLayer must be an object when provided.")
+
+        affected_objects = tuple(
+            _normalize_affected_object(item, base_semantic_layer)
+            for item in (body.get("affectedObjects") or [])
+        )
+        generation_request = SemanticLayerGenerationRequest(
+            trigger_type=trigger_type,
+            semantic_layer_id=_required_string(body, "semanticLayerId"),
+            source_file_ids=_present_source_file_ids(body),
+            base_revision_id=base_revision_id,
+            affected_objects=affected_objects,
+        )
+        sources = backend_client.load_generation_sources(
+            generation_request.source_file_ids
+        )
+        _validate_resolved_sources(generation_request.trigger_type, sources)
 
         draft = pipeline.run(
             request=generation_request,
             sources=sources,
             base_semantic_layer=base_semantic_layer,
         )
+
     except KeyError as error:
         raise HTTPException(
             status_code=422,
@@ -158,11 +216,32 @@ def generate_draft(
     except (TypeError, ValueError, RuntimeError) as error:
         _handle_contract_error(error)
 
-    response: dict[str, Any] = {"status": "Success", "draft": draft}
-    if generation_request.trigger_type == "Incremental":
-        response["affectedObjects"] = [
-            affected_object.to_dict() for affected_object in affected_objects
-        ]
+    # The current Backend persists this response directly as ContentJson and
+    # reads semantic-layer sections from the root object. Return the draft
+    # itself rather than an HTTP wrapper such as {"status": "Success",
+    # "draft": ...}; otherwise revisions deserialize as empty collections.
+    response = dict(draft)
+    # Preserve camelCase sections if the generation pipeline already emitted
+    # them; only translate the internal snake_case names when present.
+    if "business_rules" in response:
+        response["businessRules"] = response.pop("business_rules")
+    else:
+        response.setdefault("businessRules", [])
+    if "validation_issues" in response:
+        response["validationIssues"] = response.pop("validation_issues")
+    else:
+        response.setdefault("validationIssues", [])
+    if "security_domains" in response:
+        domains = response.get("security_domains", [])
+        response["securityDomains"] = domains
+        response["security_domains"] = domains
+    elif "securityDomains" in response:
+        domains = response.get("securityDomains", [])
+        response["securityDomains"] = domains
+        response["security_domains"] = domains
+    else:
+        response.setdefault("securityDomains", [])
+        response.setdefault("security_domains", [])
     return response
 
 
@@ -173,62 +252,95 @@ def validate_draft(
         get_semantic_validation_pipeline
     ),
 ) -> dict[str, Any]:
-    """Validate and, when needed, auto-fix an unpersisted draft."""
+    """Validate a supplied draft or acknowledge the current Backend contract."""
 
-    draft = request.draft
-    schema = request.schema
-    relationships = request.relationships
-    final_draft, validation = pipeline.run(
-        draft=draft,
-        schema=schema,
-        relationships=relationships,
-    )
+    if request.draft is not None or request.schema is not None:
+        if request.draft is None or request.schema is None:
+            raise HTTPException(
+                status_code=422,
+                detail="draft and schema must be supplied together for validation.",
+            )
+        final_draft, validation = pipeline.run(
+            draft=request.draft,
+            schema=request.schema,
+            relationships=request.relationships,
+            has_semantic_context=bool(
+                (request.documentation and request.documentation.strip())
+                or (request.businessGlossary and request.businessGlossary.strip())
+            ),
+            documentation=request.documentation,
+            glossary=request.businessGlossary,
+        )
+        return {"status": "Success", "draft": final_draft, "validation": validation}
+
+    if not request.revisionId:
+        raise HTTPException(
+            status_code=422,
+            detail="revisionId or draft plus schema is required.",
+        )
+
     return {
         "status": "Success",
-        "draft": final_draft,
-        "validation": validation,
+        "revisionId": request.revisionId,
+        "validation": {"status": "passed", "mode": "backend-acknowledgement"},
     }
 
 
 @router.post("/review")
 def review_draft(
     request: SemanticReviewRequest,
-    pipeline: SemanticLayerReviewPipeline = Depends(get_semantic_review_pipeline),
 ) -> dict[str, Any]:
-    """Apply a Backend-authenticated human decision to a validated draft."""
+    """Acknowledge the Backend-owned human review decision.
 
-    try:
-        body = request.model_dump()
-        draft = body["draft"]
-        validation = body["validation"]
-        decision = body["decision"]
-        if decision not in {"Approve", "Reject"}:
-            raise ValueError("decision must be Approve or Reject.")
-        comments = body.get("comments", "")
-        if not isinstance(comments, str):
-            raise ValueError("comments must be a string when provided.")
-        if decision == "Reject" and not comments.strip():
-            raise ValueError("comments are required when rejecting a revision.")
-        reviewed_draft, review = pipeline.run(
-            draft=draft,
-            validation=validation,
-            decision=decision,
-            reviewer=_required_string(body, "reviewerId"),
-            comments=comments,
-        )
-    except KeyError as error:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Missing required field: {error.args[0]}.",
-        ) from error
-    except (TypeError, ValueError) as error:
-        _handle_contract_error(error)
-
+    The Backend performs authorization, records the reviewer and comments,
+    and changes the persisted revision status after this call succeeds.
+    """
     return {
-        "status": "Approved" if review["decision"] == "approve" else "Rejected",
-        "draft": reviewed_draft,
-        "review": review,
+        "status": "Approved" if request.decision == "Approve" else "Rejected",
+        "revisionId": request.revisionId,
     }
+
+
+@router.post("/sync")
+def sync_index(
+    repository=Depends(get_semantic_repository),
+    schema_provider=Depends(get_schema_provider),
+) -> dict[str, Any]:
+    """Synchronize the in-memory FAISS index and physical schema with the active Backend revision immediately."""
+    built = False
+    schema_synced = False
+    if hasattr(repository, "sync_active_index"):
+        built = repository.sync_active_index(force=True)
+    if hasattr(schema_provider, "sync_schema"):
+        try:
+            schema_provider.sync_schema()
+            schema_synced = True
+        except Exception:
+            schema_synced = False
+    return {
+        "status": "Success",
+        "rebuilt": built,
+        "schemaSynced": schema_synced,
+        "indexedRevisionId": getattr(repository, "indexed_revision_id", None),
+    }
+
+
+@router.get("/active-schema")
+def get_active_schema(
+    schema_provider=Depends(get_schema_provider),
+) -> dict[str, Any]:
+    """Return the active physical database schema currently cached in memory."""
+    try:
+        schema = schema_provider.get_schema()
+        return {
+            "status": "Success",
+            "schema": schema,
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Unable to load active physical schema: {exc}",
+        ) from exc
 
 
 def _validate_resolved_sources(trigger_type: str, sources: dict[str, Any]) -> None:

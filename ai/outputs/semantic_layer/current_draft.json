@@ -2,43 +2,103 @@
   "metadata": {
     "status": "initial_draft",
     "validated": false,
-    "human_review_required": true
+    "human_review_required": true,
+    "semantic_layer_id": "sl-4c34f74060444ecaa4d78b71f91f965f",
+    "revision_id": "rev-a9aeb432445b42e989f2c7113a7791fa",
+    "base_revision_id": null,
+    "trigger_type": "FullRebuild"
   },
   "entities": [
     {
       "name": "Customer",
+      "mapping": "customers",
+      "source_table": "customers",
+      "primary_identifier": "customer_id",
+      "natural_grain": "customer_id",
+      "grain": "customer_id",
+      "security_domain": null,
+      "security_scope": null,
       "description": "A person represented in the banking system.",
-      "source": "business_glossary"
+      "source": "schema",
+      "object_id": "obj-95480d60-6adb-404c-9830-ae7858da84d4"
     },
     {
       "name": "Branch",
+      "mapping": "branches",
+      "source_table": "branches",
+      "primary_identifier": "branch_id",
+      "natural_grain": "branch_id",
+      "grain": "branch_id",
+      "security_domain": "branch",
+      "security_scope": "branch",
       "description": "A banking branch represented in the database.",
-      "source": "business_glossary"
+      "source": "schema",
+      "object_id": "obj-5c564da1-bc97-4254-811e-cb473bad3004"
     },
     {
       "name": "Account",
+      "mapping": "accounts",
+      "source_table": "accounts",
+      "primary_identifier": "account_id",
+      "natural_grain": "account_id",
+      "grain": "account_id",
+      "security_domain": "branch",
+      "security_scope": "branch",
       "description": "A banking account owned by a customer.",
-      "source": "business_glossary"
+      "source": "schema",
+      "object_id": "obj-7b5c25ab-8535-4641-b587-33f37dbc0a12"
     },
     {
       "name": "Card",
+      "mapping": "cards",
+      "source_table": "cards",
+      "primary_identifier": "card_id",
+      "natural_grain": "card_id",
+      "grain": "card_id",
+      "security_domain": null,
+      "security_scope": null,
       "description": "A card associated with a bank account.",
-      "source": "business_glossary"
+      "source": "schema",
+      "object_id": "obj-c25a3683-08a1-4575-bd62-f911c7376071"
     },
     {
       "name": "Merchant",
+      "mapping": "merchants",
+      "source_table": "merchants",
+      "primary_identifier": "merchant_id",
+      "natural_grain": "merchant_id",
+      "grain": "merchant_id",
+      "security_domain": null,
+      "security_scope": null,
       "description": "A merchant referenced by transactions.",
-      "source": "business_glossary"
+      "source": "schema",
+      "object_id": "obj-ac76a4ce-c7ab-4b32-a1c1-c614e52bfdf2"
     },
     {
       "name": "Transaction",
+      "mapping": "transactions",
+      "source_table": "transactions",
+      "primary_identifier": "transaction_id",
+      "natural_grain": "transaction_id",
+      "grain": "transaction_id",
+      "security_domain": null,
+      "security_scope": null,
       "description": "A financial transaction associated with an account and merchant.",
-      "source": "business_glossary"
+      "source": "schema",
+      "object_id": "obj-9beef17f-565a-4956-ae19-595755355648"
     },
     {
       "name": "Loan",
+      "mapping": "loans",
+      "source_table": "loans",
+      "primary_identifier": "loan_id",
+      "natural_grain": "loan_id",
+      "grain": "loan_id",
+      "security_domain": null,
+      "security_scope": null,
       "description": "A loan record associated with a customer.",
-      "source": "business_glossary"
+      "source": "schema",
+      "object_id": "obj-335478dd-aeb9-4e9f-a298-024a0dcde122"
     }
   ],
   "relationships": [
@@ -49,7 +109,11 @@
       "to_table": "accounts",
       "to_column": "customer_id",
       "cardinality": "1:N",
-      "relationship_type": "foreign_key"
+      "relationship_type": "foreign_key",
+      "status": "PROVIDED",
+      "is_executable": true,
+      "confidence": 1,
+      "object_id": "obj-c324383f-bd7d-47e7-80bf-c74f42b622f3"
     },
     {
       "name": "branches_accounts",
@@ -58,7 +122,11 @@
       "to_table": "accounts",
       "to_column": "branch_id",
       "cardinality": "1:N",
-      "relationship_type": "foreign_key"
+      "relationship_type": "foreign_key",
+      "status": "PROVIDED",
+      "is_executable": true,
+      "confidence": 1,
+      "object_id": "obj-5dc7998d-de63-4ad3-9a6f-737855d99988"
     },
     {
       "name": "accounts_cards",
@@ -67,7 +135,11 @@
       "to_table": "cards",
       "to_column": "account_id",
       "cardinality": "1:N",
-      "relationship_type": "foreign_key"
+      "relationship_type": "foreign_key",
+      "status": "PROVIDED",
+      "is_executable": true,
+      "confidence": 1,
+      "object_id": "obj-9a874044-683f-4f23-9ad9-b0e592ad8545"
     },
     {
       "name": "accounts_transactions",
@@ -76,7 +148,11 @@
       "to_table": "transactions",
       "to_column": "account_id",
       "cardinality": "1:N",
-      "relationship_type": "foreign_key"
+      "relationship_type": "foreign_key",
+      "status": "PROVIDED",
+      "is_executable": true,
+      "confidence": 1,
+      "object_id": "obj-b9982733-c6d5-47bb-87df-59f6ec4f5b0b"
     },
     {
       "name": "merchants_transactions",
@@ -85,7 +161,11 @@
       "to_table": "transactions",
       "to_column": "merchant_id",
       "cardinality": "1:N",
-      "relationship_type": "foreign_key"
+      "relationship_type": "foreign_key",
+      "status": "PROVIDED",
+      "is_executable": true,
+      "confidence": 1,
+      "object_id": "obj-6a0f6f42-162a-4cd0-9c02-20ddf04cd169"
     },
     {
       "name": "customers_loans",
@@ -94,78 +174,659 @@
       "to_table": "loans",
       "to_column": "customer_id",
       "cardinality": "1:N",
-      "relationship_type": "foreign_key"
+      "relationship_type": "foreign_key",
+      "status": "PROVIDED",
+      "is_executable": true,
+      "confidence": 1,
+      "object_id": "obj-69dc6970-ae74-429a-afb4-afc8e4249066"
     }
   ],
   "measures": [
     {
       "name": "Transaction Volume",
+      "mapping": "transactions.amount_usd",
+      "aggregation": "SUM",
+      "aggregation_function": "SUM",
+      "business_definition": "Sum of transaction amounts over a selected population/time period.",
       "description": "Sum of transaction amounts over a selected population/time period.",
-      "source": "business_glossary"
+      "source": "business_glossary",
+      "generated": false,
+      "source_table": "transactions",
+      "source_column": "amount_usd",
+      "natural_grain": "transaction_id",
+      "natural_entity": "Transaction",
+      "distinct_required": false,
+      "object_id": "obj-33b00c7f-f126-48b6-98a9-ac5593dc13a3"
     },
     {
       "name": "Total Balance",
+      "mapping": "accounts.balance_usd",
+      "aggregation": "SUM",
+      "aggregation_function": "SUM",
+      "business_definition": "Sum of account balances over a selected population.",
       "description": "Sum of account balances over a selected population.",
-      "source": "business_glossary"
+      "source": "business_glossary",
+      "generated": false,
+      "source_table": "accounts",
+      "source_column": "balance_usd",
+      "natural_grain": "account_id",
+      "natural_entity": "Account",
+      "distinct_required": false,
+      "object_id": "obj-5c06d560-2a2c-48d4-a35c-da178b29b32f"
     },
     {
       "name": "Loan Exposure",
+      "mapping": "loans.loan_amount",
+      "aggregation": "SUM",
+      "aggregation_function": "SUM",
+      "business_definition": "Sum of loan amounts over a selected population.",
       "description": "Sum of loan amounts over a selected population.",
-      "source": "business_glossary"
+      "source": "business_glossary",
+      "generated": false,
+      "source_table": "loans",
+      "source_column": "loan_amount",
+      "natural_grain": "loan_id",
+      "natural_entity": "Loan",
+      "distinct_required": false,
+      "object_id": "obj-613ce005-8258-4879-93c1-86a45ba9e105"
     }
   ],
   "dimensions": [
     {
       "name": "Customer ID",
       "description": "Unique identifier for a customer.",
-      "source": "schema"
+      "mapping": "customers.customer_id",
+      "source": "schema",
+      "generated": false,
+      "natural_grain": "customer_id",
+      "grain": "customer_id",
+      "object_id": "obj-acaf8e8f-5af5-40e7-b091-d6ee276a449f"
     },
     {
       "name": "Branch ID",
-      "description": "Unique identifier for a branch.",
-      "source": "schema"
+      "description": "Unique identifier for a banking branch.",
+      "mapping": "branches.branch_id",
+      "source": "schema",
+      "generated": false,
+      "natural_grain": "branch_id",
+      "grain": "branch_id",
+      "object_id": "obj-20c64c73-1f26-4c84-898b-9a2095a1ab9a"
     },
     {
       "name": "Account ID",
-      "description": "Unique identifier for an account.",
-      "source": "schema"
+      "description": "Unique identifier for a bank account.",
+      "mapping": "accounts.account_id",
+      "source": "schema",
+      "generated": false,
+      "natural_grain": "account_id",
+      "grain": "account_id",
+      "object_id": "obj-5b2cc2e1-01b3-4104-ad7c-7e8faa3bd356"
     },
     {
       "name": "Card ID",
-      "description": "Unique identifier for a card.",
-      "source": "schema"
+      "description": "Unique identifier for a payment card.",
+      "mapping": "cards.card_id",
+      "source": "schema",
+      "generated": false,
+      "natural_grain": "card_id",
+      "grain": "card_id",
+      "object_id": "obj-e50fb981-765f-457d-b1fd-f96d3678a3d4"
     },
     {
       "name": "Merchant ID",
       "description": "Unique identifier for a merchant.",
-      "source": "schema"
+      "mapping": "merchants.merchant_id",
+      "source": "schema",
+      "generated": false,
+      "natural_grain": "merchant_id",
+      "grain": "merchant_id",
+      "object_id": "obj-5861a351-775f-4eb4-8af8-147235642f54"
     },
     {
       "name": "Transaction ID",
-      "description": "Unique identifier for a transaction.",
-      "source": "schema"
+      "description": "Unique identifier for a financial transaction.",
+      "mapping": "transactions.transaction_id",
+      "source": "schema",
+      "generated": false,
+      "natural_grain": "transaction_id",
+      "grain": "transaction_id",
+      "object_id": "obj-2e7f5f0b-a12f-453c-900f-c985bda21aae"
     },
     {
       "name": "Loan ID",
       "description": "Unique identifier for a loan.",
-      "source": "schema"
+      "mapping": "loans.loan_id",
+      "source": "schema",
+      "generated": false,
+      "natural_grain": "loan_id",
+      "grain": "loan_id",
+      "object_id": "obj-8cee8ae2-ae0d-47d8-883d-43af5d72cdb7"
+    },
+    {
+      "name": "Amount Usd",
+      "description": "Amount usd recorded for the transaction.",
+      "mapping": "transactions.amount_usd",
+      "aggregation": "SUM",
+      "source": "derived",
+      "generated": true,
+      "natural_grain": "transaction_id",
+      "grain": "transaction_id",
+      "object_id": "obj-6a252b40-943d-42c6-ba7d-b23bc0742b85"
+    },
+    {
+      "name": "Balance Usd",
+      "description": "Balance usd recorded for the account.",
+      "mapping": "accounts.balance_usd",
+      "aggregation": "SUM",
+      "source": "derived",
+      "generated": true,
+      "natural_grain": "account_id",
+      "grain": "account_id",
+      "object_id": "obj-33ce6a0c-7362-410d-8da4-14adf26a6409"
+    },
+    {
+      "name": "Loan Amount",
+      "description": "Loan amount recorded for the loan.",
+      "mapping": "loans.loan_amount",
+      "aggregation": "SUM",
+      "source": "derived",
+      "generated": true,
+      "natural_grain": "loan_id",
+      "grain": "loan_id",
+      "object_id": "obj-cb9ce0c8-6055-4bd3-a63f-f1a2b8e26c75"
+    },
+    {
+      "name": "First Name",
+      "mapping": "customers.first_name",
+      "natural_grain": "customer_id",
+      "grain": "customer_id",
+      "description": "First name recorded for the customer.",
+      "source": "schema",
+      "object_id": "obj-7e5f24e6-6257-43e6-a931-29b7777a3680"
+    },
+    {
+      "name": "Last Name",
+      "mapping": "customers.last_name",
+      "natural_grain": "customer_id",
+      "grain": "customer_id",
+      "description": "Last name recorded for the customer.",
+      "source": "schema",
+      "object_id": "obj-e2c226d5-1b5f-4ad7-9987-0642719df1b5"
+    },
+    {
+      "name": "Email",
+      "mapping": "customers.email",
+      "natural_grain": "customer_id",
+      "grain": "customer_id",
+      "description": "Email address recorded for the customer.",
+      "source": "schema",
+      "is_pii": true,
+      "sensitivity": "confidential",
+      "object_id": "obj-99d3dbdf-491e-4bde-941b-c2dc438de72a"
+    },
+    {
+      "name": "Customer City",
+      "mapping": "customers.city",
+      "natural_grain": "customer_id",
+      "grain": "customer_id",
+      "description": "City recorded for the customer.",
+      "source": "schema",
+      "object_id": "obj-978020ee-8fe0-4d1d-a234-328e9c0e6566"
+    },
+    {
+      "name": "Credit Score",
+      "mapping": "customers.credit_score",
+      "natural_grain": "customer_id",
+      "grain": "customer_id",
+      "description": "Credit score recorded for the customer.",
+      "source": "schema",
+      "is_pii": true,
+      "sensitivity": "confidential",
+      "object_id": "obj-1355b41d-da10-4cfe-a84e-918548bc7ba5"
+    },
+    {
+      "name": "Created At",
+      "mapping": "customers.created_at",
+      "natural_grain": "customer_id",
+      "grain": "customer_id",
+      "description": "Created at recorded for the customer.",
+      "source": "schema",
+      "type": "temporal",
+      "temporal_granularities": [
+        "day",
+        "month",
+        "quarter",
+        "year"
+      ],
+      "object_id": "obj-89e881e0-bb76-4d87-a54e-52af6e7a5092"
+    },
+    {
+      "name": "Branch Name",
+      "mapping": "branches.branch_name",
+      "natural_grain": "branch_id",
+      "grain": "branch_id",
+      "description": "Branch name recorded for the branch.",
+      "source": "schema",
+      "object_id": "obj-658fe555-eea3-4225-8934-1d0040abe66d"
+    },
+    {
+      "name": "Manager Name",
+      "mapping": "branches.manager_name",
+      "natural_grain": "branch_id",
+      "grain": "branch_id",
+      "description": "Manager name recorded for the branch.",
+      "source": "schema",
+      "object_id": "obj-ee9886ab-590f-47f6-9461-0a250afb1178"
+    },
+    {
+      "name": "Branch City",
+      "mapping": "branches.city",
+      "natural_grain": "branch_id",
+      "grain": "branch_id",
+      "description": "City recorded for the branch.",
+      "source": "schema",
+      "object_id": "obj-336df8ba-4be4-49ab-8de2-783dd2727785"
+    },
+    {
+      "name": "Country",
+      "mapping": "branches.country",
+      "natural_grain": "branch_id",
+      "grain": "branch_id",
+      "description": "Country recorded for the branch.",
+      "source": "schema",
+      "object_id": "obj-f8848bf4-a8be-4ee6-ab2a-b697994bc969"
+    },
+    {
+      "name": "Account Customer ID",
+      "mapping": "accounts.customer_id",
+      "natural_grain": "account_id",
+      "grain": "account_id",
+      "description": "Unique identifier for a customer.",
+      "source": "schema",
+      "object_id": "obj-c84b7bb6-473e-4379-b85a-c3f95c16a34d"
+    },
+    {
+      "name": "Account Branch ID",
+      "mapping": "accounts.branch_id",
+      "natural_grain": "account_id",
+      "grain": "account_id",
+      "description": "Unique identifier for a banking branch.",
+      "source": "schema",
+      "object_id": "obj-bb5a641f-07d7-4361-88de-e2dd293c95a0"
+    },
+    {
+      "name": "Account Type",
+      "mapping": "accounts.account_type",
+      "natural_grain": "account_id",
+      "grain": "account_id",
+      "description": "Account type recorded for the account.",
+      "source": "schema",
+      "object_id": "obj-d671c0a6-022e-4009-bf5b-923ece235ee2"
+    },
+    {
+      "name": "Open Date",
+      "mapping": "accounts.open_date",
+      "natural_grain": "account_id",
+      "grain": "account_id",
+      "description": "Open date recorded for the account.",
+      "source": "schema",
+      "type": "temporal",
+      "temporal_granularities": [
+        "day",
+        "month",
+        "quarter",
+        "year"
+      ],
+      "object_id": "obj-d8b9b6b7-4098-43a7-b4a3-e6b6ad7d2046"
+    },
+    {
+      "name": "Card Account ID",
+      "mapping": "cards.account_id",
+      "natural_grain": "card_id",
+      "grain": "card_id",
+      "description": "Unique identifier for a bank account.",
+      "source": "schema",
+      "object_id": "obj-37e38e02-d1ff-48ab-b688-6697e7de45c1"
+    },
+    {
+      "name": "Card Type",
+      "mapping": "cards.card_type",
+      "natural_grain": "card_id",
+      "grain": "card_id",
+      "description": "Card type recorded for the card.",
+      "source": "schema",
+      "object_id": "obj-c6830dac-23bd-47c1-a458-1018873dc0d8"
+    },
+    {
+      "name": "Expiration Date",
+      "mapping": "cards.expiration_date",
+      "natural_grain": "card_id",
+      "grain": "card_id",
+      "description": "Expiration date recorded for the card.",
+      "source": "schema",
+      "type": "temporal",
+      "temporal_granularities": [
+        "day",
+        "month",
+        "quarter",
+        "year"
+      ],
+      "object_id": "obj-f6951a8f-f52f-4447-96c1-34ed546902fa"
+    },
+    {
+      "name": "Merchant Name",
+      "mapping": "merchants.merchant_name",
+      "natural_grain": "merchant_id",
+      "grain": "merchant_id",
+      "description": "Merchant name recorded for the merchant.",
+      "source": "schema",
+      "object_id": "obj-1c1e73be-df00-44fb-ae9a-d9726e24b904"
+    },
+    {
+      "name": "Merchant City",
+      "mapping": "merchants.city",
+      "natural_grain": "merchant_id",
+      "grain": "merchant_id",
+      "description": "City recorded for the merchant.",
+      "source": "schema",
+      "object_id": "obj-9ddb27e0-5d44-419f-b70b-28891389578c"
+    },
+    {
+      "name": "Transaction Account ID",
+      "mapping": "transactions.account_id",
+      "natural_grain": "transaction_id",
+      "grain": "transaction_id",
+      "description": "Unique identifier for a bank account.",
+      "source": "schema",
+      "object_id": "obj-4c9fc7b9-4d98-4b2c-ba8e-65ce3a91f42d"
+    },
+    {
+      "name": "Transaction Merchant ID",
+      "mapping": "transactions.merchant_id",
+      "natural_grain": "transaction_id",
+      "grain": "transaction_id",
+      "description": "Unique identifier for a merchant.",
+      "source": "schema",
+      "object_id": "obj-d88cb96e-2dfc-49b5-a89d-1092a5bfc94d"
+    },
+    {
+      "name": "Transaction Date",
+      "mapping": "transactions.transaction_date",
+      "natural_grain": "transaction_id",
+      "grain": "transaction_id",
+      "description": "Transaction date recorded for the transaction.",
+      "source": "schema",
+      "type": "temporal",
+      "temporal_granularities": [
+        "day",
+        "month",
+        "quarter",
+        "year"
+      ],
+      "object_id": "obj-73cc6a33-2dca-4d12-9877-5c150f96c38f"
+    },
+    {
+      "name": "Loan Customer ID",
+      "mapping": "loans.customer_id",
+      "natural_grain": "loan_id",
+      "grain": "loan_id",
+      "description": "Unique identifier for a customer.",
+      "source": "schema",
+      "object_id": "obj-d14e7f3a-2b51-41d4-9e16-93ee5adfec6f"
+    },
+    {
+      "name": "Interest Rate",
+      "mapping": "loans.interest_rate",
+      "natural_grain": "loan_id",
+      "grain": "loan_id",
+      "description": "Interest rate recorded for the loan.",
+      "source": "schema",
+      "object_id": "obj-6369ef49-32ea-45e8-8e38-3a490952ebbd"
+    },
+    {
+      "name": "Start Date",
+      "mapping": "loans.start_date",
+      "natural_grain": "loan_id",
+      "grain": "loan_id",
+      "description": "Start date recorded for the loan.",
+      "source": "schema",
+      "type": "temporal",
+      "temporal_granularities": [
+        "day",
+        "month",
+        "quarter",
+        "year"
+      ],
+      "object_id": "obj-d9706466-abca-4578-8daa-3d4e27280e4f"
     }
   ],
   "business_rules": [
     {
       "name": "Customer Transactions",
-      "description": "Join through accounts when asking for customer transactions.",
-      "source": "documentation"
+      "description": "When a user asks for **customer transactions**, join through accounts.",
+      "source": "business_glossary",
+      "generated": false,
+      "rule_type": "join_guidance",
+      "enforcement": "mandatory",
+      "object_id": "obj-cc0a04aa-6f30-4393-be55-f57d216b7390"
     },
     {
       "name": "Customer Cards",
-      "description": "Join through accounts when asking for customer cards.",
-      "source": "documentation"
+      "description": "When a user asks for **customer cards**, join through accounts.",
+      "source": "business_glossary",
+      "generated": false,
+      "rule_type": "join_guidance",
+      "enforcement": "mandatory",
+      "object_id": "obj-312f6f4d-cbc4-4f75-ac40-58791b51496a"
     },
     {
       "name": "Customer Loans",
-      "description": "Use the direct loans.customer_id relationship when asking for customer loans.",
-      "source": "documentation"
+      "description": "When a user asks for **customer loans**, use the direct loans.customer_id relationship.",
+      "source": "business_glossary",
+      "generated": false,
+      "rule_type": "aggregation",
+      "enforcement": "mandatory",
+      "object_id": "obj-5d52e5e0-feeb-4ee4-8366-b806f44ef3dd"
+    },
+    {
+      "name": "Transaction Volume Aggregation",
+      "description": "When calculating **transaction volume**, aggregate transactions.amount_usd.",
+      "source": "business_glossary",
+      "generated": false,
+      "rule_type": "aggregation",
+      "enforcement": "mandatory",
+      "object_id": "obj-b3bf4236-d795-428d-99b5-2d0510db3ffa"
+    },
+    {
+      "name": "Total Balance Aggregation",
+      "description": "When calculating **total balance**, aggregate accounts.balance_usd.",
+      "source": "business_glossary",
+      "generated": false,
+      "rule_type": "aggregation",
+      "enforcement": "mandatory",
+      "object_id": "obj-3160d6c0-b39e-4f68-861c-31561b471c1f"
+    },
+    {
+      "name": "No Direct Loans-to-Accounts Join",
+      "description": "Do not join loans directly to accounts because no such relationship is defined in the supplied schema.",
+      "source": "business_glossary",
+      "generated": false,
+      "rule_type": "join_guidance",
+      "enforcement": "mandatory",
+      "object_id": "obj-5d8a56f8-3a02-4c93-9dd4-456f05eb7c1f"
+    }
+  ],
+  "security_domains": [
+    {
+      "name": "branch",
+      "security_scope": "branch",
+      "canonical_root": "accounts.branch_id",
+      "canonical_predicate": "accounts.branch_id = @UserBranchId",
+      "security_parameter": "@UserBranchId",
+      "description": "Branch-level row security scope with canonical root accounts.branch_id.",
+      "source": "documentation",
+      "authoritative": true,
+      "propagation_paths": [
+        {
+          "target_table": "branches",
+          "path": "branches.branch_id = @UserBranchId",
+          "predicate": "branches.branch_id = @UserBranchId",
+          "propagation": "allowed",
+          "is_canonical_root": false,
+          "predicate_equivalence": {
+            "INNER JOIN": true,
+            "LEFT JOIN": "conditional",
+            "RIGHT JOIN": "conditional",
+            "FULL JOIN": false
+          },
+          "joins": [],
+          "source_sql": "WHERE branches.branch_id = @UserBranchId"
+        },
+        {
+          "target_table": "accounts",
+          "path": "accounts.branch_id = @UserBranchId",
+          "predicate": "accounts.branch_id = @UserBranchId",
+          "propagation": "allowed",
+          "is_canonical_root": true,
+          "predicate_equivalence": {
+            "INNER JOIN": true,
+            "LEFT JOIN": "conditional",
+            "RIGHT JOIN": "conditional",
+            "FULL JOIN": false
+          },
+          "joins": [],
+          "source_sql": "WHERE accounts.branch_id = @UserBranchId"
+        },
+        {
+          "target_table": "transactions",
+          "path": "transactions.account_id = accounts.account_id -> accounts.branch_id = @UserBranchId",
+          "predicate": "accounts.branch_id = @UserBranchId",
+          "propagation": "allowed",
+          "is_canonical_root": false,
+          "predicate_equivalence": {
+            "INNER JOIN": false,
+            "LEFT JOIN": false,
+            "RIGHT JOIN": false,
+            "FULL JOIN": false
+          },
+          "joins": [
+            {
+              "join_type": "INNER JOIN",
+              "table": "accounts",
+              "alias": null,
+              "condition": "transactions.account_id = accounts.account_id"
+            }
+          ],
+          "source_sql": "INNER JOIN accounts ON transactions.account_id = accounts.account_id WHERE accounts.branch_id = @UserBranchId"
+        },
+        {
+          "target_table": "cards",
+          "path": "cards.account_id = accounts.account_id -> accounts.branch_id = @UserBranchId",
+          "predicate": "accounts.branch_id = @UserBranchId",
+          "propagation": "allowed",
+          "is_canonical_root": false,
+          "predicate_equivalence": {
+            "INNER JOIN": false,
+            "LEFT JOIN": false,
+            "RIGHT JOIN": false,
+            "FULL JOIN": false
+          },
+          "joins": [
+            {
+              "join_type": "INNER JOIN",
+              "table": "accounts",
+              "alias": null,
+              "condition": "cards.account_id = accounts.account_id"
+            }
+          ],
+          "source_sql": "INNER JOIN accounts ON cards.account_id = accounts.account_id WHERE accounts.branch_id = @UserBranchId"
+        },
+        {
+          "target_table": "customers",
+          "path": "customers.customer_id = accounts.customer_id -> accounts.branch_id = @UserBranchId",
+          "predicate": "accounts.branch_id = @UserBranchId",
+          "propagation": "allowed",
+          "is_canonical_root": false,
+          "predicate_equivalence": {
+            "INNER JOIN": false,
+            "LEFT JOIN": false,
+            "RIGHT JOIN": false,
+            "FULL JOIN": false
+          },
+          "joins": [
+            {
+              "join_type": "INNER JOIN",
+              "table": "accounts",
+              "alias": null,
+              "condition": "customers.customer_id = accounts.customer_id"
+            }
+          ],
+          "source_sql": "INNER JOIN accounts ON customers.customer_id = accounts.customer_id WHERE accounts.branch_id = @UserBranchId"
+        },
+        {
+          "target_table": "loans",
+          "path": "loans.customer_id = customers.customer_id -> customers.customer_id = accounts.customer_id -> accounts.branch_id = branches.branch_id -> branches.branch_id = @UserBranchId",
+          "predicate": "branches.branch_id = @UserBranchId",
+          "propagation": "allowed",
+          "is_canonical_root": false,
+          "predicate_equivalence": {
+            "INNER JOIN": false,
+            "LEFT JOIN": false,
+            "RIGHT JOIN": false,
+            "FULL JOIN": false
+          },
+          "joins": [
+            {
+              "join_type": "INNER JOIN",
+              "table": "customers",
+              "alias": null,
+              "condition": "loans.customer_id = customers.customer_id"
+            },
+            {
+              "join_type": "INNER JOIN",
+              "table": "accounts",
+              "alias": null,
+              "condition": "customers.customer_id = accounts.customer_id"
+            },
+            {
+              "join_type": "INNER JOIN",
+              "table": "branches",
+              "alias": null,
+              "condition": "accounts.branch_id = branches.branch_id"
+            }
+          ],
+          "source_sql": "INNER JOIN customers ON loans.customer_id = customers.customer_id INNER JOIN accounts ON customers.customer_id = accounts.customer_id INNER JOIN branches ON accounts.branch_id = branches.branch_id WHERE branches.branch_id = @UserBranchId"
+        },
+        {
+          "target_table": "merchants",
+          "path": "merchants.merchant_id = transactions.merchant_id -> transactions.account_id = accounts.account_id -> accounts.branch_id = @UserBranchId",
+          "predicate": "accounts.branch_id = @UserBranchId",
+          "propagation": "allowed",
+          "is_canonical_root": false,
+          "predicate_equivalence": {
+            "INNER JOIN": false,
+            "LEFT JOIN": false,
+            "RIGHT JOIN": false,
+            "FULL JOIN": false
+          },
+          "joins": [
+            {
+              "join_type": "INNER JOIN",
+              "table": "transactions",
+              "alias": null,
+              "condition": "merchants.merchant_id = transactions.merchant_id"
+            },
+            {
+              "join_type": "INNER JOIN",
+              "table": "accounts",
+              "alias": null,
+              "condition": "transactions.account_id = accounts.account_id"
+            }
+          ],
+          "source_sql": "INNER JOIN transactions ON merchants.merchant_id = transactions.merchant_id INNER JOIN accounts ON transactions.account_id = accounts.account_id WHERE accounts.branch_id = @UserBranchId"
+        }
+      ],
+      "object_id": "obj-bdd9d46f-2d59-4948-a853-79b99b5694c4"
     }
   ],
   "validation_issues": []

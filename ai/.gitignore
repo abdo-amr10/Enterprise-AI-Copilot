@@ -3,3 +3,10 @@
 
 # Local embedding model artifacts
 models/embeddings/
+
+#cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db

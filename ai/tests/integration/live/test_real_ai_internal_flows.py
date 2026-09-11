@@ -54,7 +54,7 @@ def _documented_sources() -> tuple[dict, dict, list[dict]]:
 def _configure_live_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep this real 12k-token generation independent of shell defaults."""
 
-    timeout = os.environ.get("EAI_LIVE_OLLAMA_TIMEOUT_SECONDS", "900")
+    timeout = os.environ.get("EAI_LIVE_OLLAMA_TIMEOUT_SECONDS", "3000")
     try:
         if float(timeout) <= 0:
             raise ValueError

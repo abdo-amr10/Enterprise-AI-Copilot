@@ -1,0 +1,3 @@
+Customer = A person who purchases products or services.
+Order = A transaction made by a customer.
+Total Amount = The total monetary value of an order.

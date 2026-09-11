@@ -1,4 +1,4 @@
-﻿using EnterpriseAiCopilot.Application.Common.Interfaces;
+using EnterpriseAiCopilot.Application.Common.Interfaces;
 using EnterpriseAiCopilot.Application.DTOs.SemanticLayer;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -53,21 +53,43 @@ namespace EnterpriseAiCopilot.Infrastructure.ExternalServices
                 bool isSuccess = true;
                 string? errorMessage = null;
 
-                if (root.TryGetProperty("status", out var statusProp) && statusProp.ValueKind == JsonValueKind.String)
-                {
-                    if (!statusProp.GetString()!.Equals("Success", StringComparison.OrdinalIgnoreCase))
-                    {
-                        isSuccess = false;
-                    }
-                }
-
                 if (root.TryGetProperty("errorMessage", out var errorProp) && errorProp.ValueKind == JsonValueKind.String)
                 {
                     errorMessage = errorProp.GetString();
                     if (!string.IsNullOrEmpty(errorMessage)) isSuccess = false;
                 }
+                else if (root.TryGetProperty("message", out var messageProp) && messageProp.ValueKind == JsonValueKind.String)
+                {
+                    errorMessage = messageProp.GetString();
+                }
+                else if (root.TryGetProperty("detail", out var detailProp) && detailProp.ValueKind == JsonValueKind.String)
+                {
+                    errorMessage = detailProp.GetString();
+                }
 
-                if (!isSuccess)
+                if (root.TryGetProperty("status", out var statusProp) && statusProp.ValueKind == JsonValueKind.String)
+                {
+                    var status = statusProp.GetString();
+                    if (string.Equals(status, "Failed", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(status, "Error", StringComparison.OrdinalIgnoreCase))
+                    {
+                        isSuccess = false;
+                    }
+                }
+
+                if (root.TryGetProperty("isSuccess", out var isSuccessProp) && isSuccessProp.ValueKind == JsonValueKind.False)
+                {
+                    isSuccess = false;
+                }
+
+                bool hasDraftContent = root.TryGetProperty("entities", out _) ||
+                                       root.TryGetProperty("metadata", out _) ||
+                                       root.TryGetProperty("data", out _) ||
+                                       root.TryGetProperty("draft", out _) ||
+                                       root.TryGetProperty("draftJson", out _) ||
+                                       root.TryGetProperty("contentJson", out _);
+
+                if (!isSuccess && !hasDraftContent)
                 {
                     return new AiSemanticDraftResult
                     {

@@ -1,0 +1,1 @@
+{"index_version": 1, "semantic_layer_id": "47adfb6d-592e-4b23-a373-adf1fc5a83bb", "revision_id": "9c7950c2-5b7f-4b08-a77f-4f58527a1769", "embedding_model": "BAAI/bge-m3", "embedding_model_version": "6.0.0", "embedding_dimension": 1024, "similarity_metric": "cosine", "index_type": "faiss.IndexFlatIP", "document_count": 58, "created_at": "2026-09-06T14:10:41.628189+00:00"}

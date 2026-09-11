@@ -55,12 +55,25 @@ class FakeTextToSQLPipeline:
     def build_context(self, question: str) -> str:
         return "approved semantic context"
 
-    def run(self, question: str, semantic_context: str | None = None) -> GenerationResponse:
+    def run(
+        self,
+        question: str,
+        semantic_context: str | None = None,
+        correction_feedback: str = "",
+    ) -> GenerationResponse:
         return GenerationResponse(text=self._generated_text)
 
 
 class FakeSelfCorrectionService:
-    def run(self, question: str, sql: str, semantic_context: str):
+    def run(
+        self,
+        question: str,
+        sql: str,
+        semantic_context: str | None = None,
+        trace_observer: Any = None,
+        enforce_rls: bool = False,
+        **kwargs: Any,
+    ):
         from src.application.dto.self_correction.self_correction_outcome import SelfCorrectionOutcome
         return SelfCorrectionOutcome.success(sql, attempts_used=0)
 

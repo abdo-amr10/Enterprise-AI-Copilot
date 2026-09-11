@@ -14,6 +14,15 @@ class TestGenerationRequest:
          request = GenerationRequest(prompt="Generate SQL for all customers.")
 
          assert request.prompt == "Generate SQL for all customers."
+         assert request.format is None
+
+    def test_should_create_request_with_format(self) -> None:
+        """A valid format parameter should be stored in GenerationRequest."""
+
+        request = GenerationRequest(prompt="Generate JSON.", format="json")
+
+        assert request.prompt == "Generate JSON."
+        assert request.format == "json"
 
     def test_should_reject_empty_prompt(self) -> None:
         """An empty prompt should raise a ValueError.""" 

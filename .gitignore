@@ -47,4 +47,26 @@ node_modules/
 *.rar
 
 # AI Runtime local secrets/configuration
-ai/.env
+#
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+*.db
+mlflow.db
+.env
+.venv
+env/
+venv/
+ENV/
+swagger.json
+

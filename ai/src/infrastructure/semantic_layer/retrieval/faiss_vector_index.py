@@ -109,6 +109,138 @@ class FaissVectorIndex(VectorIndex):
         self._documents = stored["documents"]
         self._metadata = stored["metadata"]
 
+    def export_bundle_bytes(self) -> tuple[bytes, str, str]:
+        """Export the index and its metadata as in-memory bundle components.
+
+        Returns:
+            Tuple of (faiss_binary_bytes, index_metadata_json, document_metadata_json).
+
+        Raises:
+            ValueError: If index or documents are empty.
+        """
+        if self._index is None:
+            raise ValueError("Cannot export an empty vector index.")
+        if not self._documents:
+            raise ValueError("Cannot export an index without documents.")
+
+        faiss = self._faiss()
+        buf = faiss.serialize_index(self._index)
+        faiss_bytes = bytes(buf)
+        index_meta_str = json.dumps(self._metadata, ensure_ascii=False)
+        doc_meta_str = json.dumps(self._documents, ensure_ascii=False)
+        return faiss_bytes, index_meta_str, doc_meta_str
+
+    def export_zip_bytes(self) -> bytes:
+        """Export the index bundle as a compressed ZIP archive in memory."""
+        import io
+        import zipfile
+
+        faiss_bytes, index_meta_str, doc_meta_str = self.export_bundle_bytes()
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("semantic_index.faiss", faiss_bytes)
+            zf.writestr("index_metadata.json", index_meta_str)
+            zf.writestr("document_metadata.json", doc_meta_str)
+        return buffer.getvalue()
+
+    def load_from_zip_bytes(
+        self, zip_bytes: bytes, expected_revision_id: str | None = None
+    ) -> dict[str, Any]:
+        """Restore FAISS index and ordered documents from Backend ZIP archive.
+
+        Validates archive safety, JSON syntax, vector dimensions, document count,
+        and revision identity before atomically replacing in-memory state.
+
+        Args:
+            zip_bytes: Raw ZIP archive bytes.
+            expected_revision_id: Optional revision ID to verify against metadata.
+
+        Returns:
+            Parsed index metadata dictionary.
+
+        Raises:
+            ValueError: If the archive is unsafe, malformed, or fails validation.
+        """
+        import io
+        import zipfile
+
+        if not zip_bytes:
+            raise ValueError("ZIP bytes cannot be empty.")
+
+        try:
+            with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+                names = zf.namelist()
+                for name in names:
+                    if ".." in name or name.startswith("/") or name.startswith("\\"):
+                        raise ValueError(f"Unsafe ZIP archive entry detected: {name}")
+
+                required_files = {
+                    "semantic_index.faiss",
+                    "index_metadata.json",
+                    "document_metadata.json",
+                }
+                missing = required_files - set(names)
+                if missing:
+                    raise ValueError(f"ZIP archive missing required artifact files: {sorted(missing)}")
+
+                faiss_data = zf.read("semantic_index.faiss")
+                index_meta_raw = zf.read("index_metadata.json")
+                doc_meta_raw = zf.read("document_metadata.json")
+        except zipfile.BadZipFile as err:
+            raise ValueError(f"Malformed ZIP archive: {err}") from err
+
+        try:
+            index_metadata = json.loads(index_meta_raw.decode("utf-8"))
+        except Exception as err:
+            raise ValueError(f"Invalid index_metadata.json in archive: {err}") from err
+
+        try:
+            document_metadata = json.loads(doc_meta_raw.decode("utf-8"))
+        except Exception as err:
+            raise ValueError(f"Invalid document_metadata.json in archive: {err}") from err
+
+        if not isinstance(index_metadata, dict):
+            raise ValueError("index_metadata.json must contain a JSON object.")
+        if not isinstance(document_metadata, list):
+            raise ValueError("document_metadata.json must contain a JSON array.")
+
+        if expected_revision_id is not None:
+            actual_rev = index_metadata.get("revision_id")
+            if actual_rev != expected_revision_id:
+                raise ValueError(
+                    f"Artifact revision mismatch: expected '{expected_revision_id}', got '{actual_rev}'."
+                )
+
+        faiss = self._faiss()
+        try:
+            restored_index = faiss.deserialize_index(np.frombuffer(faiss_data, dtype=np.uint8))
+        except Exception as err:
+            raise ValueError(f"Failed to deserialize FAISS index from artifact: {err}") from err
+
+        expected_dim = index_metadata.get("embedding_dimension")
+        if expected_dim is not None and restored_index.d != expected_dim:
+            raise ValueError(
+                f"Dimension mismatch: FAISS index d={restored_index.d}, metadata dimension={expected_dim}."
+            )
+
+        if restored_index.ntotal != len(document_metadata):
+            raise ValueError(
+                f"Document count mismatch: FAISS index has {restored_index.ntotal} vectors, "
+                f"document_metadata has {len(document_metadata)} entries."
+            )
+
+        meta_count = index_metadata.get("document_count")
+        if meta_count is not None and meta_count != len(document_metadata):
+            raise ValueError(
+                f"Metadata document_count ({meta_count}) does not match document_metadata length ({len(document_metadata)})."
+            )
+
+        # Atomic replacement into active state only after all validations succeed
+        self._index = restored_index
+        self._documents = list(document_metadata)
+        self._metadata = dict(index_metadata)
+        return index_metadata
+
     def validate_metadata(self, expected: dict[str, Any]) -> None:
         if self._index is None:
             self.load()

@@ -13,9 +13,9 @@ class SemanticLayerIdentityService:
     semantic_layer_id and revision_id are NOT handled here — that
     responsibility belongs exclusively to SemanticLayerMetadataService.
     This service only fills in a missing `object_id` on individual
-    entities, relationships, measures, dimensions, and business rules,
-    so each object has a stable identity independent of its position
-    or name (used for tracking across Incremental updates).
+    entities, relationships, measures, dimensions, business rules,
+    and security domains, so each object has a stable identity independent
+    of its position or name (used for tracking across Incremental updates).
     """
 
     _SECTIONS = (
@@ -24,6 +24,7 @@ class SemanticLayerIdentityService:
         "measures",
         "dimensions",
         "business_rules",
+        "security_domains",
     )
 
     def assign_object_ids(

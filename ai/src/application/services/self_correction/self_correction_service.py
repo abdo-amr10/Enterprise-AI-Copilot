@@ -1,33 +1,33 @@
 """Orchestrates Hybrid Self-Correction for a generated SQL query.
 
-Flow (matches the agreed design exactly):
-
+Execution Hierarchy:
     generated SQL
-        -> Syntax Validator      (deterministic)
-        -> Schema Validator      (deterministic)
-        -> Relationship Validator(deterministic)
-        -> [only if all three pass] SQL Critic (LLM, diagnosis only)
-        -> CriticFindingVerifier (deterministic -- filters hallucinated findings)
-        -> [only if issues remain] SQL Correction (LLM, fixes only those issues)
-        -> re-validate from the top
+        -> Syntax Validator (Deterministic)
+        -> Schema Validator (Deterministic)
+        -> Relationship Validator (Deterministic)
+        -> RLS Validator (Deterministic)
+        -> [If issues exist] Deterministic Repair Layer (AST-based)
+        -> Re-Validate Deterministically
+        -> [Only if all pass] SQL Critic (LLM, diagnosis only)
+        -> CriticFindingVerifier (Deterministic - filters hallucinated findings)
+        -> [Only if issues remain] SQL Correction (LLM, fixes only those issues)
+        -> Candidate Fingerprint & Oscillation Detection (A -> B -> A)
+        -> Re-validate from the top
         -> up to max_attempts corrections, then FAILED
-
-The LLM never has the final word: every correction is re-validated
-deterministically before it can be accepted, and critic findings are
-never acted on unless CriticFindingVerifier can ground them in the
-approved schema/relationships.
-
-Semantic context is retrieved once per request (via the existing
-ContextRetrievalService, not re-implemented here) and reused across
-every attempt in the loop, per the "retrieve once" principle.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import re
+import time
 from collections.abc import Callable
 from typing import Any
+import sqlglot
+from sqlglot import exp
 
+from src.application.ports.physical_schema_repository import PhysicalSchemaRepository
 from src.application.services.self_correction.critic_finding_verifier import (
     CriticFindingVerifier,
 )
@@ -46,17 +46,49 @@ from src.application.services.self_correction.validators.sql_schema_validator im
 from src.application.services.self_correction.validators.sql_syntax_validator import (
     SQLSyntaxValidator,
 )
+from src.application.services.self_correction.validators.sql_rls_validator import SQLRlsValidator
+from src.application.services.self_correction.sql_deterministic_repair_service import (
+    SQLDeterministicRepairService,
+)
 from src.application.services.context_retrieval.context_retrieval_service import (
     ContextRetrievalService,
 )
+from src.observability.latency_audit import stage
 
 logger = logging.getLogger(__name__)
 
 TraceObserver = Callable[[dict[str, Any]], None]
 
 
+def compute_sql_fingerprint(sql: str) -> str:
+    """Compute normalized semantic fingerprint for AST-based equivalence."""
+    if not sql or not sql.strip():
+        return ""
+    try:
+        stmts = sqlglot.parse(sql, dialect="tsql")
+        canonical = ";\n".join(
+            stmt.sql(dialect="tsql", normalize=True) for stmt in stmts if stmt is not None
+        )
+        return hashlib.sha256(canonical.casefold().encode("utf-8")).hexdigest()
+    except Exception:
+        return hashlib.sha256(sql.strip().casefold().encode("utf-8")).hexdigest()
+
+
 class SelfCorrectionService:
-    """Runs the deterministic-first, LLM-assisted Self-Correction loop."""
+    """Orchestrates deterministic-first, LLM-assisted SQL self-correction.
+
+    Validates candidate SQL through a strict order:
+        1. SQLSyntaxValidator (Deterministic AST / Read-only parser)
+        2. SQLSchemaValidator (Deterministic Physical Schema verification)
+        3. SQLRelationshipValidator (Deterministic Semantic Relationship verification)
+        4. SQLRlsValidator (Deterministic Parameterized RLS mapping & equivalence)
+        5. SQLDeterministicRepairService (Deterministic AST Repair)
+        6. SQLCriticService (LLM critic - advisory only)
+        7. CriticFindingVerifier (Deterministic evidence grounding check)
+        8. SQLCorrectionService (LLM correction for validated issues only)
+
+    Tracks candidate fingerprints and halts immediately upon detecting oscillation.
+    """
 
     def __init__(
         self,
@@ -68,6 +100,9 @@ class SelfCorrectionService:
         finding_verifier: CriticFindingVerifier,
         correction_service: SQLCorrectionService,
         max_attempts: int = 3,
+        rls_validator: SQLRlsValidator | None = None,
+        schema_provider: PhysicalSchemaRepository | None = None,
+        repair_service: SQLDeterministicRepairService | None = None,
     ) -> None:
         self._context_retrieval_service = context_retrieval_service
         self._syntax_validator = syntax_validator
@@ -77,6 +112,16 @@ class SelfCorrectionService:
         self._finding_verifier = finding_verifier
         self._correction_service = correction_service
         self._max_attempts = max_attempts
+        self._rls_validator = rls_validator
+        self._schema_provider = schema_provider or getattr(
+            schema_validator, "_schema_provider", None
+        )
+        self._repair_service = repair_service or SQLDeterministicRepairService(
+            syntax_validator=syntax_validator,
+            schema_validator=schema_validator,
+            rls_validator=rls_validator,
+            relationship_validator=relationship_validator,
+        )
 
     def run(
         self,
@@ -84,32 +129,145 @@ class SelfCorrectionService:
         sql: str,
         semantic_context: str | None = None,
         trace_observer: TraceObserver | None = None,
+        enforce_rls: bool = False,
     ) -> SelfCorrectionOutcome:
-        """Validate the original candidate plus at most ``max_attempts`` corrections."""
+        """Validate candidate SQL and run bounded correction loops if defects exist."""
         semantic_context = semantic_context or self._context_retrieval_service.build_llm_context(question)
         current_sql = sql
         last_issues: list[ValidationIssue] = []
         trace: list[dict[str, object]] = []
         corrections_used = 0
+        cached_schema: dict[str, Any] | None = None
+        seen_fingerprints: list[str] = []
+        rejected_candidates: list[tuple[str, list[ValidationIssue]]] = []
+
+        def _get_schema() -> dict[str, Any]:
+            nonlocal cached_schema
+            if cached_schema is None:
+                if self._schema_provider is not None:
+                    cached_schema = self._schema_provider.get_schema()
+                elif hasattr(self._schema_validator, "_schema_provider") and self._schema_validator._schema_provider is not None:
+                    cached_schema = self._schema_validator._schema_provider.get_schema()
+                else:
+                    cached_schema = {}
+            return cached_schema
+
+        # Pre-pass: Deterministic projection ambiguity qualification
+        qualifier = getattr(
+            self._schema_validator, "qualify_base_table_projection_ambiguities", None
+        )
+        if callable(qualifier) and self._syntax_validator.validate(current_sql).is_valid:
+            current_sql = qualifier(current_sql, schema=_get_schema())
+
+        # Pre-pass: Deterministic repair if safe before calling LLM
+        initial_issues = self._deterministic_issues(current_sql, _get_schema, enforce_rls=enforce_rls)
+        if initial_issues:
+            with stage("self_correction", operation="deterministic_repair", is_leaf=False):
+                t_rep_start = time.perf_counter()
+                repaired_sql = self._repair_service.repair(current_sql, schema=_get_schema(), enforce_rls=enforce_rls)
+                rep_dur_ms = (time.perf_counter() - t_rep_start) * 1000
+                if repaired_sql != current_sql:
+                    post_rep_issues = self._deterministic_issues(repaired_sql, _get_schema, enforce_rls=enforce_rls)
+                    if not post_rep_issues:
+                        logger.info("Deterministic repair resolved initial issues without LLM correction")
+                        current_sql = repaired_sql
 
         for attempt in range(self._max_attempts + 1):
             logger.info("Self-correction attempt %s", attempt)
-            issues = self._deterministic_issues(current_sql)
+
+            current_fp = compute_sql_fingerprint(current_sql)
+            previous_fp = seen_fingerprints[-1] if seen_fingerprints else None
+
+            # Oscillation & Repeat Detection
+            if current_fp in seen_fingerprints:
+                logger.warning("Correction oscillation detected for fingerprint %s. Aborting loop.", current_fp[:12])
+                last_issues = [
+                    ValidationIssue(
+                        "CORRECTION_OSCILLATION",
+                        "CORRECTION_OSCILLATION: Query oscillated or repeated a previously evaluated semantic state.",
+                        "self_correction",
+                    )
+                ]
+                trace.append({
+                    "attempt": attempt,
+                    "sql": current_sql,
+                    "sqlFingerprint": current_fp,
+                    "previousFingerprint": previous_fp,
+                    "deterministicIssues": [issue.message for issue in last_issues],
+                    "action": "oscillation_detected",
+                })
+                self._notify_trace_observer(trace_observer, trace[-1])
+                break
+
+            seen_fingerprints.append(current_fp)
+
+            t_det_start = time.perf_counter()
+            issues = self._deterministic_issues(current_sql, _get_schema, enforce_rls=enforce_rls)
+            det_dur_ms = (time.perf_counter() - t_det_start) * 1000
+
+            # If deterministic issues exist, try deterministic repair on this iteration
+            repair_applied = False
+            if issues:
+                with stage("self_correction", operation="deterministic_repair", is_leaf=False):
+                    t_rep = time.perf_counter()
+                    repaired = self._repair_service.repair(current_sql, schema=_get_schema(), enforce_rls=enforce_rls)
+                    rep_dur = (time.perf_counter() - t_rep) * 1000
+                    if repaired != current_sql:
+                        rep_issues = self._deterministic_issues(repaired, _get_schema, enforce_rls=enforce_rls)
+                        if not rep_issues:
+                            current_sql = repaired
+                            issues = []
+                            repair_applied = True
+
             trace.append({
                 "attempt": attempt,
                 "sql": current_sql,
                 "deterministicIssues": [issue.message for issue in issues],
+                "deterministicDurationMs": det_dur_ms,
             })
 
             if not issues:
-                critic_result = self._critic_service.evaluate(
-                    question=question,
-                    sql=current_sql,
-                    semantic_context=semantic_context,
-                )
-                issues = self._finding_verifier.verify(critic_result)
-                trace[-1]["criticStatus"] = critic_result.status
-                trace[-1]["verifiedCriticIssues"] = [issue.message for issue in issues]
+                with stage("critic", operation="critic", is_leaf=False):
+                    t_critic_start = time.perf_counter()
+                    with stage("critic_context", operation="critic_context", is_leaf=True):
+                        critic_context = self._build_critic_context(
+                            sql=current_sql,
+                            schema_getter=_get_schema,
+                            fallback_context=semantic_context,
+                        )
+                    with stage("critic_evaluation", operation="critic_evaluation", is_leaf=False):
+                        critic_result = self._critic_service.evaluate(
+                            question=question,
+                            sql=current_sql,
+                            semantic_context=critic_context,
+                        )
+                    with stage("critic_verifier", operation="critic_verifier", is_leaf=True):
+                        t_ver_start = time.perf_counter()
+                        try:
+                            issues = self._finding_verifier.verify(critic_result, schema=_get_schema(), sql=current_sql)
+                        except TypeError:
+                            try:
+                                issues = self._finding_verifier.verify(critic_result, schema=_get_schema())
+                            except TypeError:
+                                issues = self._finding_verifier.verify(critic_result)
+                        ver_dur_ms = (time.perf_counter() - t_ver_start) * 1000
+                    critic_dur_ms = (time.perf_counter() - t_critic_start) * 1000
+                    trace[-1]["criticStatus"] = critic_result.status
+                    trace[-1]["criticDurationMs"] = critic_dur_ms
+                    trace[-1]["verifiedCriticIssues"] = [issue.message for issue in issues]
+
+                    try:
+                        from src.observability.latency_audit import record_critic
+                        record_critic(
+                            status=critic_result.status,
+                            findings_count=len(critic_result.issues),
+                            finding_categories=[getattr(iss, "type", str(iss)) for iss in critic_result.issues],
+                            total_duration_ms=critic_dur_ms,
+                            llm_duration_ms=max(0.0, critic_dur_ms - ver_dur_ms),
+                            verifier_duration_ms=ver_dur_ms,
+                        )
+                    except Exception:
+                        pass
 
             if not issues:
                 logger.info("Validation passed on attempt %s", attempt)
@@ -140,13 +298,55 @@ class SelfCorrectionService:
 
             try:
                 corrections_used += 1
-                corrected_sql = self._correction_service.correct(
-                    question=question,
-                    current_sql=current_sql,
-                    issues=issues,
-                    relevant_schema=self._relevant_schema(current_sql),
-                    relevant_relationships=self._relevant_relationships(current_sql),
-                )
+                with stage(f"correction_attempt_{attempt + 1}", operation=f"correction_attempt_{attempt + 1}", is_leaf=False):
+                    t_corr_start = time.perf_counter()
+                    with stage("correction_prep", operation="correction_prep", is_leaf=True):
+                        rls_tables = self._rls_context_tables(
+                            current_sql, _get_schema
+                        )
+                        try:
+                            tables_in_sql = self._schema_validator.extract_tables(
+                                current_sql, schema=_get_schema()
+                            )
+                        except Exception:
+                            tables_in_sql = set()
+                        bridging_tables = self._bridging_tables(
+                            tables_in_sql, schema=_get_schema()
+                        )
+                        extra_context_tables = rls_tables | bridging_tables
+
+                        cand_fp = compute_sql_fingerprint(current_sql)
+                        if not any(compute_sql_fingerprint(cand[0]) == cand_fp for cand in rejected_candidates):
+                            rejected_candidates.append((current_sql, list(issues)))
+
+                    with stage("correction_llm", operation="correction_llm", is_leaf=True):
+                        corrected_sql = self._correction_service.correct(
+                            question=question,
+                            current_sql=current_sql,
+                            issues=issues,
+                            relevant_schema=self._relevant_schema(
+                                current_sql, _get_schema, extra_tables=extra_context_tables
+                            ),
+                            relevant_relationships=self._relevant_relationships(
+                                current_sql, _get_schema, extra_tables=extra_context_tables
+                            ),
+                            rejected_candidates=list(rejected_candidates),
+                        )
+                    corr_dur_ms = (time.perf_counter() - t_corr_start) * 1000
+                    trace[-1]["correctionDurationMs"] = corr_dur_ms
+
+                    try:
+                        from src.observability.latency_audit import record_correction_attempt
+                        record_correction_attempt(
+                            attempt=attempt + 1,
+                            trigger_reason="; ".join(issue.message for issue in issues)[:120],
+                            duration_ms=corr_dur_ms,
+                            previous_sql=current_sql,
+                            new_sql=corrected_sql,
+                            issues_count=len(issues),
+                        )
+                    except Exception:
+                        pass
             except Exception as exc:
                 logger.warning("SQL correction call failed: %s", type(exc).__name__)
                 trace[-1]["correctionError"] = type(exc).__name__
@@ -170,6 +370,25 @@ class SelfCorrectionService:
 
             logger.info("SQL correction generated for attempt %s", attempt + 1)
             trace[-1]["correctedSql"] = corrected_sql
+
+            omission_issues = self._detect_silent_omissions(
+                current_sql, corrected_sql, issues, _get_schema()
+            )
+            if omission_issues:
+                logger.warning(
+                    "Silent omission detected in corrected SQL: %s",
+                    [iss.message for iss in omission_issues],
+                )
+                last_issues = omission_issues
+                trace.append({
+                    "attempt": attempt + 1,
+                    "sql": corrected_sql,
+                    "deterministicIssues": [iss.message for iss in omission_issues],
+                    "action": "silent_omission_detected",
+                })
+                self._notify_trace_observer(trace_observer, trace[-1])
+                break
+
             self._notify_trace_observer(
                 trace_observer,
                 {
@@ -194,7 +413,6 @@ class SelfCorrectionService:
         step: dict[str, Any],
     ) -> None:
         """Publish optional diagnostic data without affecting correction behavior."""
-
         if trace_observer is None:
             return
         try:
@@ -202,30 +420,372 @@ class SelfCorrectionService:
         except Exception:
             logger.warning("Self-correction trace observer failed", exc_info=True)
 
-    def _deterministic_issues(self, sql: str) -> list[ValidationIssue]:
-        for validator in (
-            self._syntax_validator,
-            self._schema_validator,
-            self._relationship_validator,
-        ):
-            result = validator.validate(sql)
-            if not result.is_valid:
-                # Stop at the first failing layer: an invalid JOIN cannot be
-                # judged reliably before syntax/schema are already correct.
-                return list(result.issues)
-        return []
+    def _deterministic_issues(
+        self,
+        sql: str,
+        schema_getter: Callable[[], dict[str, Any]] | None = None,
+        enforce_rls: bool = False,
+    ) -> list[ValidationIssue]:
+        t0 = time.perf_counter()
+        schema = schema_getter() if schema_getter is not None else None
+        sub_stages: dict[str, float] = {}
+        validators = [
+            ("syntax", self._syntax_validator),
+            ("schema", self._schema_validator),
+            ("relationship", self._relationship_validator),
+        ]
+        if self._rls_validator is not None:
+            validators.append(("rls", self._rls_validator))
 
-    def _relevant_schema(self, sql: str) -> dict:
+        found_issues: list[ValidationIssue] = []
+        with stage("deterministic_validation", operation="deterministic_validation", is_leaf=False):
+            for name, validator in validators:
+                with stage(name, operation=f"deterministic_validation_{name}", is_leaf=True):
+                    t_sub = time.perf_counter()
+                    try:
+                        if validator is self._rls_validator:
+                            result = validator.validate(sql, schema=schema, enforce_presence=enforce_rls)
+                        else:
+                            result = validator.validate(sql, schema=schema)
+                    except TypeError:
+                        result = validator.validate(sql)
+                    sub_stages[f"{name}_ms"] = round((time.perf_counter() - t_sub) * 1000.0, 2)
+                    if not result.is_valid:
+                        found_issues = list(result.issues)
+                        break
+
+        tot_ms = (time.perf_counter() - t0) * 1000.0
         try:
-            return self._schema_validator.schema_slice(sql)
+            from src.observability.latency_audit import record_validation
+            from src.observability.audit_context import get_current_audit
+
+            ctx = get_current_audit()
+            if ctx:
+                ctx.record_leaf_duration("deterministic_validation", tot_ms)
+            record_validation(
+                stage_name="deterministic_validation",
+                sql=sql,
+                is_valid=len(found_issues) == 0,
+                findings=found_issues,
+                duration_ms=tot_ms,
+                sub_stages=sub_stages,
+            )
         except Exception:
-            # SQL could not be parsed (e.g. a syntax-error attempt): fall
-            # back to no schema slice rather than failing the correction call.
+            pass
+
+        return found_issues
+
+    def _relevant_schema(
+        self,
+        sql: str,
+        schema_getter: Callable[[], dict[str, Any]] | None = None,
+        extra_tables: set[str] | None = None,
+    ) -> dict:
+        schema = schema_getter() if schema_getter is not None else None
+        try:
+            result = self._schema_validator.schema_slice(sql, schema=schema)
+            all_tables = (schema or {}).get("tables", {})
+            if isinstance(all_tables, dict):
+                result.update(
+                    {
+                        table: all_tables[table]
+                        for table in extra_tables or set()
+                        if table in all_tables
+                    }
+                )
+            return result
+        except TypeError:
+            try:
+                return self._schema_validator.schema_slice(sql)
+            except Exception:
+                return {}
+        except Exception:
             return {}
 
-    def _relevant_relationships(self, sql: str) -> list[dict]:
+    def _relevant_relationships(
+        self,
+        sql: str,
+        schema_getter: Callable[[], dict[str, Any]] | None = None,
+        extra_tables: set[str] | None = None,
+    ) -> list[dict]:
+        schema = schema_getter() if schema_getter is not None else None
         try:
-            tables = self._schema_validator.extract_tables(sql)
+            tables = self._schema_validator.extract_tables(sql, schema=schema)
+        except TypeError:
+            try:
+                tables = self._schema_validator.extract_tables(sql)
+            except Exception:
+                return []
         except Exception:
             return []
-        return self._relationship_validator.relationships_for_tables(tables)
+        if self._relationship_validator is None:
+            return []
+        return self._relationship_validator.relationships_for_tables(
+            tables | (extra_tables or set())
+        )
+
+    def _rls_context_tables(
+        self,
+        sql: str,
+        schema_getter: Callable[[], dict[str, Any]] | None = None,
+    ) -> set[str]:
+        """Add intermediate tables required by active security domains to repair SQL."""
+        schema = schema_getter() if schema_getter is not None else None
+        try:
+            tables = self._schema_validator.extract_tables(sql, schema=schema)
+        except Exception:
+            return set()
+
+        security_domains = []
+        if self._rls_validator is not None:
+            loader = getattr(self._rls_validator, "_load_security_domains", None)
+            if callable(loader):
+                security_domains = loader(schema=schema)
+
+        if not security_domains and isinstance(schema, dict):
+            security_domains = schema.get("security_domains", [])
+
+        if not security_domains and self._relationship_validator is not None:
+            repo = getattr(self._relationship_validator, "_semantic_repository", None)
+            if repo is not None:
+                try:
+                    layer = repo.load()
+                    if isinstance(layer, dict):
+                        security_domains = layer.get("security_domains", [])
+                except Exception:
+                    pass
+
+        if not security_domains:
+            return set()
+
+        needed_tables: set[str] = set()
+        for domain in security_domains:
+            if not isinstance(domain, dict):
+                continue
+            canonical_root = domain.get("canonical_root", "")
+            root_table = canonical_root.split(".", 1)[0] if "." in canonical_root else canonical_root
+            propagation_paths = domain.get("propagation_paths", [])
+            for path_entry in propagation_paths:
+                if not isinstance(path_entry, dict):
+                    continue
+                target = path_entry.get("target_table")
+                if target in tables:
+                    if root_table:
+                        needed_tables.add(root_table)
+                    path_str = path_entry.get("path", "")
+                    for token in path_str.replace("->", " ").replace("=", " ").split():
+                        if "." in token:
+                            tbl = token.split(".", 1)[0].strip()
+                            if tbl:
+                                needed_tables.add(tbl)
+        return needed_tables - tables
+
+    def _bridging_tables(
+        self,
+        tables: set[str],
+        schema: dict[str, Any] | None = None,
+    ) -> set[str]:
+        """Find intermediate 1-hop bridging tables connecting tables in the query."""
+        if not tables or len(tables) < 2:
+            return set()
+        relationships = []
+        if self._relationship_validator is not None:
+            repo = getattr(self._relationship_validator, "_semantic_repository", None)
+            if repo is not None:
+                try:
+                    relationships = repo.load().get("relationships", [])
+                except Exception:
+                    pass
+        if not relationships and isinstance(schema, dict):
+            relationships = schema.get("relationships", [])
+
+        if not isinstance(relationships, list):
+            return set()
+
+        adj: dict[str, set[str]] = {}
+        for rel in relationships:
+            if not isinstance(rel, dict):
+                continue
+            ft, tt = rel.get("from_table"), rel.get("to_table")
+            if ft and tt and isinstance(ft, str) and isinstance(tt, str):
+                adj.setdefault(ft, set()).add(tt)
+                adj.setdefault(tt, set()).add(ft)
+
+        bridging: set[str] = set()
+        for t1 in tables:
+            for t2 in tables:
+                if t1 == t2:
+                    continue
+                if t2 not in adj.get(t1, set()):
+                    common = (adj.get(t1, set()) & adj.get(t2, set())) - tables
+                    bridging.update(common)
+
+        return bridging
+
+    def _build_critic_context(
+        self,
+        sql: str,
+        schema_getter: Callable[[], dict[str, Any]],
+        fallback_context: str,
+    ) -> str:
+        """Build a compact, table-relevant semantic slice for the Critic to minimize token latency."""
+        try:
+            rel_schema = self._relevant_schema(sql, schema_getter)
+            if not rel_schema:
+                return fallback_context
+
+            lines = ["RELEVANT TABLES & SCHEMA:"]
+            for table_name, table_info in sorted(rel_schema.items()):
+                cols = [
+                    c["name"]
+                    for c in table_info.get("columns", [])
+                    if isinstance(c, dict) and "name" in c
+                ]
+                lines.append(f"TABLE: {table_name}")
+                lines.append(f"COLUMNS: {', '.join(cols)}")
+
+            rel_relationships = self._relevant_relationships(sql, schema_getter)
+            if rel_relationships:
+                lines.append("\nRELEVANT RELATIONSHIPS:")
+                for r in rel_relationships:
+                    lines.append(
+                        f"- {r.get('from_table')}.{r.get('from_column')} -> {r.get('to_table')}.{r.get('to_column')}"
+                    )
+
+            domains = []
+            if self._context_retrieval_service is not None:
+                repo = getattr(self._context_retrieval_service, "_semantic_repository", None)
+                if repo is not None:
+                    try:
+                        layer = repo.load()
+                        if isinstance(layer, dict):
+                            domains = layer.get("security_domains", [])
+                    except Exception:
+                        pass
+            if not domains and self._rls_validator is not None:
+                loader = getattr(self._rls_validator, "_load_security_domains", None)
+                if callable(loader):
+                    try:
+                        domains = loader(schema=schema_getter())
+                    except Exception:
+                        pass
+            if not domains:
+                schema = schema_getter()
+                domains = schema.get("security_domains", []) if isinstance(schema, dict) else []
+
+            if domains:
+                lines.append("\nSECURITY POLICY:")
+                for d in domains:
+                    if not isinstance(d, dict):
+                        continue
+                    name = d.get("name", "domain")
+                    pred = d.get("canonical_predicate") or d.get("canonical_root")
+                    scope = d.get("security_scope")
+                    parts = [f"{name}: {pred}"]
+                    if scope:
+                        parts.append(f"scope: {scope}")
+                    lines.append(f"- {', '.join(parts)}")
+                    props = d.get("propagation_paths", [])
+                    if isinstance(props, list) and props:
+                        for p in props:
+                            if isinstance(p, dict):
+                                target = p.get("target_table")
+                                path = p.get("path")
+                                if target and path:
+                                    lines.append(f"  * propagation to {target}: {path}")
+
+            return "\n".join(lines)
+        except Exception:
+            return fallback_context
+
+    def _detect_silent_omissions(
+        self,
+        previous_sql: str,
+        corrected_sql: str,
+        previous_issues: list[ValidationIssue],
+        schema: dict[str, Any],
+    ) -> list[ValidationIssue]:
+        unknown_column_issues = [
+            issue for issue in previous_issues
+            if issue.type == "UNKNOWN_COLUMN"
+        ]
+        if not unknown_column_issues:
+            return []
+
+        try:
+            prev_stmts = sqlglot.parse(previous_sql, dialect="tsql")
+            curr_stmts = sqlglot.parse(corrected_sql, dialect="tsql")
+        except Exception:
+            return []
+
+        def _get_select(stmts):
+            for stmt in stmts:
+                if isinstance(stmt, exp.Select):
+                    return stmt
+                sel = stmt.find(exp.Select)
+                if sel:
+                    return sel
+            return None
+
+        prev_sel = _get_select(prev_stmts)
+        curr_sel = _get_select(curr_stmts)
+        if not prev_sel or not curr_sel:
+            return []
+
+        prev_projections = prev_sel.expressions
+        curr_projections = curr_sel.expressions
+
+        omissions: list[ValidationIssue] = []
+
+        for issue in unknown_column_issues:
+            match = re.search(r"Column\s+'(?:([^']+)\.)?([^']+)'\s+does not exist", issue.message)
+            if match:
+                table_name = match.group(1)
+                column_name = match.group(2)
+            else:
+                match_unq = re.search(r"Unqualified column\s+'([^']+)'\s+does not exist", issue.message)
+                if match_unq:
+                    table_name = None
+                    column_name = match_unq.group(1)
+                else:
+                    continue
+
+            was_projected = any(
+                any(c.name.casefold() == column_name.casefold() for c in proj.find_all(exp.Column))
+                or proj.alias_or_name.casefold() == column_name.casefold()
+                for proj in prev_projections
+            )
+
+            is_projected = any(
+                any(c.name.casefold() == column_name.casefold() for c in proj.find_all(exp.Column))
+                or proj.alias_or_name.casefold() == column_name.casefold()
+                for proj in curr_projections
+            )
+
+            if was_projected and not is_projected:
+                is_unresolvable = False
+                has_plausible = True
+
+                checker = getattr(self._schema_validator, "is_column_unresolvable_in_schema", None)
+                if callable(checker):
+                    is_unresolvable = checker(column_name, schema=schema)
+
+                finder = getattr(self._schema_validator, "find_plausible_column_matches", None)
+                if callable(finder) and table_name:
+                    plausible_matches = finder(table_name, column_name, schema=schema)
+                    has_plausible = bool(plausible_matches)
+
+                if is_unresolvable or (not has_plausible and len(curr_projections) < len(prev_projections)):
+                    omissions.append(
+                        ValidationIssue(
+                            type="SILENT_OMISSION",
+                            message=(
+                                f"Requested column '{column_name}' does not exist in the database schema "
+                                "and was silently omitted during self-correction."
+                            ),
+                            source="self_correction",
+                        )
+                    )
+
+        return omissions
+

@@ -2,49 +2,293 @@
 from __future__ import annotations
 
 from collections import deque
-import re
 from typing import Any
 
+from src.application.ports.physical_schema_repository import PhysicalSchemaRepository
 from src.application.ports.semantic_repository import SemanticRepository
+from src.observability.latency_audit import stage
 
 
 class ContextRetrievalService:
-    """Retrieve seed objects, then complete the joins they require."""
+    """Retrieves relevant semantic slice and builds compact, join-complete LLM subgraphs.
 
-    def __init__(self, semantic_repository: SemanticRepository, default_top_k: int = 8) -> None:
+    Performs vector similarity search against the approved Semantic Layer, identifies seed tables,
+    calculates shortest-path connecting relationships to ensure all joins are complete,
+    and formats a structured semantic context prompt block for LLM code generation.
+    """
+
+    def __init__(
+        self,
+        semantic_repository: SemanticRepository,
+        default_top_k: int = 8,
+        schema_provider: PhysicalSchemaRepository | None = None,
+    ) -> None:
+        """Initialize the context retrieval service.
+
+        Args:
+            semantic_repository: Semantic repository port for loading and querying semantic data.
+            default_top_k: Default number of top documents to retrieve from vector search.
+            schema_provider: Source of Backend-authoritative physical columns.
+        """
         self._semantic_repository = semantic_repository
         self._default_top_k = default_top_k
+        self._schema_provider = schema_provider
 
     def retrieve(self, question: str, top_k: int | None = None) -> list[dict[str, Any]]:
-        limit = top_k if top_k is not None else self._default_top_k
-        return self._semantic_repository.retrieve(question, limit)
+        """Retrieve top semantic document matches for a user question.
+
+        Args:
+            question: Natural language question.
+            top_k: Optional limit on the number of documents; if None, computes dynamic candidate limit.
+
+        Returns:
+            List of semantic document dictionaries matched by vector similarity.
+        """
+        with stage("candidate_planning", operation="candidate_planning", is_leaf=False):
+            limit = top_k if top_k is not None else self._candidate_limit(question)
+
+        with stage("retrieval", operation="retrieval", is_leaf=False):
+            try:
+                return self._semantic_repository.retrieve(question, limit, allow_cold_start=False)
+            except TypeError:
+                return self._semantic_repository.retrieve(question, limit)
 
     def build_llm_context(self, question: str, top_k: int | None = None) -> str:
-        results = self.retrieve(question, top_k)
-        layer = self._semantic_repository.load()
-        seed_tables = self._seed_tables(question, results, layer)
-        relationships = self._connecting_relationships(
-            seed_tables, layer.get("relationships", [])
-        )
-        tables = seed_tables | {
-            table
-            for relationship in relationships
-            for table in (relationship["from_table"], relationship["to_table"])
-        }
-        lines = [
-            "SEMANTIC CONTEXT",
-            "This is a join-complete subgraph from the approved Semantic Layer.",
-            "Use only the supplied tables, columns, and relationships.",
-            "",
-        ]
-        self._append_entities(lines, layer.get("entities", []), tables)
-        self._append_columns(lines, layer, tables)
-        self._append_relationships(lines, relationships)
-        self._append_retrieved_rules(lines, results)
-        return "\n".join(lines)
+        """Construct a join-complete, formatted semantic context string for LLM prompts.
+
+        Args:
+            question: Natural language question.
+            top_k: Optional top_k limit for initial document retrieval.
+
+        Returns:
+            Formatted plain-text block detailing approved entities, columns, relationships,
+            query scope guidance, and business rules.
+        """
+        with stage("context_retrieval", operation="context_retrieval", is_leaf=False):
+            results = self.retrieve(question, top_k)
+
+            with stage("relevance_filtering_and_planning", operation="relevance_filtering_and_planning", is_leaf=False):
+                try:
+                    layer = self._semantic_repository.load(allow_cold_start=False)
+                except TypeError:
+                    layer = self._semantic_repository.load()
+                requested_tables = self._planned_tables(question, layer)
+                # For a multi-entity question, table coverage is more important than
+                # allowing a few high-scoring attribute documents to introduce
+                # unrelated tables.  The vector search above is deliberately wider;
+                # this is the compact, approved-schema projection passed to the LLM.
+                seed_tables = requested_tables | self._seed_tables(results)
+                physical_schema = self._physical_schema()
+                valid_relationships = self._merge_relationships(
+                    self._valid_relationships(layer.get("relationships", [])),
+                    self._valid_relationships(physical_schema.get("relationships", [])),
+                )
+                rls_tables = self._rls_required_tables(seed_tables, layer)
+                relationships = self._connecting_relationships(
+                    seed_tables | rls_tables, valid_relationships
+                )
+                tables = seed_tables | {
+                    table
+                    for relationship in relationships
+                    for table in (relationship["from_table"], relationship["to_table"])
+                }
+
+            with stage("context_assembly", operation="context_assembly", is_leaf=False):
+                lines = [
+                    "SEMANTIC CONTEXT",
+                    "This is a join-complete subgraph from the approved Semantic Layer.",
+                    "Use only the supplied tables, columns, and relationships.",
+                    "",
+                ]
+                self._append_entities(lines, layer.get("entities", []), tables)
+                self._append_columns(lines, layer, tables, physical_schema)
+                self._append_relationships(lines, relationships)
+                self._append_measures(lines, layer.get("measures", []), tables)
+                self._append_security_domain(lines, layer, tables)
+                self._append_query_scope(lines, seed_tables, relationships)
+                self._append_retrieved_rules(lines, results)
+                assembled_context = "\n".join(lines)
+
+            try:
+                from src.observability.audit_context import get_current_audit
+                from src.observability.audit_logger import write_audit_event
+
+                ctx = get_current_audit()
+                if ctx:
+                    ctx.increment_count("retrieval_calls")
+                    est_toks = max(1, len(assembled_context.split()) * 4 // 3)
+                    write_audit_event({
+                        "event": "retrieval_complete",
+                        "request_id": ctx.request_id,
+                        "stage": "context_retrieval",
+                        "tables_count": len(tables),
+                        "seed_tables_count": len(seed_tables),
+                        "relationships_count": len(relationships),
+                        "rls_tables_count": len(rls_tables),
+                        "context_chars": len(assembled_context),
+                        "estimated_context_tokens": est_toks,
+                        "results_count": len(results),
+                    })
+            except Exception:
+                pass
+
+            return assembled_context
+
+    def _candidate_limit(self, question: str) -> int:
+        """Return a wider retrieval candidate set for multi-table questions.
+
+        Semantic objects are indexed independently (one document per entity,
+        dimension, measure, relationship, or rule).  A fixed eight-document
+        search cannot reliably cover a question that explicitly mentions many
+        tables.  This only widens the retrieval candidate set; the final LLM
+        context remains restricted to the requested join-complete subgraph.
+        """
+
+        try:
+            layer = self._semantic_repository.load(allow_cold_start=False)
+        except TypeError:
+            layer = self._semantic_repository.load()
+        table_count = len(self._planned_tables(question, layer))
+        if table_count < 3:
+            return self._default_top_k
+        return max(self._default_top_k, table_count * 4)
 
     @staticmethod
-    def _seed_tables(question: str, results: list[dict[str, Any]], layer: dict[str, Any]) -> set[str]:
+    def _rls_required_tables(seed_tables: set[str], layer: dict[str, Any] | None = None) -> set[str]:
+        """Return table dependencies required by active security domain propagation paths."""
+        if not layer or not isinstance(layer, dict):
+            return set()
+        security_domains = layer.get("security_domains", [])
+        if not isinstance(security_domains, list):
+            return set()
+
+        required_tables: set[str] = set()
+        for domain in security_domains:
+            if not isinstance(domain, dict):
+                continue
+            canonical_root = domain.get("canonical_root", "")
+            root_table = canonical_root.split(".", 1)[0] if "." in canonical_root else canonical_root
+
+            propagation_paths = domain.get("propagation_paths", [])
+            if not isinstance(propagation_paths, list):
+                continue
+
+            for path_entry in propagation_paths:
+                if not isinstance(path_entry, dict):
+                    continue
+                target = path_entry.get("target_table")
+                if target in seed_tables:
+                    if root_table:
+                        required_tables.add(root_table)
+                    path_str = path_entry.get("path", "")
+                    for token in path_str.replace("->", " ").replace("=", " ").split():
+                        if "." in token:
+                            tbl = token.split(".", 1)[0].strip()
+                            if tbl:
+                                required_tables.add(tbl)
+        return required_tables - seed_tables
+
+    def _physical_schema(self) -> dict[str, Any]:
+        """Load physical columns when available without making retrieval fail."""
+        if self._schema_provider is None:
+            return {}
+        try:
+            schema = self._schema_provider.get_schema(allow_cold_start=False)
+            return schema if isinstance(schema, dict) else {}
+        except TypeError:
+            schema = self._schema_provider.get_schema()
+            return schema if isinstance(schema, dict) else {}
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _tables_explicitly_requested(question: str, layer: dict[str, Any]) -> set[str]:
+        """Match table/entity names as whole words, only from approved metadata."""
+
+        normalized_question = " ".join(
+            "".join(character if character.isalnum() else " " for character in question.casefold()).split()
+        )
+        words = set(normalized_question.split())
+        tables: set[str] = set()
+        for entity in layer.get("entities", []):
+            if not isinstance(entity, dict):
+                continue
+            mapping = entity.get("mapping")
+            name = entity.get("name")
+            if not isinstance(mapping, str) or not mapping:
+                continue
+            labels = [mapping, name] if isinstance(name, str) else [mapping]
+            for label in labels:
+                normalized_label = " ".join(
+                    "".join(character if character.isalnum() else " " for character in label.casefold()).split()
+                )
+                if not normalized_label:
+                    continue
+                label_words = normalized_label.split()
+                singular_or_plural_match = (
+                    len(label_words) == 1
+                    and (label_words[0] in words or f"{label_words[0]}s" in words)
+                )
+                if normalized_label in normalized_question or singular_or_plural_match:
+                    tables.add(mapping)
+                    break
+        return tables
+
+    @classmethod
+    def _planned_tables(cls, question: str, layer: dict[str, Any]) -> set[str]:
+        """Build a deterministic, metadata-grounded table plan for a question.
+
+        Entity mentions cover requests such as "customers with cards".  Metric
+        and attribute names cover requests whose table is implicit, such as
+        "average credit score".  Both sources are restricted to the approved
+        semantic layer, so the planner cannot introduce a table the model was
+        not authorized to use.
+        """
+
+        tables = cls._tables_explicitly_requested(question, layer)
+        question_words = set(cls._normalized_words(question))
+        for section in ("dimensions", "measures"):
+            for item in layer.get(section, []):
+                if not isinstance(item, dict):
+                    continue
+                mapping = item.get("mapping")
+                name = item.get("name")
+                if not isinstance(mapping, str) or "." not in mapping:
+                    continue
+                if isinstance(name, str) and cls._semantic_name_matches(name, question_words):
+                    tables.add(mapping.split(".", 1)[0])
+        return tables
+
+    @staticmethod
+    def _normalized_words(value: str) -> list[str]:
+        return "".join(
+            character if character.isalnum() else " " for character in value.casefold()
+        ).split()
+
+    @classmethod
+    def _semantic_name_matches(cls, name: str, question_words: set[str]) -> bool:
+        """Require a specific semantic phrase, not a generic one-word overlap."""
+
+        name_words = set(cls._normalized_words(name))
+        if len(name_words) < 2:
+            return False
+        # A phrase is relevant when all of its semantic words occur in the
+        # question, or when all but one occur in a three-or-more-word label.
+        # The latter covers "average transaction amount" -> "Transaction Amount".
+        matched = len(name_words & question_words)
+        return matched == len(name_words) or (
+            len(name_words) >= 3 and matched >= len(name_words) - 1
+        )
+
+    @staticmethod
+    def _seed_tables(results: list[dict[str, Any]]) -> set[str]:
+        """Derive context only from retrieved semantic documents.
+
+        The repository owns relevance ranking.  Do not add tables through a
+        second keyword-matching pass here, otherwise the LLM context can grow
+        beyond the vector-retrieved semantic slice.
+        """
+
         tables: set[str] = set()
         for result in results:
             payload = result.get("payload", {})
@@ -56,16 +300,47 @@ class ContextRetrievalService:
             for key in ("from_table", "to_table"):
                 if isinstance(payload.get(key), str):
                     tables.add(payload[key])
-
-        question_words = set(re.findall(r"[a-z]+", question.casefold().replace("'s", "")))
-        for entity in layer.get("entities", []):
-            if not isinstance(entity, dict):
-                continue
-            name = str(entity.get("name", "")).casefold()
-            mapping = entity.get("mapping")
-            if isinstance(mapping, str) and (name in question_words or f"{name}s" in question_words):
-                tables.add(mapping)
         return tables
+
+    @staticmethod
+    def _valid_relationships(relationships: Any) -> list[dict[str, Any]]:
+        """Keep only relationships that can safely be rendered as SQL joins.
+
+        The approved semantic revision is Backend-owned. An incomplete
+        relationship, or one marked UNCERTAIN / not executable, must not crash request
+        handling or be turned into a guessed join; it simply cannot participate in a
+        join-complete prompt.
+        """
+        if not isinstance(relationships, list):
+            return []
+        required = ("from_table", "from_column", "to_table", "to_column")
+        return [
+            relationship
+            for relationship in relationships
+            if isinstance(relationship, dict)
+            and all(
+                isinstance(relationship.get(field), str) and relationship[field]
+                for field in required
+            )
+            and relationship.get("is_executable", True) is not False
+            and relationship.get("status") not in ("UNCERTAIN", "NO_SUPPORTED_RELATIONSHIP", "uncertain", "rejected")
+        ]
+
+
+    @staticmethod
+    def _merge_relationships(
+        semantic_relationships: list[dict[str, Any]],
+        source_relationships: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Merge only explicit source relationships missing from legacy revisions."""
+        merged: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+        for relationship in [*semantic_relationships, *source_relationships]:
+            key = tuple(
+                relationship[field]
+                for field in ("from_table", "from_column", "to_table", "to_column")
+            )
+            merged.setdefault(key, relationship)
+        return list(merged.values())
 
     @staticmethod
     def _connecting_relationships(
@@ -109,22 +384,78 @@ class ContextRetrievalService:
     @staticmethod
     def _append_entities(lines: list[str], entities: list[dict[str, Any]], tables: set[str]) -> None:
         for entity in entities:
-            if entity.get("mapping") in tables:
-                lines.append(f"ENTITY: {entity['name']} -> {entity['mapping']}")
+            mapping = entity.get("mapping")
+            if mapping in tables:
+                meta_parts = []
+                pk = entity.get("primary_key") or entity.get("primary_identifier")
+                if pk:
+                    meta_parts.append(f"primary_key: {pk}")
+                grain = entity.get("natural_grain") or entity.get("grain")
+                if grain:
+                    meta_parts.append(f"natural_grain: {grain}")
+                sec_domain = entity.get("security_domain")
+                if sec_domain:
+                    meta_parts.append(f"security_domain: {sec_domain}")
+                meta_str = f" [{', '.join(meta_parts)}]" if meta_parts else ""
+                lines.append(f"ENTITY: {entity['name']} -> {entity['mapping']}{meta_str}")
         if tables:
             lines.append("")
 
     @staticmethod
-    def _append_columns(lines: list[str], layer: dict[str, Any], tables: set[str]) -> None:
+    def _append_columns(
+        lines: list[str],
+        layer: dict[str, Any],
+        tables: set[str],
+        physical_schema: dict[str, Any],
+    ) -> None:
         objects = [*layer.get("dimensions", []), *layer.get("measures", [])]
+        schema_tables = physical_schema.get("tables", {})
+        if not isinstance(schema_tables, dict):
+            schema_tables = {}
         for table in sorted(tables):
+            table_info = schema_tables.get(table, {})
+            pk = table_info.get("primary_key")
+            pk_suffix = f" [PK: {pk}]" if pk else ""
+
             mappings = []
+            col_types = {}
+            for col in table_info.get("columns", []):
+                if isinstance(col, dict) and col.get("name"):
+                    c_name = col["name"]
+                    c_type = col.get("data_type") or col.get("type")
+                    if c_type:
+                        col_types[c_name] = c_type
+
             for item in objects:
                 mapping = item.get("mapping") if isinstance(item, dict) else None
                 if isinstance(mapping, str) and mapping.startswith(f"{table}."):
-                    mappings.append(f"{mapping.split('.', 1)[1]} ({item['name']})")
+                    col_name = mapping.split(".", 1)[1]
+                    mappings.append(f"{col_name} ({item['name']})")
+                    if item.get("data_type") and col_name not in col_types:
+                        col_types[col_name] = item["data_type"]
+            semantic_columns = {
+                mapping.split(".", 1)[1]
+                for item in objects
+                if isinstance(item, dict)
+                and isinstance((mapping := item.get("mapping")), str)
+                and mapping.startswith(f"{table}.")
+            }
+            physical_columns = {
+                column.get("name")
+                for column in schema_tables.get(table, {}).get("columns", [])
+                if isinstance(column, dict) and isinstance(column.get("name"), str)
+            }
+            mappings.extend(
+                f"{column} (physical schema column)"
+                for column in sorted(physical_columns - semantic_columns)
+            )
             if mappings:
-                lines.extend((f"TABLE: {table}", "COLUMNS: " + ", ".join(sorted(set(mappings))), ""))
+                table_lines = [f"TABLE: {table}{pk_suffix}", "COLUMNS: " + ", ".join(sorted(set(mappings)))]
+                if col_types:
+                    type_strs = [f"{col}: {col_types[col]}" for col in sorted(col_types)]
+                    table_lines.append("DATA TYPES: " + ", ".join(type_strs))
+                table_lines.append("")
+                lines.extend(table_lines)
 
     @staticmethod
     def _append_relationships(lines: list[str], relationships: list[dict[str, Any]]) -> None:
@@ -132,17 +463,173 @@ class ContextRetrievalService:
             return
         lines.append("APPROVED RELATIONSHIPS:")
         for relationship in relationships:
+            meta_parts = []
+            cardinality = relationship.get("cardinality") or "unknown"
+            meta_parts.append(f"cardinality: {cardinality}")
+            rel_type = relationship.get("relationship_type")
+            if rel_type:
+                meta_parts.append(f"type: {rel_type}")
+            sec_prop = relationship.get("security_propagation")
+            if sec_prop is not None:
+                meta_parts.append(f"security_propagation: {sec_prop}")
+            pred_eq = relationship.get("predicate_equivalence")
+            if pred_eq is not None:
+                if isinstance(pred_eq, dict):
+                    eq_str = ", ".join(f"{k}={v}" for k, v in pred_eq.items())
+                    meta_parts.append(f"predicate_equivalence: [{eq_str}]")
+                else:
+                    meta_parts.append(f"predicate_equivalence: {pred_eq}")
+            fanout = relationship.get("fanout_risk")
+            if fanout is not None:
+                meta_parts.append(f"fanout_risk: {fanout}")
+            meta_str = f" [{', '.join(meta_parts)}]" if meta_parts else ""
             lines.append(
                 f"- {relationship['from_table']}.{relationship['from_column']} "
-                f"-> {relationship['to_table']}.{relationship['to_column']}"
+                f"-> {relationship['to_table']}.{relationship['to_column']}{meta_str}"
             )
+        lines.append("")
+
+    @staticmethod
+    def _append_measures(
+        lines: list[str], measures: list[dict[str, Any]], tables: set[str]
+    ) -> None:
+        """Append explicit measure definitions and distinct semantics for tables in scope."""
+        relevant_measures = [
+            m for m in measures
+            if isinstance(m, dict) and isinstance(m.get("mapping"), str)
+            and m["mapping"].split(".", 1)[0] in tables
+        ]
+        if not relevant_measures:
+            return
+        lines.append("MEASURES & AGGREGATION SEMANTICS:")
+        for m in relevant_measures:
+            parts = [f"mapping: {m['mapping']}"]
+            if m.get("natural_entity"):
+                parts.append(f"natural_entity: {m['natural_entity']}")
+            if m.get("natural_grain"):
+                parts.append(f"natural_grain: {m['natural_grain']}")
+            if m.get("aggregation") or m.get("aggregation_function"):
+                agg = m.get("aggregation_function") or m.get("aggregation")
+                parts.append(f"aggregation: {agg}")
+            if "distinct_required" in m:
+                parts.append(f"distinct_required: {m['distinct_required']}")
+            if m.get("distinct_key"):
+                parts.append(f"distinct_key: {m['distinct_key']}")
+            if "fanout_sensitive" in m:
+                parts.append(f"fanout_sensitive: {m['fanout_sensitive']}")
+            lines.append(f"- {m['name']}: " + ", ".join(parts))
+        lines.append("")
+
+    @staticmethod
+    def _append_security_domain(
+        lines: list[str], layer: dict[str, Any], tables: set[str]
+    ) -> None:
+        """Append explicit security domain and canonical predicate metadata when relevant."""
+        security_domains = layer.get("security_domains", [])
+        if not isinstance(security_domains, list) or not security_domains:
+            return
+
+        relevant_domains = []
+        for domain in security_domains:
+            if not isinstance(domain, dict):
+                continue
+            canonical_root = domain.get("canonical_root", "")
+            root_table = canonical_root.split(".", 1)[0] if "." in canonical_root else canonical_root
+            propagation_paths = domain.get("propagation_paths", [])
+            is_relevant = (root_table in tables) or any(
+                isinstance(p, dict) and p.get("target_table") in tables
+                for p in propagation_paths
+            )
+            if is_relevant:
+                relevant_domains.append(domain)
+
+        if not relevant_domains:
+            return
+
+        lines.append("SECURITY DOMAIN & CANONICAL SECURITY SCOPE:")
+        for domain in relevant_domains:
+            name = domain.get("name", "unknown")
+            canon_pred = domain.get("canonical_predicate") or domain.get("canonical_root", "unknown")
+            desc = domain.get("description")
+            lines.append(f"- Security domain: {name}")
+            lines.append(f"- Canonical security root: {canon_pred}")
+            if desc:
+                lines.append(f"- Description: {desc}")
+            propagation_paths = domain.get("propagation_paths", [])
+            if propagation_paths:
+                lines.append("- Security propagation & predicate equivalence:")
+                lines.append("  (Enforcement: Join each hop in the declared path using explicit INNER JOINs and apply the canonical security predicate in the WHERE clause)")
+                for p in propagation_paths:
+                    if not isinstance(p, dict):
+                        continue
+                    target = p.get("target_table")
+                    if target and target in tables:
+                        pred_eq = p.get("predicate_equivalence")
+                        if isinstance(pred_eq, dict):
+                            eq_desc = f"predicate_equivalence: [{', '.join(f'{k}={v}' for k, v in pred_eq.items())}]"
+                        elif pred_eq is not None:
+                            eq_desc = f"predicate_equivalence: {pred_eq}"
+                        else:
+                            eq_desc = "predicate_equivalence: false"
+                        lines.append(f"  * {target}: {p.get('path')} (propagation: {p.get('propagation', 'allowed')}, {eq_desc})")
+        lines.append("")
+
+    @staticmethod
+    def _append_query_scope(
+        lines: list[str], seed_tables: set[str], relationships: list[dict[str, Any]]
+    ) -> None:
+        """Add compact, deterministic guidance for query scope, independent 1:N paths, and fanout risk."""
+
+        if not seed_tables:
+            return
+        lines.extend((
+            "QUERY SCOPE:",
+            "- Required tables: " + ", ".join(sorted(seed_tables)),
+        ))
+
+        # Detect independent one-to-many child paths from common parents in scope
+        parent_children: dict[str, set[str]] = {}
+        for relationship in relationships:
+            cardinality = relationship.get("cardinality")
+            from_t = relationship.get("from_table")
+            to_t = relationship.get("to_table")
+            if cardinality == "1:N" and from_t and to_t:
+                parent_children.setdefault(from_t, set()).add(to_t)
+
+        independent_paths = {
+            parent: children for parent, children in parent_children.items() if len(children) >= 2
+        }
+
+        degree: dict[str, int] = {}
+        for relationship in relationships:
+            for table in (relationship["from_table"], relationship["to_table"]):
+                degree[table] = degree.get(table, 0) + 1
+
+        has_fanout = bool(independent_paths) or any(count >= 3 for count in degree.values())
+
+        if has_fanout:
+            if independent_paths:
+                for parent, children in sorted(independent_paths.items()):
+                    lines.append(
+                        f"- Independent 1:N child paths detected from '{parent}': {', '.join(sorted(children))}"
+                    )
+            lines.append("- Fanout risk: true")
+            lines.append("- Requires pre-aggregation: true")
+            lines.append(
+                "- SAFE AGGREGATION: For independent one-to-many paths, aggregate each "
+                "path to the requested grain in a separate CTE or subquery before joining "
+                "the aggregates. Do not join raw child rows together before SUM, COUNT, or AVG."
+            )
+        else:
+            lines.append("- Fanout risk: false")
+            lines.append("- Requires pre-aggregation: false")
         lines.append("")
 
     @staticmethod
     def _append_retrieved_rules(lines: list[str], results: list[dict[str, Any]]) -> None:
         rules = [
             result["payload"] for result in results
-            if result.get("type") == "business_rule" and isinstance(result.get("payload"), dict)
+            if (result.get("object_type") or result.get("type")) == "business_rule" and isinstance(result.get("payload"), dict)
         ]
         if rules:
             lines.append("RETRIEVED BUSINESS RULES:")

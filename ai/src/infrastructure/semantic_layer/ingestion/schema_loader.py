@@ -1,6 +1,16 @@
 """Schema normalization and validation at dataset-ingestion time."""
 
+from __future__ import annotations
+
 from typing import Any
+
+from src.application.services.semantic_layer.relationships.models import (
+    BackendDatabaseSchema,
+)
+from src.application.services.semantic_layer.relationships.relationship_service import (
+    RelationshipProcessingEngine,
+    RelationshipProcessingResult,
+)
 
 
 class SchemaLoader:
@@ -19,6 +29,9 @@ class SchemaLoader:
     """
 
     REQUIRED_FIELDS = ("database", "tables")
+
+    def __init__(self) -> None:
+        self._relationship_engine = RelationshipProcessingEngine()
 
     def load(self, schema: dict[str, Any]) -> dict[str, Any]:
         """Validate and normalize the source schema.
@@ -42,9 +55,24 @@ class SchemaLoader:
             "relationships": schema.get("relationships", []),
         }
 
+    def process_schema_and_relationships(
+        self,
+        schema: dict[str, Any],
+        explicit_relationships: list[dict[str, Any]] | None = None,
+        sample_data: Any | None = None,
+        glossary_terms: list[str] | None = None,
+    ) -> RelationshipProcessingResult:
+        """Process schema and relationships through the full Relationship Engine."""
+        return self._relationship_engine.process(
+            raw_schema=schema,
+            explicit_relationships=explicit_relationships,
+            sample_data=sample_data,
+            glossary_terms=glossary_terms,
+        )
+
     @classmethod
     def _validate_schema(cls, schema: dict[str, Any]) -> None:
-        """Validate required schema metadata."""
+        """Validate required schema metadata using Pydantic."""
         if not isinstance(schema, dict):
             raise ValueError("Schema must be a dictionary.")
 
@@ -59,10 +87,17 @@ class SchemaLoader:
 
         if not isinstance(schema["tables"], dict) or not schema["tables"]:
             raise ValueError("Schema must contain at least one table.")
-        
-        relationships = schema.get("relationships", [])  
+
+        relationships = schema.get("relationships", [])
         if not isinstance(relationships, list):
-           raise ValueError("Schema relationships must be a list.")
+            raise ValueError("Schema relationships must be a list.")
+
+        # Full Pydantic structural validation
+        try:
+            BackendDatabaseSchema.model_validate(schema)
+        except Exception as error:
+            # Propagate clear validation message
+            raise ValueError(f"Schema validation failed: {error}") from error
 
     @staticmethod
     def _load_tables(
@@ -97,4 +132,4 @@ class SchemaLoader:
                 ]
             }
 
-        return normalized
+        return normalized

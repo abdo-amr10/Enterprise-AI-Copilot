@@ -1,0 +1,117 @@
+{
+  "requested_layer": "full",
+  "status": "passed",
+  "stopping_point": "production validated-SQL boundary",
+  "metrics": {
+    "request_latency_ms": 180175.66500000068,
+    "validation_passed": 1.0,
+    "self_correction_attempts_used": 0.0,
+    "total_latency_ms": 183966.9973
+  },
+  "tags": {
+    "run_type": "debug",
+    "debug_layer": "full",
+    "question_hash": "29b5a9c359bf09df6b33d680cd6cbadd8965f84bf0b80a70ed900d5b113fc776",
+    "top_k": 8,
+    "input_tokens": "unavailable",
+    "output_tokens": "unavailable",
+    "total_tokens": "unavailable",
+    "prompt_name": "text_to_sql",
+    "prompt_version": "sha256:5486a26745f6",
+    "prompt_hash": "5486a26745f6bd1d757ceb61d2eb171000fc507f554a2c204640d1f65961f5a0",
+    "semantic_revision": "rev-local-approved",
+    "embedding_provider": "sentence-transformers-local",
+    "embedding_model": "BAAI/bge-m3",
+    "embedding_version": "6.0.0",
+    "embedding_dimension": 1024,
+    "index_type": "faiss.IndexFlatIP",
+    "index_version": "1",
+    "index_identity": "rev-local-approved",
+    "model_provider": "ollama",
+    "model_name": "qwen2.5-coder:7b",
+    "model_identifier": "qwen2.5-coder:7b",
+    "model_version": "unavailable",
+    "model_runtime": "ollama",
+    "temperature": 0.0,
+    "context_limit": 12288,
+    "output_limit": 2048,
+    "index_created": false,
+    "index_reused": false,
+    "index_rebuilt": false,
+    "trace_reason": "developer_debug"
+  },
+  "local": {
+    "flow": {
+      "request": {
+        "executed": true,
+        "status": "Success",
+        "duration_ms": 180175.66500000068,
+        "reason": "not requested"
+      },
+      "retrieval": {
+        "executed": "unavailable",
+        "status": "unavailable",
+        "duration_ms": "unavailable",
+        "reason": "not exposed independently by production runtime full-flow contract"
+      },
+      "prompt": {
+        "executed": "unavailable",
+        "status": "unavailable",
+        "duration_ms": "unavailable",
+        "reason": "not exposed independently by production runtime full-flow contract"
+      },
+      "generation": {
+        "executed": "unavailable",
+        "status": "unavailable",
+        "duration_ms": "unavailable",
+        "reason": "not exposed independently by production runtime full-flow contract"
+      },
+      "validation": {
+        "executed": "unavailable",
+        "status": "unavailable",
+        "duration_ms": "unavailable",
+        "reason": "not exposed independently by production runtime full-flow contract"
+      },
+      "critic": {
+        "executed": "unavailable",
+        "status": "unavailable",
+        "duration_ms": "unavailable",
+        "reason": "not exposed independently by production runtime full-flow contract"
+      },
+      "correction": {
+        "executed": "unavailable",
+        "status": "unavailable",
+        "duration_ms": "unavailable",
+        "reason": "not exposed independently by production runtime full-flow contract"
+      },
+      "final": {
+        "executed": false,
+        "status": "not_executed",
+        "duration_ms": "unavailable",
+        "reason": "not requested"
+      }
+    },
+    "production_trace_events": [
+      {
+        "event": "initial_generation",
+        "sql": "SELECT c.first_name, c.last_name, a.balance_usd AS account_balance FROM customers AS c INNER JOIN accounts AS a ON c.customer_id = a.customer_id WHERE a.branch_id = @UserBranchId;"
+      },
+      {
+        "attempt": 0,
+        "sql": "SELECT c.first_name, c.last_name, a.balance_usd AS account_balance FROM customers AS c INNER JOIN accounts AS a ON c.customer_id = a.customer_id WHERE a.branch_id = @UserBranchId;",
+        "deterministicIssues": [],
+        "criticStatus": "FAIL",
+        "verifiedCriticIssues": [],
+        "action": "passed"
+      },
+      {
+        "event": "final_result",
+        "sql": "SELECT c.first_name, c.last_name, a.balance_usd AS account_balance FROM customers AS c INNER JOIN accounts AS a ON c.customer_id = a.customer_id WHERE a.branch_id = @UserBranchId;",
+        "attemptsUsed": 0,
+        "status": "passed"
+      }
+    ],
+    "final_sql": "SELECT c.first_name, c.last_name, a.balance_usd AS account_balance FROM customers AS c INNER JOIN accounts AS a ON c.customer_id = a.customer_id WHERE a.branch_id = @UserBranchId;",
+    "validation_history_sql": "-- ====================================================================\n-- QUESTION: Show all active customers with their account balance\n-- STATUS: PASSED\n-- VALIDATION PASSED: YES\n-- ====================================================================\n\n-- --------------------------------------------------------------------\n-- [STEP 1] INITIAL LLM GENERATION (Attempt 0)\n-- --------------------------------------------------------------------\nSELECT c.first_name, c.last_name, a.balance_usd AS account_balance FROM customers AS c INNER JOIN accounts AS a ON c.customer_id = a.customer_id WHERE a.branch_id = @UserBranchId;\n\n-- --------------------------------------------------------------------\n-- [STEP 2.1] VALIDATION CHECK (Attempt 0)\n-- Status: PASSED\n-- --------------------------------------------------------------------\nSELECT c.first_name, c.last_name, a.balance_usd AS account_balance FROM customers AS c INNER JOIN accounts AS a ON c.customer_id = a.customer_id WHERE a.branch_id = @UserBranchId;\n\n-- ====================================================================\n-- FINAL ACCEPTED SQL QUERY:\n-- ====================================================================\nSELECT c.first_name, c.last_name, a.balance_usd AS account_balance FROM customers AS c INNER JOIN accounts AS a ON c.customer_id = a.customer_id WHERE a.branch_id = @UserBranchId;\n"
+  }
+}
