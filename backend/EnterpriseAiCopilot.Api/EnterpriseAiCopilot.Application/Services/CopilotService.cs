@@ -124,6 +124,8 @@ namespace EnterpriseAiCopilot.Application.Services
                     Question = originalPrompt,
                     ConversationId = conversationId.ToString(),
                     TenantId = branchId,
+                    // These values are authoritative server-side context. Do not trust
+                    // equivalent values supplied by the client request body.
                     UserId = userId,
                     BranchId = branchId,
                     SemanticRevisionId = layerId.ToString(),
@@ -158,11 +160,15 @@ namespace EnterpriseAiCopilot.Application.Services
                 }
 
                 var route = aiResponse.Route?.Trim();
-                if (string.Equals(route, "DirectAnswer", StringComparison.OrdinalIgnoreCase) ||
+                var isDirectResponseRoute =
+                    string.Equals(route, "DirectAnswer", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(route, "SafeRejection", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(route, "RESULT_ANSWER", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(route, "EXACT_REPLAY", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(aiResponse.GeneratedSql) ||
-                    string.Equals(route, "CAPABILITY", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(route, "SafeRejection", StringComparison.OrdinalIgnoreCase))
+                    string.Equals(route, "UNRESOLVED_CONTEXT", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(route, "EXACT_REPLAY", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(route, "CAPABILITY", StringComparison.OrdinalIgnoreCase);
+
+                if (isDirectResponseRoute)
                 {
                     stopwatch.Stop();
                     totalExecutionTimeMs += stopwatch.ElapsedMilliseconds;
@@ -517,7 +523,14 @@ namespace EnterpriseAiCopilot.Application.Services
             Guid conversationId, string userId, string branchId, CancellationToken cancellationToken)
         {
             var queries = await _context.CopilotQueryHistories
-                .Where(q => q.ConversationId == conversationId && q.UserId == userId && q.BranchId == branchId)
+                // Send the complete conversation to the AI, including failed
+                // turns, so it can understand what was attempted and respond
+                // consistently when the user repeats or clarifies the request.
+                // The AI state adapter uses ExecutionStatus to ensure failed
+                // SQL never becomes the last successful execution.
+                .Where(q => q.ConversationId == conversationId &&
+                            q.UserId == userId &&
+                            q.BranchId == branchId)
                 .OrderBy(q => q.CreatedAt)
                 .ToListAsync(cancellationToken);
 

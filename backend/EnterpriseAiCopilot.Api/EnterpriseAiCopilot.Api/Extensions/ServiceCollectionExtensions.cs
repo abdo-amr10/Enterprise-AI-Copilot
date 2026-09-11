@@ -16,10 +16,14 @@ namespace EnterpriseAiCopilot.Api.Extensions
     {
         public static IServiceCollection AddInfrastructureServices(this IServiceCollection services, IConfiguration configuration)
         {
+            var systemConnection = configuration.GetConnectionString("SystemConnection")
+                ?? configuration.GetConnectionString("DefaultConnection");
+
             services.AddDbContext<ApplicationDbContext>(options =>
-                options.UseSqlServer(configuration.GetConnectionString("DefaultConnection")));
+                options.UseSqlServer(systemConnection));
 
             services.AddScoped<IApplicationDbContext>(provider => provider.GetRequiredService<ApplicationDbContext>());
+            services.AddScoped<DatabaseSeeder>();
             services.AddHttpContextAccessor();
             services.AddScoped<ICurrentUserService, CurrentUserService>();
             services.AddScoped<IAuthService, AuthService>();
@@ -28,6 +32,7 @@ namespace EnterpriseAiCopilot.Api.Extensions
             services.AddScoped<ISemanticLayerService, SemanticLayerService>();
             services.AddScoped<ICopilotService, CopilotService>();
             services.AddScoped<IDynamicSqlExecutor, DynamicSqlExecutor>();
+            services.AddScoped<IDatabaseMetadataReader, DatabaseMetadataReader>();
             services.AddHttpClient<IAiRuntimeClient, AiRuntimeHttpClient>();
             services.AddHttpClient<IAiSemanticClient, AiSemanticHttpClient>();
             services.AddScoped<IAuditService, AuditService>();

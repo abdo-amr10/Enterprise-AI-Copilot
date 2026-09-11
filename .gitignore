@@ -1,6 +1,9 @@
 # Visual Studio
 .vs/
 
+# JetBrains IDE
+.idea/
+
 # Build results
 [Bb]in/
 [Oo]bj/
@@ -28,6 +31,20 @@ wwwroot/lib/
 
 # Logs
 *.log
+logs/
+tmp/
+
+# Frontend dependencies
+node_modules/
+
+# Generated local semantic-layer files
+**/Storage/SemanticSources/
+**/Storage/SemanticSources/**
+**/Storage/SemanticIndexes/
+**/Storage/SemanticIndexes/**
+
+# Local archives
+*.rar
 
 # AI Runtime local secrets/configuration
 #

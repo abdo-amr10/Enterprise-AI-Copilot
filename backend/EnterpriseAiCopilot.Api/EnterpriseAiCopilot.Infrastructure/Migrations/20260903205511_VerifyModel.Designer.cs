@@ -4,6 +4,7 @@ using EnterpriseAiCopilot.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace EnterpriseAiCopilot.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260903205511_VerifyModel")]
+    partial class VerifyModel
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -124,77 +127,6 @@ namespace EnterpriseAiCopilot.Infrastructure.Migrations
                     b.ToTable("AuditLogs");
                 });
 
-            modelBuilder.Entity("EnterpriseAiCopilot.Domain.Entities.Branch", b =>
-                {
-                    b.Property<string>("BranchId")
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
-                        .HasColumnName("branch_id");
-
-                    b.Property<string>("BranchName")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)")
-                        .HasColumnName("branch_name");
-
-                    b.HasKey("BranchId");
-
-                    b.ToTable("branches", (string)null);
-                });
-
-            modelBuilder.Entity("EnterpriseAiCopilot.Domain.Entities.Conversation", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("BranchId")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("CreatedBy")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<bool>("IsArchived")
-                        .HasColumnType("bit");
-
-                    b.Property<DateTime?>("LastModifiedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("LastModifiedBy")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<Guid>("SemanticLayerId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Title")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasMaxLength(450)
-                        .HasColumnType("nvarchar(450)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("SemanticLayerId");
-
-                    b.HasIndex("UserId", "BranchId", "UpdatedAt");
-
-                    b.ToTable("Conversations", (string)null);
-                });
-
             modelBuilder.Entity("EnterpriseAiCopilot.Domain.Entities.CopilotQueryHistory", b =>
                 {
                     b.Property<Guid>("Id")
@@ -205,9 +137,6 @@ namespace EnterpriseAiCopilot.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
-
-                    b.Property<Guid?>("ConversationId")
-                        .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
@@ -245,8 +174,6 @@ namespace EnterpriseAiCopilot.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ConversationId");
-
                     b.HasIndex("SemanticLayerId");
 
                     b.ToTable("CopilotQueryHistories", (string)null);
@@ -262,9 +189,6 @@ namespace EnterpriseAiCopilot.Infrastructure.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<string>("CreatedBy")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("DatabaseMetadataJson")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("DatabaseName")
@@ -290,9 +214,6 @@ namespace EnterpriseAiCopilot.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("RlsPolicyJson")
-                        .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
@@ -440,7 +361,7 @@ namespace EnterpriseAiCopilot.Infrastructure.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("BranchId")
-                        .HasColumnType("nvarchar(20)");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
@@ -485,8 +406,6 @@ namespace EnterpriseAiCopilot.Infrastructure.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("BranchId");
 
                     b.HasIndex("Email")
                         .IsUnique();
@@ -553,31 +472,13 @@ namespace EnterpriseAiCopilot.Infrastructure.Migrations
                     b.Navigation("SemanticLayer");
                 });
 
-            modelBuilder.Entity("EnterpriseAiCopilot.Domain.Entities.Conversation", b =>
-                {
-                    b.HasOne("EnterpriseAiCopilot.Domain.Entities.SemanticLayer", "SemanticLayer")
-                        .WithMany()
-                        .HasForeignKey("SemanticLayerId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("SemanticLayer");
-                });
-
             modelBuilder.Entity("EnterpriseAiCopilot.Domain.Entities.CopilotQueryHistory", b =>
                 {
-                    b.HasOne("EnterpriseAiCopilot.Domain.Entities.Conversation", "Conversation")
-                        .WithMany("QueryHistories")
-                        .HasForeignKey("ConversationId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("EnterpriseAiCopilot.Domain.Entities.SemanticLayer", "SemanticLayer")
                         .WithMany()
                         .HasForeignKey("SemanticLayerId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
-
-                    b.Navigation("Conversation");
 
                     b.Navigation("SemanticLayer");
                 });
@@ -604,16 +505,6 @@ namespace EnterpriseAiCopilot.Infrastructure.Migrations
                     b.Navigation("SemanticLayer");
                 });
 
-            modelBuilder.Entity("EnterpriseAiCopilot.Domain.Entities.User", b =>
-                {
-                    b.HasOne("EnterpriseAiCopilot.Domain.Entities.Branch", "Branch")
-                        .WithMany()
-                        .HasForeignKey("BranchId")
-                        .OnDelete(DeleteBehavior.NoAction);
-
-                    b.Navigation("Branch");
-                });
-
             modelBuilder.Entity("EnterpriseAiCopilot.Domain.Entities.UserTablePermission", b =>
                 {
                     b.HasOne("EnterpriseAiCopilot.Domain.Entities.SemanticLayer", "SemanticLayer")
@@ -631,11 +522,6 @@ namespace EnterpriseAiCopilot.Infrastructure.Migrations
                     b.Navigation("SemanticLayer");
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("EnterpriseAiCopilot.Domain.Entities.Conversation", b =>
-                {
-                    b.Navigation("QueryHistories");
                 });
 
             modelBuilder.Entity("EnterpriseAiCopilot.Domain.Entities.SemanticLayer", b =>

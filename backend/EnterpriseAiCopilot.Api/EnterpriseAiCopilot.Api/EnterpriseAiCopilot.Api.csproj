@@ -11,6 +11,9 @@
     <Content Remove="Services\**" />
     <EmbeddedResource Remove="Services\**" />
     <None Remove="Services\**" />
+    <!-- Semantic source files are runtime-managed storage, not build assets. -->
+    <Content Remove="Storage\**" />
+    <None Remove="Storage\**" />
   </ItemGroup>
 
   <ItemGroup>
