@@ -11,6 +11,7 @@ namespace EnterpriseAiCopilot.Domain.Entities
         public string UserId { get; set; } = string.Empty;
 
         public string UserPrompt { get; set; } = string.Empty;
+        public string? ResolvedQuestion { get; set; }
         public string BranchId { get; set; } = string.Empty;
         public string? GeneratedSql { get; set; }
 
