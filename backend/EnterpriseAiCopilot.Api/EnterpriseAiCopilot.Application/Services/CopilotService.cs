@@ -155,13 +155,16 @@ namespace EnterpriseAiCopilot.Application.Services
 
                 var route = aiResponse.Route?.Trim();
                 var isDirectResponseRoute =
-                    !string.IsNullOrWhiteSpace(aiResponse.DirectAnswer) ||
-                    string.Equals(route, "DirectAnswer", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(route, "SafeRejection", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(route, "RESULT_ANSWER", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(route, "UNRESOLVED_CONTEXT", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(route, "EXACT_REPLAY", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(route, "CAPABILITY", StringComparison.OrdinalIgnoreCase);
+                    string.IsNullOrWhiteSpace(aiResponse.GeneratedSql) &&
+                    (
+                        !string.IsNullOrWhiteSpace(aiResponse.DirectAnswer) ||
+                        string.Equals(route, "DirectAnswer", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(route, "SafeRejection", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(route, "RESULT_ANSWER", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(route, "UNRESOLVED_CONTEXT", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(route, "EXACT_REPLAY", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(route, "CAPABILITY", StringComparison.OrdinalIgnoreCase)
+                    );
 
                 if (isDirectResponseRoute)
                 {
