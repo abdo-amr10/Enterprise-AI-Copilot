@@ -14,16 +14,18 @@ namespace EnterpriseAiCopilot.Api.Controllers
     public class CopilotController : ControllerBase
     {
         private readonly ICopilotService _copilotService;
+        private readonly ICurrentUserService _currentUserService;
 
-        public CopilotController(ICopilotService copilotService)
+        public CopilotController(ICopilotService copilotService, ICurrentUserService currentUserService)
         {
             _copilotService = copilotService;
+            _currentUserService = currentUserService;
         }
 
         [HttpPost("ask")]
         public async Task<IActionResult> AskQuestion([FromBody] AskCopilotRequest request, CancellationToken cancellationToken)
         {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var userId = _currentUserService.UserId;
 
             if (string.IsNullOrWhiteSpace(userId))
             {
@@ -35,7 +37,7 @@ namespace EnterpriseAiCopilot.Api.Controllers
                 });
             }
 
-            var branchId = User.FindFirstValue("store_id") ?? User.FindFirstValue("storeId") ?? User.FindFirstValue("branchId");
+            var branchId = _currentUserService.BranchId;
 
             if (string.IsNullOrWhiteSpace(branchId))
             {
@@ -68,7 +70,7 @@ namespace EnterpriseAiCopilot.Api.Controllers
         [HttpGet("history")]
         public async Task<IActionResult> GetUserHistory(CancellationToken cancellationToken)
         {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var userId = _currentUserService.UserId;
 
             if (string.IsNullOrWhiteSpace(userId))
             {
@@ -80,7 +82,7 @@ namespace EnterpriseAiCopilot.Api.Controllers
                 });
             }
 
-            var branchId = User.FindFirstValue("branchId");
+            var branchId = _currentUserService.BranchId;
 
             if (string.IsNullOrWhiteSpace(branchId))
             {
@@ -110,7 +112,7 @@ namespace EnterpriseAiCopilot.Api.Controllers
         [HttpGet("history/{queryId}")]
         public async Task<IActionResult> GetQueryDetails(string queryId, CancellationToken cancellationToken)
         {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var userId = _currentUserService.UserId;
 
             if (string.IsNullOrWhiteSpace(userId))
             {
@@ -122,7 +124,7 @@ namespace EnterpriseAiCopilot.Api.Controllers
                 });
             }
 
-            var branchId = User.FindFirstValue("branchId");
+            var branchId = _currentUserService.BranchId;
 
             if (string.IsNullOrWhiteSpace(branchId))
             {
@@ -152,8 +154,8 @@ namespace EnterpriseAiCopilot.Api.Controllers
         [HttpGet("conversations")]
         public async Task<IActionResult> GetConversations(CancellationToken cancellationToken)
         {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            var branchId = User.FindFirstValue("branchId");
+            var userId = _currentUserService.UserId;
+            var branchId = _currentUserService.BranchId;
             if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(branchId))
                 return Unauthorized(new { status = "Failed", errorCode = "UNAUTHORIZED", message = "User ID or Branch ID claim is missing." });
 
@@ -164,8 +166,8 @@ namespace EnterpriseAiCopilot.Api.Controllers
         [HttpGet("conversations/{conversationId}")]
         public async Task<IActionResult> GetConversation(string conversationId, CancellationToken cancellationToken)
         {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            var branchId = User.FindFirstValue("branchId");
+            var userId = _currentUserService.UserId;
+            var branchId = _currentUserService.BranchId;
             if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(branchId))
                 return Unauthorized(new { status = "Failed", errorCode = "UNAUTHORIZED", message = "User ID or Branch ID claim is missing." });
 
@@ -176,8 +178,8 @@ namespace EnterpriseAiCopilot.Api.Controllers
         [HttpDelete("conversations/{conversationId}")]
         public async Task<IActionResult> ArchiveConversation(string conversationId, CancellationToken cancellationToken)
         {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            var branchId = User.FindFirstValue("branchId");
+            var userId = _currentUserService.UserId;
+            var branchId = _currentUserService.BranchId;
             if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(branchId))
                 return Unauthorized(new { status = "Failed", errorCode = "UNAUTHORIZED", message = "User ID or Branch ID claim is missing." });
 

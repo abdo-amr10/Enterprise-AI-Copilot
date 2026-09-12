@@ -25,7 +25,9 @@ namespace EnterpriseAiCopilot.Application.DTOs.Copilot.Validators
                     .WithMessage("Role must be either 'user' or 'assistant'.");
 
                 message.RuleFor(m => m.Content)
-                    .NotEmpty().WithMessage("Message content is required.");
+                    .NotEmpty()
+                    .When(m => m.Role.Equals("user", System.StringComparison.OrdinalIgnoreCase))
+                    .WithMessage("Message content is required for user messages.");
             });
         }
     }
