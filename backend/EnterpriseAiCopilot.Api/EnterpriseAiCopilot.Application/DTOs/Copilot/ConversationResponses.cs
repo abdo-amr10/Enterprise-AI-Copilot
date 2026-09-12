@@ -17,6 +17,7 @@ public class ConversationTurnResponse
     public string? ResolvedQuestion { get; set; }
     public string Status { get; set; } = string.Empty;
     public string? ErrorMessage { get; set; }
+    public string? Message => ErrorMessage;
     public long ExecutionTimeMs { get; set; }
     public string CreatedAt { get; set; } = string.Empty;
     public CopilotReport? Result { get; set; }
