@@ -1048,6 +1048,29 @@ namespace EnterpriseAiCopilot.Application.Services
 
             try
             {
+                // These relationships are intentionally restrictive because query history
+                // and conversations are audit data. Remove the dependent records explicitly
+                // before deleting the layer so SQL Server never receives an invalid FK delete.
+                var queryHistories = await _context.CopilotQueryHistories
+                    .Where(history => history.SemanticLayerId == layerId)
+                    .ToListAsync(cancellationToken);
+                if (queryHistories.Count > 0)
+                    _context.CopilotQueryHistories.RemoveRange(queryHistories);
+
+                var conversations = await _context.Conversations
+                    .Where(conversation => conversation.SemanticLayerId == layerId)
+                    .ToListAsync(cancellationToken);
+                if (conversations.Count > 0)
+                    _context.Conversations.RemoveRange(conversations);
+
+                // Explicitly removing these also makes the operation work against databases
+                // created from older migrations where cascade rules may differ.
+                var permissions = await _context.UserTablePermissions
+                    .Where(permission => permission.SemanticLayerId == layerId)
+                    .ToListAsync(cancellationToken);
+                if (permissions.Count > 0)
+                    _context.UserTablePermissions.RemoveRange(permissions);
+
                 _context.SemanticLayers.Remove(semanticLayer);
                 await _context.SaveChangesAsync(cancellationToken);
             }
