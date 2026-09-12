@@ -8,6 +8,7 @@ namespace EnterpriseAiCopilot.Application.DTOs.Copilot
     {
         public bool IsSuccess { get; set; }
         public string? GeneratedSql { get; set; }
+        public string? ResolvedQuestion { get; set; }
         public string? TextSummary { get; set; }
         public string PresentationType { get; set; } = "DataTable";
         public string? ErrorMessage { get; set; }

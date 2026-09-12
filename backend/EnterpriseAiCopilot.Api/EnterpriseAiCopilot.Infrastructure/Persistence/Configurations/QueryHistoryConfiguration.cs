@@ -23,6 +23,9 @@ namespace EnterpriseAiCopilot.Infrastructure.Persistence.Configurations
                 .IsRequired()
                 .HasMaxLength(1500); 
 
+            builder.Property(q => q.ResolvedQuestion)
+                .HasMaxLength(4000);
+
             builder.Property(q => q.BranchId)
                 .IsRequired()
                 .HasMaxLength(50);

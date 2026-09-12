@@ -153,14 +153,9 @@ namespace EnterpriseAiCopilot.Application.Services
                     break;
                 }
 
-                if (!aiResponse.IsSuccess)
-                {
-                    finalErrorMessage = aiResponse.ErrorMessage ?? "AI_PROCESSING_FAILED";
-                    break;
-                }
-
                 var route = aiResponse.Route?.Trim();
                 var isDirectResponseRoute =
+                    !string.IsNullOrWhiteSpace(aiResponse.DirectAnswer) ||
                     string.Equals(route, "DirectAnswer", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(route, "SafeRejection", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(route, "RESULT_ANSWER", StringComparison.OrdinalIgnoreCase) ||
@@ -183,6 +178,12 @@ namespace EnterpriseAiCopilot.Application.Services
                     };
                     aiHandledWithoutSql = true;
                     finalErrorMessage = null;
+                    break;
+                }
+
+                if (!aiResponse.IsSuccess)
+                {
+                    finalErrorMessage = aiResponse.ErrorMessage ?? "AI_PROCESSING_FAILED";
                     break;
                 }
 
@@ -250,6 +251,7 @@ namespace EnterpriseAiCopilot.Application.Services
                  userId,
                  branchId,
                  originalPrompt,
+                 aiResponse?.ResolvedQuestion,
                  aiResponse?.GeneratedSql,
                  layerId,
                  conversationId,
@@ -494,9 +496,11 @@ namespace EnterpriseAiCopilot.Application.Services
                     QueryId = q.Id.ToString(),
                     Question = q.UserPrompt,
                     GeneratedSql = q.GeneratedSql,
+                    ResolvedQuestion = q.ResolvedQuestion,
                     Status = q.Status,
                     ExecutionTimeMs = q.ExecutionTimeMs,
                     CreatedAt = q.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                    ErrorMessage = q.ErrorMessage,
                     Result = q.ResultJson == null ? null : DeserializeReport(q.ResultJson)
                 }).ToList()
             });
@@ -549,6 +553,7 @@ namespace EnterpriseAiCopilot.Application.Services
                     Role = "turn",
                     TurnId = $"turn_{query.Id}",
                     UserQuestion = query.UserPrompt,
+                    ResolvedQuestion = query.ResolvedQuestion,
                     GeneratedSql = query.GeneratedSql,
                     ExecutionResultSummary = executionResultSummary,
                     ExecutionStatus = query.Status,
@@ -605,6 +610,7 @@ namespace EnterpriseAiCopilot.Application.Services
             string userId,
             string branchId,
             string prompt,
+            string? resolvedQuestion,
             string? sql,
             Guid layerId,
             Guid conversationId,
@@ -620,6 +626,7 @@ namespace EnterpriseAiCopilot.Application.Services
                     UserId = userId,
                     BranchId = branchId,
                     UserPrompt = prompt,
+                    ResolvedQuestion = resolvedQuestion,
                     GeneratedSql = sql,
                     SemanticLayerId = layerId,
                     ConversationId = conversationId,
