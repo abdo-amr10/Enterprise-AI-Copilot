@@ -23,25 +23,39 @@ public sealed class BranchesController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetBranches(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetBranches(
+        [FromQuery] Guid? semanticLayerId,
+        CancellationToken cancellationToken)
     {
-        var policyJson = await _context.SemanticLayers
+        var layerQuery = _context.SemanticLayers
             .AsNoTracking()
-            .Where(layer => layer.IsActive)
+            .AsQueryable();
+
+        var policyJson = await (semanticLayerId.HasValue
+                ? layerQuery.Where(layer => layer.Id == semanticLayerId.Value)
+                : layerQuery.Where(layer => layer.IsActive))
             .Select(layer => layer.RlsPolicyJson)
             .FirstOrDefaultAsync(cancellationToken);
 
         if (string.IsNullOrWhiteSpace(policyJson))
-            return BadRequest(new { message = "RLS policy with branchMapping must be uploaded first." });
+            return BadRequest(new { message = "RLS policy with branchMapping must be uploaded for the selected semantic layer first." });
 
         BranchMapping? mapping;
         try
         {
             using var document = JsonDocument.Parse(policyJson);
-            if (!document.RootElement.TryGetProperty("branchMapping", out var branchMapping))
-                return BadRequest(new { message = "RLS policy must contain branchMapping." });
-            mapping = JsonSerializer.Deserialize<BranchMapping>(branchMapping.GetRawText(),
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            var branchMapping = document.RootElement
+                .EnumerateObject()
+                .FirstOrDefault(property =>
+                    string.Equals(property.Name, "branchMapping", StringComparison.OrdinalIgnoreCase));
+
+            if (branchMapping.Value.ValueKind != JsonValueKind.Undefined)
+            {
+                mapping = JsonSerializer.Deserialize<BranchMapping>(branchMapping.Value.GetRawText(),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            else
+                mapping = null;
         }
         catch (JsonException)
         {
@@ -50,7 +64,7 @@ public sealed class BranchesController : ControllerBase
 
         if (mapping == null || !IsSafeIdentifier(mapping.Table) || !IsSafeIdentifier(mapping.IdColumn) ||
             (!string.IsNullOrWhiteSpace(mapping.NameColumn) && !IsSafeIdentifier(mapping.NameColumn)))
-            return BadRequest(new { message = "branchMapping contains invalid table or column names." });
+            return BadRequest(new { message = "The selected layer RLS policy must contain valid branchMapping table and column names." });
 
         var connectionString = _configuration.GetConnectionString("TargetConnection");
         if (string.IsNullOrWhiteSpace(connectionString))

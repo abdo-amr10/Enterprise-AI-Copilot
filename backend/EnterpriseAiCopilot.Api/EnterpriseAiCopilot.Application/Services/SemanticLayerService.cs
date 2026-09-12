@@ -355,6 +355,42 @@ namespace EnterpriseAiCopilot.Application.Services
             if (request == null || string.IsNullOrWhiteSpace(request.ScopeParameter))
                 return Result<bool>.Failure("RLS_POLICY_ERROR: ScopeParameter is required.");
 
+            if (request.BranchMapping == null ||
+                !IsSafeIdentifier(request.BranchMapping.Table) ||
+                !IsSafeIdentifier(request.BranchMapping.IdColumn) ||
+                (!string.IsNullOrWhiteSpace(request.BranchMapping.NameColumn) &&
+                 !IsSafeIdentifier(request.BranchMapping.NameColumn)))
+            {
+                return Result<bool>.Failure(
+                    "RLS_POLICY_ERROR: BranchMapping must contain a valid table and idColumn, plus an optional valid nameColumn.");
+            }
+
+            var metadataResult = await _databaseMetadataReader.ReadTargetAsync(cancellationToken);
+            if (!metadataResult.IsSuccess || metadataResult.Data == null)
+            {
+                return Result<bool>.Failure(
+                    $"RLS_POLICY_ERROR: Cannot validate BranchMapping against TargetConnection. {metadataResult.ErrorMessage}");
+            }
+
+            var mappedTable = metadataResult.Data.Tables.FirstOrDefault(table =>
+                string.Equals(table.Name, request.BranchMapping.Table, StringComparison.OrdinalIgnoreCase));
+            if (mappedTable == null)
+            {
+                return Result<bool>.Failure(
+                    $"RLS_POLICY_ERROR: BranchMapping table '{request.BranchMapping.Table}' does not exist in TargetConnection.");
+            }
+
+            var mappedColumns = mappedTable.Columns
+                .Select(column => column.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (!mappedColumns.Contains(request.BranchMapping.IdColumn) ||
+                (!string.IsNullOrWhiteSpace(request.BranchMapping.NameColumn) &&
+                 !mappedColumns.Contains(request.BranchMapping.NameColumn)))
+            {
+                return Result<bool>.Failure(
+                    $"RLS_POLICY_ERROR: BranchMapping columns do not exist in TargetConnection table '{mappedTable.Name}'.");
+            }
+
             if (request.Rules.Any(rule => string.IsNullOrWhiteSpace(rule.Table) || string.IsNullOrWhiteSpace(rule.ScopeColumn)))
                 return Result<bool>.Failure("RLS_POLICY_ERROR: Every rule must contain table and scopeColumn.");
 
@@ -362,6 +398,9 @@ namespace EnterpriseAiCopilot.Application.Services
             await _context.SaveChangesAsync(cancellationToken);
             return Result<bool>.Success(true);
         }
+
+        private static bool IsSafeIdentifier(string? value) =>
+            !string.IsNullOrWhiteSpace(value) && Regex.IsMatch(value, "^[A-Za-z_][A-Za-z0-9_]*$");
 
         public async Task<Result<GenerateDraftResponse>> GenerateDraftAsync(GenerateDraftRequest request, CancellationToken cancellationToken = default)
         {
