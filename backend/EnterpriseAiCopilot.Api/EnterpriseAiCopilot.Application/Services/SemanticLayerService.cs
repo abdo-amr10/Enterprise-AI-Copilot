@@ -201,6 +201,48 @@ namespace EnterpriseAiCopilot.Application.Services
                 _context.SemanticSourceFiles.Add(sampleDataFile);
             }
 
+            SemanticSourceFile? rlsPolicyFile = null;
+            if (request.RlsPolicyFile != null && request.RlsPolicyFile.Length > 0)
+            {
+                var rlsResult = await _fileStorage.SaveFileAsync(request.RlsPolicyFile, folderName, cancellationToken);
+                if (!rlsResult.IsSuccess)
+                    return Result<UploadDataSourcesResponse>.Failure($"RLS policy upload failed: {rlsResult.ErrorMessage}");
+
+                var rlsContentResult = await _fileStorage.GetFileAsync(rlsResult.Data!, cancellationToken);
+                if (!rlsContentResult.IsSuccess || rlsContentResult.Data == null)
+                    return Result<UploadDataSourcesResponse>.Failure("RLS policy upload failed: Could not read the uploaded file.");
+
+                RlsPolicyRequest? rlsRequest;
+                try
+                {
+                    rlsRequest = JsonSerializer.Deserialize<RlsPolicyRequest>(
+                        System.Text.Encoding.UTF8.GetString(rlsContentResult.Data),
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                }
+                catch (JsonException)
+                {
+                    return Result<UploadDataSourcesResponse>.Failure("RLS policy upload failed: The file contains invalid JSON.");
+                }
+
+                if (rlsRequest == null)
+                    return Result<UploadDataSourcesResponse>.Failure("RLS policy upload failed: The file contains invalid JSON.");
+
+                var saveRlsResult = await SaveRlsPolicyAsync(semanticLayer.Id, rlsRequest, cancellationToken);
+                if (!saveRlsResult.IsSuccess)
+                    return Result<UploadDataSourcesResponse>.Failure(saveRlsResult.ErrorMessage ?? "RLS policy validation failed.");
+
+                rlsPolicyFile = new SemanticSourceFile
+                {
+                    FileName = request.RlsPolicyFile.FileName,
+                    FileType = "rlsPolicy",
+                    FileSize = request.RlsPolicyFile.Length,
+                    StoragePath = rlsResult.Data!,
+                    UploadedBy = currentUser,
+                    SemanticLayerId = semanticLayer.Id
+                };
+                _context.SemanticSourceFiles.Add(rlsPolicyFile);
+            }
+
             if (schemaResult.IsSuccess && schemaResult.Data != null)
             {
                 var fileContentResult = await _fileStorage.GetFileAsync(schemaResult.Data, cancellationToken);
@@ -231,11 +273,13 @@ namespace EnterpriseAiCopilot.Application.Services
                     SchemaFileId = schemaFile.Id.ToString(),
                     DocumentationFileId = docFile?.Id.ToString(),
                     GlossaryFileId = glossaryFile?.Id.ToString(),
-                    SampleDataFileId = sampleDataFile?.Id.ToString()
+                    SampleDataFileId = sampleDataFile?.Id.ToString(),
+                    RlsPolicyFileId = rlsPolicyFile?.Id.ToString()
                 },
                 HasDocumentation = docFile != null,
                 HasGlossary = glossaryFile != null,
-                HasSampleData = sampleDataFile != null
+                HasSampleData = sampleDataFile != null,
+                HasRlsPolicy = rlsPolicyFile != null
             };
 
             await _auditService.LogEventAsync(
@@ -414,6 +458,16 @@ namespace EnterpriseAiCopilot.Application.Services
 
             if (semanticLayer == null)
                 return Result<GenerateDraftResponse>.Failure("Semantic Layer not found.");
+
+            // RLS is uploaded with the other sources, but the Backend remains
+            // authoritative. If the caller omits the ID, use the latest RLS
+            // source belonging to this layer so the AI cannot receive a draft
+            // without the policy that the SQL executor will enforce.
+            request.SourceFileIds.RlsPolicy ??= semanticLayer.SourceFiles
+                .Where(file => file.FileType.Equals("rlsPolicy", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(file => file.CreatedAt)
+                .Select(file => file.Id.ToString())
+                .FirstOrDefault();
 
             var aiDraftResult = await _aiSemanticClient.GenerateDraftAsync(request, cancellationToken);
             if (!aiDraftResult.IsSuccess)

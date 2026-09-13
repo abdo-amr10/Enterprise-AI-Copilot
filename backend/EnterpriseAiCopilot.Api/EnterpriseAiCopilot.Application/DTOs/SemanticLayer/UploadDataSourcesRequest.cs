@@ -25,5 +25,8 @@ namespace EnterpriseAiCopilot.Application.DTOs.SemanticLayer
 
         [FromForm(Name = "sampleData")]
         public IFormFile? SampleDataFile { get; set; }
+
+        [FromForm(Name = "rlsPolicy")]
+        public IFormFile? RlsPolicyFile { get; set; }
     }
 }

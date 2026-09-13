@@ -17,5 +17,6 @@ namespace EnterpriseAiCopilot.Application.DTOs.SemanticLayer
         public bool HasDocumentation { get; set; }
         public bool HasGlossary { get; set; }
         public bool HasSampleData { get; set; }
+        public bool HasRlsPolicy { get; set; }
     }
 }
