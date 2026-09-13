@@ -20,30 +20,113 @@ from src.prompts.full_build_prompt import (
 from src.application.services.semantic_layer.security.security_rule_extractor import (
     SecurityRuleExtractor,
 )
+from src.application.services.semantic_layer.builders.entity_semantic_builder import (
+    EntitySemanticBuilder,
+)
+from src.application.services.semantic_layer.builders.relationship_semantic_enricher import (
+    RelationshipSemanticEnricher,
+)
+from src.application.services.semantic_layer.builders.glossary_semantic_builder import (
+    GlossarySemanticBuilder,
+)
 
 
 class FullRebuildBuilder:
-    """Build a complete initial Semantic Layer from authoritative sources."""
+    """Build a complete initial Semantic Layer from authoritative sources via a decomposed pipeline."""
 
-    def __init__(self, llm_client: LLMClient) -> None:
+    def __init__(
+        self,
+        llm_client: LLMClient | None = None,
+        entity_builder: EntitySemanticBuilder | None = None,
+        relationship_enricher: RelationshipSemanticEnricher | None = None,
+        glossary_builder: GlossarySemanticBuilder | None = None,
+    ) -> None:
         self._llm_client = llm_client
         self._output_parser = SemanticLayerOutputParser()
+        self._entity_builder = entity_builder or EntitySemanticBuilder(llm_client)
+        self._relationship_enricher = relationship_enricher or RelationshipSemanticEnricher(llm_client)
+        self._glossary_builder = glossary_builder or GlossarySemanticBuilder(llm_client)
+
+    @staticmethod
+    def _extract_schema_tables(schema: Any) -> dict[str, Any]:
+        """Normalize tables from schema object or dict."""
+        schema_tables: dict[str, Any] = {}
+        if isinstance(schema, dict):
+            raw_tables = schema.get("tables", {})
+            if isinstance(raw_tables, dict):
+                schema_tables = raw_tables
+            elif isinstance(raw_tables, list):
+                for t in raw_tables:
+                    if isinstance(t, dict) and t.get("name"):
+                        schema_tables[t["name"]] = t
+        return schema_tables
 
     def build(
         self,
         build_input: SemanticLayerBuildInput,
     ) -> SemanticLayerBuildResponse:
-        """Generate the initial Semantic Layer draft."""
+        """Generate the initial Semantic Layer draft using the decomposed pipeline."""
+        schema_tables = self._extract_schema_tables(build_input.schema)
 
-        prompt = self._build_prompt(build_input)
-
-        response: GenerationResponse = self._llm_client.generate(
-            GenerationRequest(prompt=prompt, format="json")
+        # 1. Sub-task A: Entity Semantic Enrichment
+        entities = self._entity_builder.build(
+            schema=build_input.schema,
+            documentation=build_input.documentation,
+            business_glossary=build_input.business_glossary,
+            relationships=build_input.relationships,
+            sample_data=build_input.sample_data,
         )
 
-        semantic_layer = self._output_parser.parse(response.text)
+        # 2. Sub-task B: Relationship Semantic Enrichment
+        if build_input.relationships and build_input.documentation:
+            enriched_relationships = self._relationship_enricher.enrich(
+                relationships=build_input.relationships,
+                documentation=build_input.documentation,
+            )
+        else:
+            enriched_relationships = self._relationship_enricher._apply_deterministic_descriptions(
+                build_input.relationships or []
+            )
+
+        # 3. Sub-task C: Glossary & Measure Extraction
+        glossary_output = self._glossary_builder.extract(
+            business_glossary=build_input.business_glossary,
+            schema_tables=schema_tables,
+        )
+
+        # 4. Assemble intermediate draft with graceful fallback for all sections
+        llm_extra = getattr(self._entity_builder, "last_parsed", {}) or {}
+        candidate_measures = [
+            *(glossary_output.get("measures") or []),
+            *(llm_extra.get("measures") or []),
+        ]
+        candidate_rules = [
+            *(glossary_output.get("business_rules") or []),
+            *(llm_extra.get("business_rules") or []),
+        ]
+        candidate_relationships = [
+            *enriched_relationships,
+            *(llm_extra.get("relationships") or []),
+        ]
+
+        intermediate_draft = {
+            "metadata": {
+                "status": "initial_draft",
+                "validated": False,
+                "human_review_required": True,
+            },
+            "entities": entities,
+            "relationships": candidate_relationships,
+            "measures": candidate_measures,
+            "business_rules": candidate_rules,
+            "dimensions": llm_extra.get("dimensions") or [],
+            "security_domains": [],
+            "validation_issues": [],
+        }
+
+        # 5. Deterministic Assembly and Reconciliation
         semantic_layer = self._reconcile_authoritative_metadata(
-            semantic_layer=semantic_layer,
+            semantic_layer=intermediate_draft,
             build_input=build_input,
         )
 
@@ -64,6 +147,15 @@ class FullRebuildBuilder:
         raw_provided = self._provided_relationships(build_input.relationships)
         llm_relationships = result.get("relationships") or []
         result["relationships"] = self._reconcile_relationships(raw_provided, llm_relationships)
+
+        # Extract security scope information (direct scope columns and domain name)
+        # dynamically from rls_policy, documentation, or existing domains.
+        doc_meta = self._extract_documentation_metadata(
+            build_input.documentation, build_input.business_glossary
+        )
+        direct_scope_cols, domain_name = self._extract_security_scope_info(
+            build_input, doc_meta=doc_meta, existing_domains=result.get("security_domains")
+        )
 
         # 2. Reconcile Entities from Schema
         existing_entities = result.get("entities") or []
@@ -120,11 +212,11 @@ class FullRebuildBuilder:
                     "natural_grain": pk_col,
                     "grain": pk_col,
                     "primary_identifier": pk_col,
-                    # An entity may only claim a direct branch scope when the
-                    # physical table contains branch_id.  Propagated RLS belongs
+                    # An entity may only claim a direct security scope when the
+                    # physical table contains the scope key. Propagated RLS belongs
                     # exclusively in security_domains.
-                    "security_domain": "branch" if any(self._column_name(c) == "branch_id" for c in cols) else None,
-                    "security_scope": "branch" if any(self._column_name(c) == "branch_id" for c in cols) else None,
+                    "security_domain": domain_name if any(self._column_name(c) in direct_scope_cols for c in cols) else None,
+                    "security_scope": domain_name if any(self._column_name(c) in direct_scope_cols for c in cols) else None,
                     "description": f"Entity representing {tbl_name} table.",
                     "source": "schema",
                     "generated": True,
@@ -134,8 +226,8 @@ class FullRebuildBuilder:
 
         result["entities"] = merged_entities
 
-        # Do not leave a model-generated direct branch scope on tables that do
-        # not physically carry branch_id.  Their access path, when documented,
+        # Do not leave a model-generated direct security scope on tables that do
+        # not physically carry the direct scope key. Their access path, when documented,
         # is represented by the security domain instead.
         for entity in merged_entities:
             if not isinstance(entity, dict):
@@ -143,13 +235,13 @@ class FullRebuildBuilder:
             table_name = str(entity.get("mapping") or entity.get("source_table") or "").lower()
             table = schema_tables.get(table_name)
             columns = table.get("columns", []) if isinstance(table, dict) else []
-            has_direct_branch_key = any(self._column_name(c) == "branch_id" for c in columns)
-            if not has_direct_branch_key:
+            has_direct_scope_key = any(self._column_name(c) in direct_scope_cols for c in columns)
+            if not has_direct_scope_key:
                 entity["security_domain"] = None
                 entity["security_scope"] = None
             else:
-                entity["security_domain"] = "branch"
-                entity["security_scope"] = "branch"
+                entity["security_domain"] = domain_name
+                entity["security_scope"] = domain_name
             primary_key = self._primary_key(columns, table_name) if columns else entity.get("primary_identifier")
             if primary_key:
                 entity["natural_grain"] = primary_key
@@ -229,10 +321,6 @@ class FullRebuildBuilder:
         )
 
         # 5. Reconcile Business Rules & Security Domains from Documentation
-        doc_meta = self._extract_documentation_metadata(
-            build_input.documentation, build_input.business_glossary
-        )
-
         existing_rules = result.get("business_rules") or result.get("businessRules") or []
         if not isinstance(existing_rules, list):
             existing_rules = []
@@ -241,12 +329,23 @@ class FullRebuildBuilder:
         # synthetic FK descriptions emitted by the model.
         result["business_rules"] = doc_meta.get("business_rules", [])
 
-        # 6. Reconcile Security Domains (RLS) from Documentation
+        # 6. Reconcile Security Domains (RLS) from Backend Policy or Documentation
         existing_domains = result.get("security_domains") or result.get("securityDomains") or []
         if not isinstance(existing_domains, list):
             existing_domains = []
 
-        if doc_meta.get("security_domains"):
+        if build_input.rls_policy:
+            from src.application.services.semantic_layer.security.rls_policy_adapter import (
+                RlsPolicyAdapter,
+            )
+            adapted_domains = RlsPolicyAdapter.to_security_domains(build_input.rls_policy)
+            if adapted_domains:
+                result["security_domains"] = adapted_domains
+            elif doc_meta.get("security_domains"):
+                result["security_domains"] = doc_meta["security_domains"]
+            else:
+                result["security_domains"] = existing_domains
+        elif doc_meta.get("security_domains"):
             result["security_domains"] = doc_meta["security_domains"]
         else:
             result["security_domains"] = existing_domains
@@ -458,8 +557,76 @@ class FullRebuildBuilder:
         return column_name.replace("_", " ").title().replace(" Id", " ID")
 
     @staticmethod
+    def _extract_security_scope_info(
+        build_input: SemanticLayerBuildInput,
+        doc_meta: dict[str, Any] | None = None,
+        existing_domains: list[dict[str, Any]] | None = None,
+    ) -> tuple[set[str], str]:
+        """Extract direct scope column names (e.g. {'store_id'}, {'branch_id'}) and domain name from rls_policy or security domains."""
+        direct_cols: set[str] = set()
+        domain_name = ""
+
+        # 1. From rls_policy if present
+        if getattr(build_input, "rls_policy", None):
+            policy = build_input.rls_policy
+            if isinstance(policy, str):
+                try:
+                    policy = json.loads(policy)
+                except Exception:
+                    policy = {}
+            if isinstance(policy, dict):
+                user_val = policy.get("userValueField") or policy.get("user_value_field")
+                if user_val and isinstance(user_val, str):
+                    raw = user_val.strip()
+                    if raw.endswith("Id") and len(raw) > 2:
+                        domain_name = raw[:-2].lower()
+                    else:
+                        domain_name = raw.lower()
+                for r in policy.get("rules", []):
+                    if isinstance(r, dict):
+                        sc = r.get("scopeColumn") or r.get("scope_column")
+                        is_direct = str(r.get("type", "")).lower() == "direct" or not r.get("joinTable")
+                        if sc and is_direct:
+                            direct_cols.add(str(sc).strip().lower())
+                if not domain_name and direct_cols:
+                    first_col = next(iter(direct_cols))
+                    domain_name = first_col[:-3] if first_col.endswith("_id") and len(first_col) > 3 else first_col
+
+        # 2. From doc_meta or existing_domains
+        domains = []
+        if doc_meta and doc_meta.get("security_domains"):
+            domains = doc_meta["security_domains"]
+        elif existing_domains:
+            domains = existing_domains
+
+        if isinstance(domains, list):
+            for d in domains:
+                if isinstance(d, dict):
+                    if not domain_name and (d.get("name") or d.get("security_scope")):
+                        domain_name = str(d.get("name") or d.get("security_scope")).lower()
+                    root = str(d.get("canonical_root", ""))
+                    if "." in root:
+                        direct_cols.add(root.split(".", 1)[1].strip().lower())
+                    for p in d.get("propagation_paths", []):
+                        if isinstance(p, dict) and p.get("is_canonical_root"):
+                            pred = str(p.get("predicate", ""))
+                            if "=" in pred:
+                                col_part = pred.split("=")[0].strip()
+                                if "." in col_part:
+                                    direct_cols.add(col_part.split(".", 1)[1].strip().lower())
+
+        if not domain_name:
+            domain_name = "branch"
+
+        # 3. Default fallback if no columns discovered
+        if not direct_cols:
+            direct_cols = {"branch_id", "store_id", "tenant_id", "organization_id", "company_id"}
+
+        return direct_cols, domain_name
+
+    @staticmethod
     def _singular_table_name(table_name: str) -> str:
-        """Return a predictable display singular without mangling ``branches``."""
+        """Return a predictable display singular for table names (e.g., branches -> branch, categories -> category)."""
         if table_name.endswith("ies"):
             return f"{table_name[:-3]}y"
         if table_name.endswith("ches") or table_name.endswith("shes"):
@@ -470,13 +637,19 @@ class FullRebuildBuilder:
     def _dimension_description(table_name: str, column_name: str) -> str:
         descriptions = {
             "customer_id": "Unique identifier for a customer.",
-            "account_id": "Unique identifier for a bank account.",
-            "branch_id": "Unique identifier for a banking branch.",
+            "account_id": "Unique identifier for an account.",
+            "branch_id": "Unique identifier for a branch.",
+            "store_id": "Unique identifier for a store.",
+            "tenant_id": "Unique identifier for a tenant.",
+            "user_id": "Unique identifier for a user.",
             "card_id": "Unique identifier for a payment card.",
             "merchant_id": "Unique identifier for a merchant.",
             "transaction_id": "Unique identifier for a financial transaction.",
             "loan_id": "Unique identifier for a loan.",
-            "email": "Email address recorded for the customer.",
+            "order_id": "Unique identifier for an order.",
+            "product_id": "Unique identifier for a product.",
+            "payment_id": "Unique identifier for a payment.",
+            "email": "Email address recorded for the record.",
         }
         if column_name in descriptions:
             return descriptions[column_name]
@@ -650,7 +823,14 @@ class FullRebuildBuilder:
                     words = first_clause.split()
                     name = " ".join(words[:5]).title() if len(words) > 5 else first_clause.title()
 
-                if "directly to accounts" in normalized and "loans" in normalized:
+                neg_join_match = re.search(
+                    r"(?:do\s+not|never)\s+join\s+([a-zA-Z0-9_]+)\s+directly\s+to\s+([a-zA-Z0-9_]+)",
+                    rule_text,
+                    re.IGNORECASE,
+                )
+                if neg_join_match:
+                    name = f"No Direct {neg_join_match.group(1).title()}-to-{neg_join_match.group(2).title()} Join"
+                elif "directly to accounts" in normalized and "loans" in normalized:
                     name = "No Direct Loans-to-Accounts Join"
 
                 if any(k in normalized for k in ("join", "relationship", "path", "directly")):

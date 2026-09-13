@@ -6,8 +6,15 @@ import logging
 import re
 from typing import Optional
 
+from src.application.services.conversation.extraction.entity_recognizer import (
+    EntityRecognizer,
+    get_entity_recognizer,
+)
 from src.application.services.conversation.normalization.normalizer import (
     RequestNormalizer,
+)
+from src.application.services.conversation.result_resolution.legacy_result_fallback import (
+    LegacyResultFallback,
 )
 from src.application.services.conversation.result_resolution.models import (
     ResultResolutionOutcome,
@@ -21,61 +28,8 @@ logger = logging.getLogger(__name__)
 class ResultResolver:
     """Answers follow-up questions directly from prior query result data or summary."""
 
-    _ORDINAL_WORDS = {
-        "first": 1,
-        "1st": 1,
-        "second": 2,
-        "2nd": 2,
-        "third": 3,
-        "3rd": 3,
-        "fourth": 4,
-        "4th": 4,
-        "fifth": 5,
-        "5th": 5,
-        "sixth": 6,
-        "6th": 6,
-        "seventh": 7,
-        "7th": 7,
-        "eighth": 8,
-        "8th": 8,
-        "ninth": 9,
-        "9th": 9,
-        "tenth": 10,
-        "10th": 10,
-        "eleventh": 11,
-        "11th": 11,
-        "twelfth": 12,
-        "12th": 12,
-        "thirteenth": 13,
-        "13th": 13,
-        "fourteenth": 14,
-        "14th": 14,
-        "fifteenth": 15,
-        "15th": 15,
-        "sixteenth": 16,
-        "16th": 16,
-        "seventeenth": 17,
-        "17th": 17,
-        "eighteenth": 18,
-        "18th": 18,
-        "nineteenth": 19,
-        "19th": 19,
-        "twentieth": 20,
-        "20th": 20,
-        "الأول": 1,
-        "الاول": 1,
-        "الثاني": 2,
-        "التاني": 2,
-        "الثالث": 3,
-        "التالت": 3,
-        "الرابع": 4,
-        "الخامس": 5,
-        "السادس": 6,
-        "السابع": 7,
-        "الثامن": 8,
-        "التاسع": 9,
-        "العاشر": 10,
-    }
+    # Retained references pointing to quarantined legacy fallback for backwards compatibility
+    _ORDINAL_WORDS = LegacyResultFallback._ORDINAL_WORDS
 
     _ORDINAL_PATTERN = re.compile(
         r"\b(?:who|what|which|how\s+about|what\s+about|and)(?:\s+one)?(?:\s+(?:is|was|about))?\s+(?:#|number|no\.?|num\.?)?\s*(\d+)\b|"
@@ -114,28 +68,8 @@ class ResultResolver:
         re.IGNORECASE | re.UNICODE,
     )
 
-    _ARABIC_TO_LATIN_COMMON = {
-        "سارة": "sara",
-        "ساره": "sara",
-        "احمد": "ahmed",
-        "أحمد": "ahmed",
-        "محمد": "mohamed",
-        "علي": "ali",
-        "خالد": "khaled",
-        "تامر": "tamer",
-        "محمود": "mahmoud",
-        "عمرو": "amr",
-        "منى": "mona",
-        "مني": "mona",
-        "طارق": "tarek",
-        "حسن": "hassan",
-        "حسين": "hussein",
-        "ابراهيم": "ibrahim",
-        "إبراهيم": "ibrahim",
-        "مريم": "mariam",
-        "فاطمة": "fatima",
-        "نور": "nour",
-    }
+    # Retained reference pointing to quarantined legacy fallback for backwards compatibility
+    _ARABIC_TO_LATIN_COMMON = LegacyResultFallback._ARABIC_TO_LATIN_COMMON
 
     _DATABASE_QUERY_INSTRUCTION_PATTERN = re.compile(
         r"\b(?:show|list|get|find|select|fetch|query|calculate|sum|count|average|extract|pull|"
@@ -148,11 +82,23 @@ class ResultResolver:
     _SCHEMA_AND_COMMON_TERMS = {
         "branch", "branches", "account", "accounts", "transaction", "transactions",
         "customer", "customers", "loan", "loans", "card", "cards", "merchant", "merchants",
+        "store", "stores", "order", "orders", "product", "products", "item", "items",
+        "category", "categories", "sale", "sales", "payment", "payments", "rental", "rentals",
+        "tenant", "tenants", "user", "users", "inventory", "price", "cost", "revenue",
         "id", "name", "date", "status", "type", "amount", "balance", "total", "city",
         "country", "rate", "score", "credit", "first", "last", "email", "created",
         "open", "value", "table", "data", "query", "record", "row", "usd", "code",
         "all", "top", "only", "same", "new", "each", "these", "those",
     }
+
+    def __init__(
+        self,
+        llm_client: Any = None,
+        *,
+        entity_recognizer: Optional[EntityRecognizer] = None,
+    ) -> None:
+        self._llm_client = llm_client
+        self._entity_recognizer = entity_recognizer or get_entity_recognizer()
 
     @staticmethod
     def _extract_column_tokens_and_phrases(col_name: str) -> tuple[str, str, list[str]]:
@@ -231,22 +177,26 @@ class ResultResolver:
         # 2. Ordinal / Rank queries (e.g. "Who is #3?", "What is the 3rd one?")
         is_limit_query = bool(re.search(r"\b(?:first|top|last)\s+\d+\b", norm_q))
         if not is_limit_query:
-            ordinal_match = self._ORDINAL_PATTERN.search(norm_q)
-            if ordinal_match:
-                rank = None
-                groups = ordinal_match.groups()
-                if groups[0]:
-                    rank = int(groups[0])
-                elif groups[1]:
-                    rank = self._ORDINAL_WORDS.get(groups[1].lower())
-                elif groups[2]:
-                    rank = self._ORDINAL_WORDS.get(groups[2].lower())
-                elif groups[3]:
-                    rank = int(groups[3])
-                elif len(groups) > 4 and groups[4]:
-                    rank = int(groups[4])
+            rank = None
+            ordinals = self._entity_recognizer.extract_ordinals(norm_q) if self._entity_recognizer else []
+            if ordinals:
+                rank = ordinals[0].value
+            else:
+                ordinal_match = self._ORDINAL_PATTERN.search(norm_q)
+                if ordinal_match:
+                    groups = ordinal_match.groups()
+                    if groups[0]:
+                        rank = int(groups[0])
+                    elif groups[1]:
+                        rank = self._ORDINAL_WORDS.get(groups[1].lower())
+                    elif groups[2]:
+                        rank = self._ORDINAL_WORDS.get(groups[2].lower())
+                    elif groups[3]:
+                        rank = int(groups[3])
+                    elif len(groups) > 4 and groups[4]:
+                        rank = int(groups[4])
 
-                if rank is not None and rank > 0:
+            if rank is not None and rank > 0:
                     if not result_metadata or not result_metadata.sample_rows:
                         return ResultResolutionOutcome.not_answerable("Result rows are not available for rank lookup.")
 
@@ -414,26 +364,20 @@ class ResultResolver:
                     break
 
             # Identify target rows by matching any string/numeric cell value against query words
+            col_names_lower = {str(c).strip().lower() for c in cols} if cols else set()
             matched_rows = []
             for row_idx, row in enumerate(rows):
                 for cell_idx, cell in enumerate(row):
                     if cell is not None and isinstance(cell, (str, int, float)):
                         cell_clean = str(cell).strip().lower()
-                        # Strictly skip common schema/domain terms (like "branch", "account", "status")
-                        if cell_clean in self._SCHEMA_AND_COMMON_TERMS or len(cell_clean) < 3:
+                        # Strictly skip common schema/domain terms (like "branch", "account", "store", "status") or column names
+                        if cell_clean in self._SCHEMA_AND_COMMON_TERMS or cell_clean in col_names_lower or len(cell_clean) < 3:
                             continue
 
                         is_match = bool(re.search(r"\b" + re.escape(cell_clean) + r"\b", norm_q))
                         if not is_match:
-                            # Cross-script transliteration check
-                            ar_variant = self._ARABIC_TO_LATIN_COMMON.get(cell_clean)
-                            if ar_variant and re.search(r"\b" + re.escape(ar_variant) + r"\b", norm_q):
-                                is_match = True
-                            elif not ar_variant:
-                                for ar_w, en_w in self._ARABIC_TO_LATIN_COMMON.items():
-                                    if en_w == cell_clean and ar_w in norm_q:
-                                        is_match = True
-                                        break
+                            # Cross-script transliteration check (quarantined legacy fallback)
+                            is_match = LegacyResultFallback.match_transliteration(cell_clean, norm_q)
                         if is_match:
                             matched_rows.append((row_idx, row))
                             break

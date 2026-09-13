@@ -10,3 +10,4 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class SelfCorrectionSettings:
     max_attempts: int = int(os.getenv("SELF_CORRECTION_MAX_ATTEMPTS", "3"))
+    sql_dialect: str = os.getenv("SQL_DIALECT", "tsql")

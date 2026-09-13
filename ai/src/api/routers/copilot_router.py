@@ -16,6 +16,9 @@ from src.application.dto.backend.copilot.execution_result import BackendExecutio
 from src.application.services.conversation.router.conversation_router import (
     ConversationRouter,
 )
+from src.application.services.conversation.router.routing_decision import (
+    ConversationRoute,
+)
 from src.application.services.post_query_response.post_query_response_formatter import (
     PostQueryResponseFormatter,
 )
@@ -140,14 +143,59 @@ def text_to_sql(
         error_message=decision.error_message,
     )
 
+    effective_is_success = decision.is_success
+    effective_route = decision.route.value if hasattr(decision.route, "value") else str(decision.route)
+    effective_direct_answer = decision.direct_answer
+    effective_presentation_type = decision.presentation_type
+    effective_text_summary = decision.text_summary
+
+    # Adaptations for .NET Backend CopilotService expectations:
+    # 1. Out-of-scope safe rejections:
+    if decision.route == ConversationRoute.UNSUPPORTED and (decision.error_message or decision.direct_answer):
+        effective_route = "SafeRejection"
+        effective_is_success = True
+        effective_presentation_type = "SafeRejection"
+        effective_direct_answer = decision.direct_answer or decision.error_message
+        effective_text_summary = effective_direct_answer
+
+    # 2. Clarification needed (UNRESOLVED_CONTEXT):
+    elif decision.route == ConversationRoute.UNRESOLVED_CONTEXT and (
+        decision.direct_answer or decision.text_summary or decision.error_message
+    ):
+        effective_route = "UNRESOLVED_CONTEXT"
+        effective_is_success = True
+        effective_direct_answer = decision.direct_answer or decision.text_summary or decision.error_message
+        effective_text_summary = effective_direct_answer
+
+    # 3. Context reset or conversational direct answers without SQL:
+    elif not decision.generated_sql and (decision.direct_answer or decision.presentation_type == "DirectAnswer"):
+        effective_is_success = True
+        effective_direct_answer = decision.direct_answer or decision.text_summary
+        effective_text_summary = effective_direct_answer
+        if effective_route == ConversationRoute.NEW_DATABASE_QUERY.value:
+            effective_route = "DirectAnswer"
+
+    # 4. Negative replay with direct answer:
+    elif decision.route == ConversationRoute.EXACT_REPLAY and not decision.generated_sql and decision.direct_answer:
+        effective_is_success = True
+        effective_direct_answer = decision.direct_answer
+        effective_text_summary = decision.text_summary or decision.direct_answer
+
+    fallback_summary = (
+        effective_text_summary
+        or effective_direct_answer
+        or ("Query generated successfully." if decision.generated_sql else "The request was processed successfully.")
+    )
+
     return CopilotResponse(
-        isSuccess=decision.is_success,
+        isSuccess=effective_is_success,
         generatedSql=decision.generated_sql,
-        textSummary=decision.text_summary,
-        presentationType=decision.presentation_type,
-        errorMessage=decision.error_message,
-        route=decision.route.value if hasattr(decision.route, "value") else str(decision.route),
-        directAnswer=decision.direct_answer,
+        textSummary=fallback_summary if effective_is_success else effective_text_summary,
+        presentationType=effective_presentation_type,
+        errorMessage=decision.error_message if not effective_is_success else None,
+        route=effective_route,
+        directAnswer=effective_direct_answer,
+        resolvedQuestion=decision.resolved_question,
     )
 
 

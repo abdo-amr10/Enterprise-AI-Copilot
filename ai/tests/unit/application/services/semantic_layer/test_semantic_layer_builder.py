@@ -13,6 +13,15 @@ from src.application.dto.semantic_layer.semantic_layer_build_response import (
 from src.application.services.semantic_layer.builders.full_build_builder import (
     FullRebuildBuilder,
 )
+from src.application.services.semantic_layer.builders.entity_semantic_builder import (
+    EntitySemanticBuilder,
+)
+from src.application.services.semantic_layer.builders.relationship_semantic_enricher import (
+    RelationshipSemanticEnricher,
+)
+from src.application.services.semantic_layer.builders.glossary_semantic_builder import (
+    GlossarySemanticBuilder,
+)
 
 
 class TestFullRebuildBuilder:
@@ -176,3 +185,106 @@ class TestFullRebuildBuilder:
             "Branch City",
             "Card Type",
         ]
+
+    def test_entity_semantic_builder_fallback_when_no_llm(self):
+        builder = EntitySemanticBuilder(llm_client=None)
+        schema = {
+            "tables": {
+                "orders": {
+                    "columns": [
+                        {"name": "order_id", "primary_key": True},
+                        {"name": "customer_id", "primary_key": False},
+                    ]
+                }
+            }
+        }
+        entities = builder.build(schema=schema)
+        assert len(entities) == 1
+        assert entities[0]["mapping"] == "orders"
+        assert entities[0]["name"] == "Orders"
+        assert entities[0]["natural_grain"] == "order_id"
+
+    def test_relationship_semantic_enricher_enriches_descriptions(self):
+        llm_client = Mock()
+        llm_client.generate.return_value = GenerationResponse(
+            text=json.dumps({
+                "relationships": [
+                    {
+                        "from_table": "orders",
+                        "to_table": "customers",
+                        "from_column": "customer_id",
+                        "to_column": "id",
+                        "description": "Each order belongs to an enrolled customer.",
+                        "join_intent": "Customer profile lookup",
+                    }
+                ]
+            })
+        )
+        enricher = RelationshipSemanticEnricher(llm_client)
+        authoritative = [
+            {
+                "name": "rel_orders_customers",
+                "from_table": "orders",
+                "to_table": "customers",
+                "from_column": "customer_id",
+                "to_column": "id",
+                "cardinality": "N:1",
+            }
+        ]
+        doc = "Orders always reference customers."
+        result = enricher.enrich(relationships=authoritative, documentation=doc)
+        assert len(result) == 1
+        assert result[0]["description"] == "Each order belongs to an enrolled customer."
+        assert result[0]["join_intent"] == "Customer profile lookup"
+        assert result[0]["cardinality"] == "N:1"
+
+    def test_glossary_semantic_builder_extracts_and_merges(self):
+        glossary = """| Term | Mapping | Meaning |
+|---|---|---|
+| Total Sales | Derived from `orders.amount` | Total gross revenue. |
+"""
+        builder = GlossarySemanticBuilder(llm_client=None)
+        result = builder.extract(glossary, schema_tables={})
+        assert len(result["measures"]) == 1
+        assert result["measures"][0]["name"] == "Total Sales"
+        assert result["measures"][0]["aggregation"] == "SUM"
+
+    def test_decomposed_pipeline_end_to_end_orchestration(self):
+        llm_client = Mock()
+        llm_client.generate.return_value = GenerationResponse(
+            text=json.dumps({
+                "entities": [
+                    {
+                        "mapping": "customers",
+                        "name": "Retail Customer",
+                        "description": "Active retail client account.",
+                    }
+                ]
+            })
+        )
+        schema = {
+            "tables": {
+                "customers": {
+                    "columns": [
+                        {"name": "customer_id", "primary_key": True},
+                        {"name": "email", "type": "varchar"},
+                    ]
+                }
+            }
+        }
+        build_input = SemanticLayerBuildInput(
+            schema=schema,
+            relationships=[],
+            documentation="Customer documentation",
+            business_glossary=None,
+        )
+        builder = FullRebuildBuilder(llm_client)
+        response = builder.build(build_input)
+
+        assert isinstance(response, SemanticLayerBuildResponse)
+        assert response.semantic_layer["metadata"]["status"] == "initial_draft"
+        assert response.semantic_layer["entities"][0]["name"] == "Retail Customer"
+        assert response.semantic_layer["entities"][0]["natural_grain"] == "customer_id"
+        # Verify dimensions were generated deterministically
+        assert len(response.semantic_layer["dimensions"]) == 2
+

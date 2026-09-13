@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import re
 import time
 from collections.abc import Callable
@@ -28,30 +29,36 @@ import sqlglot
 from sqlglot import exp
 
 from src.application.ports.physical_schema_repository import PhysicalSchemaRepository
-from src.application.services.self_correction.critic_finding_verifier import (
-    CriticFindingVerifier,
-)
+from src.application.dto.self_correction.critic_result import CriticResult
 from src.application.dto.self_correction.self_correction_outcome import (
     SelfCorrectionOutcome,
 )
 from src.application.dto.self_correction.validation_issue import ValidationIssue
-from src.application.services.self_correction.sql_correction_service import SQLCorrectionService
+from src.application.dto.self_correction.validation_result import ValidationResult
+from src.application.services.context_retrieval.context_retrieval_service import (
+    ContextRetrievalService,
+)
+from src.application.services.self_correction.critic_finding_verifier import (
+    CriticFindingVerifier,
+)
+from src.application.services.self_correction.sql_correction_service import (
+    SQLCorrectionService,
+)
 from src.application.services.self_correction.sql_critic_service import SQLCriticService
+from src.application.services.self_correction.sql_deterministic_repair_service import (
+    SQLDeterministicRepairService,
+)
 from src.application.services.self_correction.validators.sql_relationship_validator import (
     SQLRelationshipValidator,
+)
+from src.application.services.self_correction.validators.sql_rls_validator import (
+    SQLRlsValidator,
 )
 from src.application.services.self_correction.validators.sql_schema_validator import (
     SQLSchemaValidator,
 )
 from src.application.services.self_correction.validators.sql_syntax_validator import (
     SQLSyntaxValidator,
-)
-from src.application.services.self_correction.validators.sql_rls_validator import SQLRlsValidator
-from src.application.services.self_correction.sql_deterministic_repair_service import (
-    SQLDeterministicRepairService,
-)
-from src.application.services.context_retrieval.context_retrieval_service import (
-    ContextRetrievalService,
 )
 from src.observability.latency_audit import stage
 
@@ -60,14 +67,15 @@ logger = logging.getLogger(__name__)
 TraceObserver = Callable[[dict[str, Any]], None]
 
 
-def compute_sql_fingerprint(sql: str) -> str:
+def compute_sql_fingerprint(sql: str, dialect: str | None = None) -> str:
     """Compute normalized semantic fingerprint for AST-based equivalence."""
     if not sql or not sql.strip():
         return ""
+    d = dialect or os.getenv("SQL_DIALECT", "tsql")
     try:
-        stmts = sqlglot.parse(sql, dialect="tsql")
+        stmts = sqlglot.parse(sql, dialect=d)
         canonical = ";\n".join(
-            stmt.sql(dialect="tsql", normalize=True) for stmt in stmts if stmt is not None
+            stmt.sql(dialect=d, normalize=True) for stmt in stmts if stmt is not None
         )
         return hashlib.sha256(canonical.casefold().encode("utf-8")).hexdigest()
     except Exception:
@@ -116,6 +124,7 @@ class SelfCorrectionService:
         self._schema_provider = schema_provider or getattr(
             schema_validator, "_schema_provider", None
         )
+        self._dialect = getattr(syntax_validator, "dialect", os.getenv("SQL_DIALECT", "tsql"))
         self._repair_service = repair_service or SQLDeterministicRepairService(
             syntax_validator=syntax_validator,
             schema_validator=schema_validator,
@@ -713,8 +722,8 @@ class SelfCorrectionService:
             return []
 
         try:
-            prev_stmts = sqlglot.parse(previous_sql, dialect="tsql")
-            curr_stmts = sqlglot.parse(corrected_sql, dialect="tsql")
+            prev_stmts = sqlglot.parse(previous_sql, dialect=self._dialect)
+            curr_stmts = sqlglot.parse(corrected_sql, dialect=self._dialect)
         except Exception:
             return []
 

@@ -63,7 +63,7 @@ def test_generate_sends_correct_configuration_to_ollama():
             "num_ctx": 32768,
             "num_predict": 2048,
         },
-        keep_alive="15m",
+        keep_alive=client._keep_alive,
     )
 
 
@@ -92,7 +92,7 @@ def test_generate_sends_format_to_ollama_when_specified():
             "num_ctx": 32768,
             "num_predict": 2048,
         },
-        keep_alive="15m",
+        keep_alive=client._keep_alive,
         format="json",
     )
 

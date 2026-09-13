@@ -245,7 +245,7 @@ class SecurityRuleExtractor:
                 tbl = r["target_table"]
                 is_root = (tbl == root_table and r["is_direct"])
                 
-                is_direct_root_or_peer = is_root or (r["is_direct"] and tbl in (root_table, "branches", "accounts"))
+                is_direct_root_or_peer = is_root or bool(r.get("is_direct"))
                 pred_eq = {
                     "INNER JOIN": True if is_direct_root_or_peer else False,
                     "LEFT JOIN": "conditional" if is_direct_root_or_peer else False,

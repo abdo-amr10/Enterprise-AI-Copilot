@@ -7,6 +7,7 @@ target enforced by TEXT_TO_SQL_PROMPT.
 
 from __future__ import annotations
 
+import os
 import re
 
 import sqlglot
@@ -16,7 +17,7 @@ from sqlglot.errors import ErrorLevel, ParseError
 from src.application.dto.self_correction.validation_issue import ValidationIssue
 from src.application.dto.self_correction.validation_result import ValidationResult
 
-_DIALECT = "tsql"
+_DIALECT = os.getenv("SQL_DIALECT", "tsql")
 _SOURCE = "syntax_validator"
 _FORBIDDEN_READ_ONLY = re.compile(
     r"\b(INSERT|UPDATE|DELETE|MERGE|DROP|ALTER|CREATE|TRUNCATE|"
@@ -26,10 +27,10 @@ _FORBIDDEN_READ_ONLY = re.compile(
 
 
 class SQLSyntaxValidator:
-    """Deterministic validator enforcing valid read-only T-SQL syntax.
+    """Deterministic validator enforcing valid read-only SQL syntax.
 
-    Uses `sqlglot` configured for the Microsoft SQL Server (`tsql`) dialect to ensure
-    that candidate queries are strictly read-only SELECT queries (single or multi-statement)
+    Uses `sqlglot` configured for the target SQL dialect (defaulting to Microsoft SQL Server `tsql`)
+    to ensure that candidate queries are strictly read-only SELECT queries (single or multi-statement)
     without destructive commands, DDL/DML, dynamic SQL, or syntax errors.
     """
 
@@ -43,6 +44,13 @@ class SQLSyntaxValidator:
         exp.Create,
         exp.Command,
     )
+
+    def __init__(self, dialect: str | None = None) -> None:
+        self._dialect = dialect or os.getenv("SQL_DIALECT", "tsql")
+
+    @property
+    def dialect(self) -> str:
+        return self._dialect
 
     def validate(self, sql: str) -> ValidationResult:
         """Validate that a SQL string consists only of parseable, read-only T-SQL SELECT queries.
@@ -144,17 +152,18 @@ class SQLSyntaxValidator:
         Raises:
             ParseError: If the SQL cannot be parsed or contains no statements.
         """
-        statements = self.parse_all(sql)
+        statements = self.parse_all(sql, dialect=self._dialect)
         if not statements:
             raise ParseError("Expected at least one SQL statement.")
         return statements[0]
 
-    @staticmethod
-    def parse_all(sql: str) -> list[exp.Expression]:
+    @classmethod
+    def parse_all(cls, sql: str, dialect: str | None = None) -> list[exp.Expression]:
         """Parse all SQL statements in a string into AST expressions.
 
         Args:
             sql: SQL text containing one or more statements.
+            dialect: Optional dialect string override.
 
         Returns:
             List of parsed sqlglot AST Expressions.
@@ -162,4 +171,5 @@ class SQLSyntaxValidator:
         Raises:
             ParseError: If syntax errors occur during parsing.
         """
-        return [stmt for stmt in sqlglot.parse(sql, dialect=_DIALECT, error_level=ErrorLevel.RAISE) if stmt is not None]
+        target_dialect = dialect or _DIALECT
+        return [stmt for stmt in sqlglot.parse(sql, dialect=target_dialect, error_level=ErrorLevel.RAISE) if stmt is not None]

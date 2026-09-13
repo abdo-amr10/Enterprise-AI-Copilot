@@ -1,0 +1,63 @@
+{
+  "enabled": true,
+  "userValueField": "BranchId",
+  "scopeParameter": "@UserScopeId",
+  "branchMapping": {
+    "table": "store",
+    "idColumn": "store_id",
+    "nameColumn": null
+  },
+  "rules": [
+    {
+      "table": "store",
+      "scopeColumn": "store_id",
+      "type": "direct"
+    },
+    {
+      "table": "customer",
+      "scopeColumn": "store_id",
+      "type": "direct"
+    },
+    {
+      "table": "inventory",
+      "scopeColumn": "store_id",
+      "type": "direct"
+    },
+    {
+      "table": "staff",
+      "scopeColumn": "store_id",
+      "type": "direct"
+    },
+    {
+      "table": "rental",
+      "joinTable": "inventory",
+      "joinFromColumn": "inventory_id",
+      "joinToColumn": "inventory_id",
+      "scopeColumn": "store_id",
+      "type": "join"
+    },
+    {
+      "table": "payment",
+      "joinTable": "customer",
+      "joinFromColumn": "customer_id",
+      "joinToColumn": "customer_id",
+      "scopeColumn": "store_id",
+      "type": "join"
+    },
+    {
+      "table": "customer_list",
+      "scopeColumn": "SID",
+      "type": "direct"
+    },
+    {
+      "table": "staff_list",
+      "scopeColumn": "SID",
+      "type": "direct"
+    },
+    {
+      "table": "sales_by_store",
+      "scopeColumn": "store_id",
+      "type": "direct"
+    }
+  ]
+}

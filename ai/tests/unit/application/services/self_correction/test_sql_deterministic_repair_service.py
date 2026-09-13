@@ -309,3 +309,33 @@ def test_deterministic_repair_cte_scope_rls():
     assert res.is_valid, f"Expected repaired CTE query to pass RLS, but got issues: {[i.message for i in res.issues]}"
 
 
+def test_deterministic_repair_dynamically_synthesizes_parameter_from_any_domain():
+    syntax = SQLSyntaxValidator()
+    mock_schema = {
+        "tables": {
+            "stores": {"columns": [{"name": "store_id"}, {"name": "store_name"}]},
+            "inventories": {"columns": [{"name": "inventory_id"}, {"name": "store_id"}]},
+        },
+        "security_domains": [
+            {
+                "name": "store_domain",
+                "canonical_root": "stores.store_id",
+                # Omit canonical_predicate parameter to test dynamic derivation
+            }
+        ],
+    }
+
+    class _MockRepo:
+        def get_schema(self):
+            return mock_schema
+
+    schema = SQLSchemaValidator(_MockRepo(), syntax)
+    repair_svc = SQLDeterministicRepairService(syntax, schema)
+
+    candidate_sql = "SELECT s.store_name FROM stores AS s"
+    repaired = repair_svc.repair(candidate_sql, schema=mock_schema, enforce_rls=True)
+    assert "@UserStoreId" in repaired
+    assert "s.store_id = @UserStoreId" in repaired
+
+
+

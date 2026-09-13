@@ -8,6 +8,7 @@ rules based on active semantic layer metadata.
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Any
 from collections import defaultdict
@@ -50,6 +51,7 @@ class SQLRlsValidator:
         self._syntax_validator = syntax_validator
         self._schema_validator = schema_validator
         self._semantic_repository = semantic_repository
+        self._dialect = getattr(syntax_validator, "dialect", os.getenv("SQL_DIALECT", "tsql"))
 
     def _load_security_domains(self, schema: Any = None) -> list[dict[str, Any]]:
         """Dynamically load security domains from semantic repository or schema metadata."""
@@ -107,7 +109,7 @@ class SQLRlsValidator:
             return ValidationResult.ok()
 
         for stmt_idx, statement in enumerate(statements, 1):
-            stmt_sql = statement.sql(dialect="tsql")
+            stmt_sql = statement.sql(dialect=self._dialect)
             result = self._validate_statement(
                 statement, stmt_sql, schema=schema, enforce_presence=enforce_presence
             )

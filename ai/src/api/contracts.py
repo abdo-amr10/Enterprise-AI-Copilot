@@ -34,6 +34,7 @@ class CopilotResponse(StrictModel):
     errorMessage: str | None = None
     route: str | None = None
     directAnswer: str | None = None
+    resolvedQuestion: str | None = Field(default=None, alias="resolvedQuestion")
 
 
 class SemanticRetrieveRequest(CopilotRequest):

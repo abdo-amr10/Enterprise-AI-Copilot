@@ -69,6 +69,11 @@ class FullRebuildStrategy:
             or sources.get("sampleData")
             or sources.get("SampleData")
         )
+        rls_policy = (
+            sources.get("rls_policy")
+            or sources.get("rlsPolicy")
+            or sources.get("RlsPolicy")
+        )
 
         build_input = SemanticLayerBuildInput(
             schema=sources["schema"],
@@ -79,6 +84,7 @@ class FullRebuildStrategy:
             relationship_graph=processing_result.graph.to_graph_dict(),
             disconnected_entities=processing_result.disconnected_analysis.disconnected_entities,
             relationship_registry=processing_result.registry.to_dict(),
+            rls_policy=rls_policy,
         )
 
         return self._builder.build(build_input)

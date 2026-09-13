@@ -56,6 +56,9 @@ from src.application.services.conversation.router.scope_guard import (
 from src.application.services.conversation.semantic_routing.application.semantic_intent_router import (
     SemanticIntentRouter,
 )
+from src.application.services.conversation.semantic_routing.application.semantic_turn_parser import (
+    SemanticTurnParser,
+)
 from src.application.services.conversation.semantic_routing.domain.intent import (
     ConversationIntent,
 )
@@ -99,11 +102,15 @@ class ConversationRouter:
         semantic_router: Any = _UNSET,
         slot_extractor: Optional[SlotExtractor] = None,
         llm_intent_classifier: Any = _UNSET,
+        semantic_parser: Optional[SemanticTurnParser] = None,
     ) -> None:
+        self._semantic_parser = semantic_parser
         self._replay_manager = replay_manager or ExactReplayManager()
         self._state_manager = state_manager or ConversationStateManager()
         self._result_resolver = result_resolver or ResultResolver()
-        self._followup_detector = followup_detector or FollowupDetector()
+        self._followup_detector = followup_detector or FollowupDetector(
+            semantic_parser=self._semantic_parser
+        )
         self._continuation_resolver = continuation_resolver or ContinuationResolver()
         self._semantic_cache = semantic_cache or ConditionalSemanticCache(enabled=True)
         self._slot_extractor = slot_extractor or SlotExtractor()
@@ -161,6 +168,10 @@ class ConversationRouter:
     @property
     def slot_extractor(self) -> SlotExtractor:
         return self._slot_extractor
+
+    @property
+    def semantic_parser(self) -> Optional[SemanticTurnParser]:
+        return self._semantic_parser
 
     @classmethod
     def _map_intent_to_followup_type(cls, intent: ConversationIntent) -> FollowupType:

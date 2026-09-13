@@ -10,30 +10,18 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+from src.application.services.conversation.extraction.entity_recognizer import (
+    EntityRecognizer,
+    get_entity_recognizer,
+)
 from src.application.services.conversation.semantic_routing.domain.intent import ConversationIntent
 
 
 class SlotExtractor:
     """Domain-agnostic extractor for conversation slot parameters."""
 
-    _WORD_TO_NUM: dict[str, str] = {
-        "one": "1",
-        "two": "2",
-        "three": "3",
-        "four": "4",
-        "five": "5",
-        "six": "6",
-        "seven": "7",
-        "eight": "8",
-        "nine": "9",
-        "ten": "10",
-        "eleven": "11",
-        "twelve": "12",
-        "fifteen": "15",
-        "twenty": "20",
-        "fifty": "50",
-        "hundred": "100",
-    }
+    # Retained as empty dict for backwards compatibility
+    _WORD_TO_NUM: dict[str, str] = {}
 
     _RESET_PATTERN = re.compile(
         r"^(?:new\s+question[:\s]+|forget\s+(?:the\s+)?previous(?:\s+query|\s+question)?[\s.,;:]*|"
@@ -59,8 +47,14 @@ class SlotExtractor:
 
     @classmethod
     def word_to_number(cls, word: str) -> Optional[str]:
-        """Convert an English word representing a number to its digit string."""
-        return cls._WORD_TO_NUM.get(word.lower().strip())
+        """Convert a word representing a number to its digit string using specialist entity recognition."""
+        if not word or not word.strip():
+            return None
+        nums = get_entity_recognizer().extract_numbers(word.strip())
+        if nums:
+            val = nums[0].value
+            return str(int(val)) if val.is_integer() else str(val)
+        return None
 
     @classmethod
     def extract_clean_question_after_reset(cls, text: str) -> Optional[str]:
@@ -80,15 +74,8 @@ class SlotExtractor:
 
     @classmethod
     def extract_limit(cls, text: str) -> str:
-        """Extract limit number or return default '5'."""
-        num_match = re.search(r"\b(\d+)\b", text)
-        if num_match:
-            return num_match.group(1)
-        num_words_regex = r"\b(" + "|".join(cls._WORD_TO_NUM.keys()) + r")\b"
-        m = re.search(num_words_regex, text, re.IGNORECASE)
-        if m:
-            return cls._WORD_TO_NUM.get(m.group(1).lower(), "5")
-        return "5"
+        """Extract limit number or return default '5' using specialist entity recognition."""
+        return str(get_entity_recognizer().extract_limit(text, default=5))
 
     @classmethod
     def extract_group_by(cls, text: str) -> str:

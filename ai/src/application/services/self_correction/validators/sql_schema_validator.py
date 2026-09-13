@@ -10,6 +10,7 @@ section, so it is not sufficient for this specific check.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 from sqlglot import exp
 
@@ -43,6 +44,7 @@ class SQLSchemaValidator:
         """
         self._schema_provider = schema_provider
         self._syntax_validator = syntax_validator
+        self._dialect = getattr(syntax_validator, "dialect", os.getenv("SQL_DIALECT", "tsql"))
 
     def validate(self, sql: str, schema: dict[str, Any] | None = None) -> ValidationResult:
         """Validate that all tables and qualified columns in the SQL exist in the schema.
@@ -157,29 +159,29 @@ class SQLSchemaValidator:
             # Scope-aware rewriting of these query forms needs a resolver; leave
             # them untouched and let deterministic validation/self-correction act.
             if any(tree.find(node_type) for node_type in (exp.CTE, exp.Subquery, exp.Union)):
-                rebuilt_stmts.append(tree.sql(dialect="tsql"))
+                rebuilt_stmts.append(tree.sql(dialect=self._dialect))
                 continue
 
             select = tree if isinstance(tree, exp.Select) else tree.find(exp.Select)
             if select is None:
-                rebuilt_stmts.append(tree.sql(dialect="tsql"))
+                rebuilt_stmts.append(tree.sql(dialect=self._dialect))
                 continue
 
             from_clause = select.args.get("from_")
             base_table = from_clause.this if from_clause is not None else None
             if not isinstance(base_table, exp.Table):
-                rebuilt_stmts.append(tree.sql(dialect="tsql"))
+                rebuilt_stmts.append(tree.sql(dialect=self._dialect))
                 continue
 
             base_table_name = base_table.name
             base_definition = schema_tables.get(base_table_name)
             if base_definition is None:
-                rebuilt_stmts.append(tree.sql(dialect="tsql"))
+                rebuilt_stmts.append(tree.sql(dialect=self._dialect))
                 continue
 
             alias_map, unknown_tables = self._resolve_tables(tree, schema_tables)
             if unknown_tables:
-                rebuilt_stmts.append(tree.sql(dialect="tsql"))
+                rebuilt_stmts.append(tree.sql(dialect=self._dialect))
                 continue
 
             base_alias = base_table.alias_or_name
@@ -205,7 +207,7 @@ class SQLSchemaValidator:
                     if len(candidates) > 1:
                         column.set("table", exp.to_identifier(base_alias))
 
-            rebuilt_stmts.append(tree.sql(dialect="tsql"))
+            rebuilt_stmts.append(tree.sql(dialect=self._dialect))
 
         return ";\n".join(rebuilt_stmts)
 

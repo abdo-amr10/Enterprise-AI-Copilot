@@ -22,8 +22,15 @@ class SemanticDocumentBuilder:
         if not semantic_layer_id or not revision_id:
             raise ValueError("Approved Semantic Layer requires semantic_layer_id and revision_id.")
         documents: list[dict[str, Any]] = []
+        camel_aliases = {
+            "business_rules": "businessRules",
+            "security_domains": "securityDomains",
+        }
         for object_type, section in self._SECTIONS:
-            for item in layer.get(section, []):
+            items = layer.get(section)
+            if items is None and section in camel_aliases:
+                items = layer.get(camel_aliases[section])
+            for item in (items or []):
                 if not isinstance(item, dict):
                     raise ValueError(f"Semantic Layer section '{section}' must contain dictionaries.")
                 object_id = item.get("object_id") or self._fallback_object_id(object_type, item)

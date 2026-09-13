@@ -1,0 +1,184 @@
+{
+  "version": "1.0",
+  "database": "sakila",
+  "source": "Sakila for Microsoft SQL Server",
+  "tables": {
+    "actor": {
+      "columns": [
+        { "name": "actor_id", "type": "int", "primary_key": true },
+        { "name": "first_name", "type": "varchar(45)", "primary_key": false },
+        { "name": "last_name", "type": "varchar(45)", "primary_key": false },
+        { "name": "last_update", "type": "datetime", "primary_key": false }
+      ]
+    },
+    "country": {
+      "columns": [
+        { "name": "country_id", "type": "smallint", "primary_key": true },
+        { "name": "country", "type": "varchar(50)", "primary_key": false },
+        { "name": "last_update", "type": "datetime", "primary_key": false }
+      ]
+    },
+    "city": {
+      "columns": [
+        { "name": "city_id", "type": "int", "primary_key": true },
+        { "name": "city", "type": "varchar(50)", "primary_key": false },
+        { "name": "country_id", "type": "smallint", "primary_key": false },
+        { "name": "last_update", "type": "datetime", "primary_key": false }
+      ]
+    },
+    "address": {
+      "columns": [
+        { "name": "address_id", "type": "int", "primary_key": true },
+        { "name": "address", "type": "varchar(50)", "primary_key": false },
+        { "name": "address2", "type": "varchar(50)", "primary_key": false },
+        { "name": "district", "type": "varchar(20)", "primary_key": false },
+        { "name": "city_id", "type": "int", "primary_key": false },
+        { "name": "postal_code", "type": "varchar(10)", "primary_key": false },
+        { "name": "phone", "type": "varchar(20)", "primary_key": false },
+        { "name": "last_update", "type": "datetime", "primary_key": false }
+      ]
+    },
+    "language": {
+      "columns": [
+        { "name": "language_id", "type": "tinyint", "primary_key": true },
+        { "name": "name", "type": "char(20)", "primary_key": false },
+        { "name": "last_update", "type": "datetime", "primary_key": false }
+      ]
+    },
+    "category": {
+      "columns": [
+        { "name": "category_id", "type": "tinyint", "primary_key": true },
+        { "name": "name", "type": "varchar(25)", "primary_key": false },
+        { "name": "last_update", "type": "datetime", "primary_key": false }
+      ]
+    },
+    "customer": {
+      "columns": [
+        { "name": "customer_id", "type": "int", "primary_key": true },
+        { "name": "store_id", "type": "int", "primary_key": false },
+        { "name": "first_name", "type": "varchar(45)", "primary_key": false },
+        { "name": "last_name", "type": "varchar(45)", "primary_key": false },
+        { "name": "email", "type": "varchar(50)", "primary_key": false },
+        { "name": "address_id", "type": "int", "primary_key": false },
+        { "name": "active", "type": "char(1)", "primary_key": false },
+        { "name": "create_date", "type": "datetime", "primary_key": false },
+        { "name": "last_update", "type": "datetime", "primary_key": false }
+      ]
+    },
+    "film": {
+      "columns": [
+        { "name": "film_id", "type": "int", "primary_key": true },
+        { "name": "title", "type": "varchar(255)", "primary_key": false },
+        { "name": "description", "type": "text", "primary_key": false },
+        { "name": "release_year", "type": "varchar(4)", "primary_key": false },
+        { "name": "language_id", "type": "tinyint", "primary_key": false },
+        { "name": "original_language_id", "type": "tinyint", "primary_key": false },
+        { "name": "rental_duration", "type": "tinyint", "primary_key": false },
+        { "name": "rental_rate", "type": "decimal(4,2)", "primary_key": false },
+        { "name": "length", "type": "smallint", "primary_key": false },
+        { "name": "replacement_cost", "type": "decimal(5,2)", "primary_key": false },
+        { "name": "rating", "type": "varchar(10)", "primary_key": false },
+        { "name": "special_features", "type": "varchar(255)", "primary_key": false },
+        { "name": "last_update", "type": "datetime", "primary_key": false }
+      ]
+    },
+    "film_actor": {
+      "columns": [
+        { "name": "actor_id", "type": "int", "primary_key": true },
+        { "name": "film_id", "type": "int", "primary_key": true },
+        { "name": "last_update", "type": "datetime", "primary_key": false }
+      ]
+    },
+    "film_category": {
+      "columns": [
+        { "name": "film_id", "type": "int", "primary_key": true },
+        { "name": "category_id", "type": "tinyint", "primary_key": true },
+        { "name": "last_update", "type": "datetime", "primary_key": false }
+      ]
+    },
+    "film_text": {
+      "columns": [
+        { "name": "film_id", "type": "smallint", "primary_key": true },
+        { "name": "title", "type": "varchar(255)", "primary_key": false },
+        { "name": "description", "type": "text", "primary_key": false }
+      ]
+    },
+    "inventory": {
+      "columns": [
+        { "name": "inventory_id", "type": "int", "primary_key": true },
+        { "name": "film_id", "type": "int", "primary_key": false },
+        { "name": "store_id", "type": "int", "primary_key": false },
+        { "name": "last_update", "type": "datetime", "primary_key": false }
+      ]
+    },
+    "staff": {
+      "columns": [
+        { "name": "staff_id", "type": "tinyint", "primary_key": true },
+        { "name": "first_name", "type": "varchar(45)", "primary_key": false },
+        { "name": "last_name", "type": "varchar(45)", "primary_key": false },
+        { "name": "address_id", "type": "int", "primary_key": false },
+        { "name": "picture", "type": "image", "primary_key": false },
+        { "name": "email", "type": "varchar(50)", "primary_key": false },
+        { "name": "store_id", "type": "int", "primary_key": false },
+        { "name": "active", "type": "bit", "primary_key": false },
+        { "name": "username", "type": "varchar(16)", "primary_key": false },
+        { "name": "password", "type": "varchar(40)", "primary_key": false },
+        { "name": "last_update", "type": "datetime", "primary_key": false }
+      ]
+    },
+    "store": {
+      "columns": [
+        { "name": "store_id", "type": "int", "primary_key": true },
+        { "name": "manager_staff_id", "type": "tinyint", "primary_key": false },
+        { "name": "address_id", "type": "int", "primary_key": false },
+        { "name": "last_update", "type": "datetime", "primary_key": false }
+      ]
+    },
+    "payment": {
+      "columns": [
+        { "name": "payment_id", "type": "int", "primary_key": true },
+        { "name": "customer_id", "type": "int", "primary_key": false },
+        { "name": "staff_id", "type": "tinyint", "primary_key": false },
+        { "name": "rental_id", "type": "int", "primary_key": false },
+        { "name": "amount", "type": "decimal(5,2)", "primary_key": false },
+        { "name": "payment_date", "type": "datetime", "primary_key": false },
+        { "name": "last_update", "type": "datetime", "primary_key": false }
+      ]
+    },
+    "rental": {
+      "columns": [
+        { "name": "rental_id", "type": "int", "primary_key": true },
+        { "name": "rental_date", "type": "datetime", "primary_key": false },
+        { "name": "inventory_id", "type": "int", "primary_key": false },
+        { "name": "customer_id", "type": "int", "primary_key": false },
+        { "name": "return_date", "type": "datetime", "primary_key": false },
+        { "name": "staff_id", "type": "tinyint", "primary_key": false },
+        { "name": "last_update", "type": "datetime", "primary_key": false }
+      ]
+    }
+  },
+  "relationships": [
+    { "name": "city_country", "from_table": "city", "from_column": "country_id", "to_table": "country", "to_column": "country_id", "cardinality": "N:1", "relationship_type": "foreign_key" },
+    { "name": "address_city", "from_table": "address", "from_column": "city_id", "to_table": "city", "to_column": "city_id", "cardinality": "N:1", "relationship_type": "foreign_key" },
+    { "name": "customer_address", "from_table": "customer", "from_column": "address_id", "to_table": "address", "to_column": "address_id", "cardinality": "N:1", "relationship_type": "foreign_key" },
+    { "name": "film_language", "from_table": "film", "from_column": "language_id", "to_table": "language", "to_column": "language_id", "cardinality": "N:1", "relationship_type": "foreign_key" },
+    { "name": "film_original_language", "from_table": "film", "from_column": "original_language_id", "to_table": "language", "to_column": "language_id", "cardinality": "N:1", "relationship_type": "foreign_key" },
+    { "name": "film_actor_actor", "from_table": "film_actor", "from_column": "actor_id", "to_table": "actor", "to_column": "actor_id", "cardinality": "N:1", "relationship_type": "foreign_key" },
+    { "name": "film_actor_film", "from_table": "film_actor", "from_column": "film_id", "to_table": "film", "to_column": "film_id", "cardinality": "N:1", "relationship_type": "foreign_key" },
+    { "name": "film_category_film", "from_table": "film_category", "from_column": "film_id", "to_table": "film", "to_column": "film_id", "cardinality": "N:1", "relationship_type": "foreign_key" },
+    { "name": "film_category_category", "from_table": "film_category", "from_column": "category_id", "to_table": "category", "to_column": "category_id", "cardinality": "N:1", "relationship_type": "foreign_key" },
+    { "name": "inventory_film", "from_table": "inventory", "from_column": "film_id", "to_table": "film", "to_column": "film_id", "cardinality": "N:1", "relationship_type": "foreign_key" },
+    { "name": "staff_address", "from_table": "staff", "from_column": "address_id", "to_table": "address", "to_column": "address_id", "cardinality": "N:1", "relationship_type": "foreign_key" },
+    { "name": "store_staff", "from_table": "store", "from_column": "manager_staff_id", "to_table": "staff", "to_column": "staff_id", "cardinality": "N:1", "relationship_type": "foreign_key" },
+    { "name": "store_address", "from_table": "store", "from_column": "address_id", "to_table": "address", "to_column": "address_id", "cardinality": "N:1", "relationship_type": "foreign_key" },
+    { "name": "customer_store", "from_table": "customer", "from_column": "store_id", "to_table": "store", "to_column": "store_id", "cardinality": "N:1", "relationship_type": "foreign_key" },
+    { "name": "inventory_store", "from_table": "inventory", "from_column": "store_id", "to_table": "store", "to_column": "store_id", "cardinality": "N:1", "relationship_type": "foreign_key" },
+    { "name": "staff_store", "from_table": "staff", "from_column": "store_id", "to_table": "store", "to_column": "store_id", "cardinality": "N:1", "relationship_type": "foreign_key" },
+    { "name": "payment_customer", "from_table": "payment", "from_column": "customer_id", "to_table": "customer", "to_column": "customer_id", "cardinality": "N:1", "relationship_type": "foreign_key" },
+    { "name": "payment_staff", "from_table": "payment", "from_column": "staff_id", "to_table": "staff", "to_column": "staff_id", "cardinality": "N:1", "relationship_type": "foreign_key" },
+    { "name": "payment_rental", "from_table": "payment", "from_column": "rental_id", "to_table": "rental", "to_column": "rental_id", "cardinality": "N:1", "relationship_type": "foreign_key" },
+    { "name": "rental_staff", "from_table": "rental", "from_column": "staff_id", "to_table": "staff", "to_column": "staff_id", "cardinality": "N:1", "relationship_type": "foreign_key" },
+    { "name": "rental_inventory", "from_table": "rental", "from_column": "inventory_id", "to_table": "inventory", "to_column": "inventory_id", "cardinality": "N:1", "relationship_type": "foreign_key" },
+    { "name": "rental_customer", "from_table": "rental", "from_column": "customer_id", "to_table": "customer", "to_column": "customer_id", "cardinality": "N:1", "relationship_type": "foreign_key" }
+  ]
+}

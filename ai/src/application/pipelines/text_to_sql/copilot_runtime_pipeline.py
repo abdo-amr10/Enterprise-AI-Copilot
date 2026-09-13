@@ -213,10 +213,17 @@ class CopilotRuntimePipeline:
                     with observer.stage("llm_generation"), audit_stage("sql_generation", is_leaf=False):
                         with audit_stage("sql_generation", operation="prompt_construction", is_leaf=True):
                             correction_feedback = "\n".join(
-                                str(message.get("content", ""))
-                                for message in request.conversation
-                                if message.get("role") == "system"
-                                and str(message.get("content", "")).startswith("RLS_CORRECTION:")
+                                str(message.get("content", "")).strip()
+                                for message in (request.conversation or ())
+                                if isinstance(message, dict)
+                                and message.get("role") == "system"
+                                and (
+                                    str(message.get("content", "")).strip().startswith("RLS_CORRECTION:")
+                                    or "RLS_ERROR" in str(message.get("content", ""))
+                                    or "SQL_VALIDATION_FAILED" in str(message.get("content", ""))
+                                    or "DATABASE_EXECUTION_ERROR" in str(message.get("content", ""))
+                                    or str(message.get("content", "")).strip().startswith("CORRECTION:")
+                                )
                             )
                             # Text-to-SQL receives the canonical resolved question from Conversation Layer.
                             # When compact context (e.g. established entity scope) is provided in request.conversation,

@@ -273,6 +273,27 @@ def test_analyzer_llm_failure_defaults_to_ambiguous_not_a_crash():
     assert decision.next_action == "CLARIFICATION"
 
 
+def test_conversation_turn_parses_camelcase_backend_payload():
+    from src.application.services.conversation.models.conversation_turn import ConversationTurn
+    backend_payload = {
+        "role": "turn",
+        "turnId": "turn_backend_100",
+        "userQuestion": "Show sales in Cairo branch",
+        "resolvedQuestion": "Show total sales in Cairo branch for 2025",
+        "generatedSql": "SELECT SUM(amount) FROM sales WHERE branch = 'Cairo'",
+        "executionResultSummary": "Total sales in Cairo branch was $50,000",
+        "executionStatus": "Completed",
+    }
+    turn = ConversationTurn.from_raw(backend_payload)
+    assert turn is not None
+    assert turn.turn_id == "turn_backend_100"
+    assert turn.user_question == "Show sales in Cairo branch"
+    assert turn.resolved_question == "Show total sales in Cairo branch for 2025"
+    assert turn.generated_sql == "SELECT SUM(amount) FROM sales WHERE branch = 'Cairo'"
+    assert turn.execution_result_summary == "Total sales in Cairo branch was $50,000"
+    assert turn.execution_status == "Completed"
+
+
 if __name__ == "__main__":
     import inspect
     module = sys.modules[__name__]

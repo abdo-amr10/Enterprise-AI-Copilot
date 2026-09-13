@@ -200,6 +200,12 @@ def generate_draft(
         sources = backend_client.load_generation_sources(
             generation_request.source_file_ids
         )
+        rls_policy = backend_client.get_rls_policy(
+            generation_request.semantic_layer_id
+        )
+        if rls_policy:
+            sources["rls_policy"] = rls_policy
+
         _validate_resolved_sources(generation_request.trigger_type, sources)
 
         draft = pipeline.run(
@@ -221,22 +227,38 @@ def generate_draft(
     # itself rather than an HTTP wrapper such as {"status": "Success",
     # "draft": ...}; otherwise revisions deserialize as empty collections.
     response = dict(draft)
-    # Preserve camelCase sections if the generation pipeline already emitted
-    # them; only translate the internal snake_case names when present.
+    # Populate both camelCase and snake_case aliases so both the .NET Backend
+    # and internal Python retrieval pipelines seamlessly access all sections.
     if "business_rules" in response:
-        response["businessRules"] = response.pop("business_rules")
+        rules = response.get("business_rules") or []
+        response["businessRules"] = rules
+        response["business_rules"] = rules
+    elif "businessRules" in response:
+        rules = response.get("businessRules") or []
+        response["businessRules"] = rules
+        response["business_rules"] = rules
     else:
         response.setdefault("businessRules", [])
+        response.setdefault("business_rules", [])
+
     if "validation_issues" in response:
-        response["validationIssues"] = response.pop("validation_issues")
+        issues = response.get("validation_issues") or []
+        response["validationIssues"] = issues
+        response["validation_issues"] = issues
+    elif "validationIssues" in response:
+        issues = response.get("validationIssues") or []
+        response["validationIssues"] = issues
+        response["validation_issues"] = issues
     else:
         response.setdefault("validationIssues", [])
+        response.setdefault("validation_issues", [])
+
     if "security_domains" in response:
-        domains = response.get("security_domains", [])
+        domains = response.get("security_domains") or []
         response["securityDomains"] = domains
         response["security_domains"] = domains
     elif "securityDomains" in response:
-        domains = response.get("securityDomains", [])
+        domains = response.get("securityDomains") or []
         response["securityDomains"] = domains
         response["security_domains"] = domains
     else:

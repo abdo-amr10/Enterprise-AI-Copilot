@@ -12,6 +12,7 @@ Repairs supported:
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 import sqlglot
 from sqlglot import exp
@@ -28,7 +29,7 @@ from src.application.services.self_correction.validators.sql_rls_validator impor
 
 logger = logging.getLogger(__name__)
 
-_DIALECT = "tsql"
+_DIALECT = os.getenv("SQL_DIALECT", "tsql")
 
 
 class SQLDeterministicRepairService:
@@ -43,6 +44,7 @@ class SQLDeterministicRepairService:
     ) -> None:
         self._syntax_validator = syntax_validator
         self._schema_validator = schema_validator
+        self._dialect = getattr(syntax_validator, "dialect", _DIALECT)
         self._rls_validator = rls_validator or SQLRlsValidator(
             syntax_validator=syntax_validator,
             schema_validator=schema_validator,
@@ -84,7 +86,7 @@ class SQLDeterministicRepairService:
             )
             repaired_statements.append(repaired)
 
-        repaired_sql = ";\n".join(stmt.sql(dialect=_DIALECT) for stmt in repaired_statements)
+        repaired_sql = ";\n".join(stmt.sql(dialect=self._dialect) for stmt in repaired_statements)
         if len(repaired_statements) == 1 and not sql.strip().endswith(";"):
             pass
         elif sql.strip().endswith(";") and not repaired_sql.endswith(";"):
@@ -179,7 +181,7 @@ class SQLDeterministicRepairService:
                 rel_columns.setdefault((tt, ft), []).append((tc, fc))
 
         alias_map = self._schema_validator.resolve_table_aliases(
-            select.sql(dialect=_DIALECT), schema=schema
+            select.sql(dialect=self._dialect), schema=schema
         )
 
         joins = list(select.args.get("joins", []))
@@ -296,6 +298,7 @@ class SQLDeterministicRepairService:
         path_str: str,
         param_name: str,
         existing_aliases: set[str] | None = None,
+        dialect: str | None = None,
     ) -> bool:
         """Dynamically attach required RLS propagation INNER JOINs and WHERE predicate to the select statement."""
         if not path_str or "->" not in path_str:
@@ -413,9 +416,10 @@ class SQLDeterministicRepairService:
             select.args.setdefault("joins", []).extend(joins_to_add)
 
         if where_cond is not None:
+            target_dialect = dialect or _DIALECT
             where_node = select.args.get("where")
-            where_sql = where_node.sql(dialect=_DIALECT).casefold() if where_node else ""
-            cond_sql = where_cond.sql(dialect=_DIALECT).casefold()
+            where_sql = where_node.sql(dialect=target_dialect).casefold() if where_node else ""
+            cond_sql = where_cond.sql(dialect=target_dialect).casefold()
             if cond_sql not in where_sql:
                 select.where(where_cond, copy=False)
 
@@ -446,7 +450,7 @@ class SQLDeterministicRepairService:
             return tree
 
         global_aliases = self._schema_validator.resolve_table_aliases(
-            tree.sql(dialect=_DIALECT), schema=schema
+            tree.sql(dialect=self._dialect), schema=schema
         )
         cte_names = {
             cte.alias_or_name.lower()
@@ -496,7 +500,16 @@ class SQLDeterministicRepairService:
                 root_table_lower = root_table.lower()
                 canonical_predicate = domain.get("canonical_predicate", "")
                 param_match = re.search(r"@\w+", canonical_predicate)
-                param_name = param_match.group(0) if param_match else "@UserBranchId"
+                if param_match:
+                    param_name = param_match.group(0)
+                elif domain.get("security_parameter"):
+                    param_name = str(domain["security_parameter"]).strip()
+                else:
+                    # Dynamically synthesize parameter name from the root scope column or domain scope
+                    # e.g., store_id -> @UserStoreId, branch_id -> @UserBranchId, hospital_id -> @UserHospitalId
+                    scope_source = str(domain.get("security_scope") or root_col).lower().replace("_id", "")
+                    scope_pascal = "".join(part.capitalize() for part in scope_source.split("_") if part)
+                    param_name = f"@User{scope_pascal}Id" if scope_pascal else "@UserScopeId"
 
                 propagation_paths = domain.get("propagation_paths", [])
                 domain_protected: set[str] = {root_table_lower}
@@ -550,10 +563,11 @@ class SQLDeterministicRepairService:
                             path_str=path_str,
                             param_name=param_name,
                             existing_aliases=all_tree_aliases,
+                            dialect=self._dialect,
                         )
                     elif tbl == root_table_lower:
                         where_node = scope.args.get("where")
-                        where_sql = where_node.sql(dialect=_DIALECT).casefold() if where_node else ""
+                        where_sql = where_node.sql(dialect=self._dialect).casefold() if where_node else ""
                         if param_name.casefold() not in where_sql:
                             eq_cond = exp.EQ(
                                 this=exp.Column(
@@ -571,7 +585,7 @@ class SQLDeterministicRepairService:
                         )
                     ):
                         where_node = scope.args.get("where")
-                        where_sql = where_node.sql(dialect=_DIALECT).casefold() if where_node else ""
+                        where_sql = where_node.sql(dialect=self._dialect).casefold() if where_node else ""
                         if param_name.casefold() not in where_sql:
                             col = path_str.split("=")[0].strip().split(".")[-1] if "=" in path_str else root_col
                             eq_cond = exp.EQ(

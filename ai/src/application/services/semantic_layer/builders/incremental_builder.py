@@ -71,6 +71,24 @@ class IncrementalBuilder:
             response.text,
         )
 
+        rls_policy = (
+            updated_sources.get("rls_policy")
+            or updated_sources.get("rlsPolicy")
+            or updated_sources.get("RlsPolicy")
+        )
+        if rls_policy:
+            has_security_affected = any(
+                isinstance(obj, dict) and obj.get("section") == "security_domains"
+                for obj in affected_objects
+            )
+            if has_security_affected:
+                from src.application.services.semantic_layer.security.rls_policy_adapter import (
+                    RlsPolicyAdapter,
+                )
+                adapted_domains = RlsPolicyAdapter.to_security_domains(rls_policy)
+                if adapted_domains:
+                    semantic_layer["security_domains"] = adapted_domains
+
         return SemanticLayerBuildResponse(
             semantic_layer=semantic_layer,
         )

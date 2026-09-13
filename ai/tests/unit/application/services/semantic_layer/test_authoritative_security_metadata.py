@@ -7,6 +7,9 @@ import pytest
 from src.application.pipelines.semantic_layer.semantic_layer_validation_pipeline import (
     SemanticLayerValidationPipeline,
 )
+from src.application.dto.semantic_layer.semantic_layer_build_input import (
+    SemanticLayerBuildInput,
+)
 from src.application.services.semantic_layer.builders.full_build_builder import (
     FullRebuildBuilder,
 )
@@ -374,3 +377,40 @@ def test_validation_pipeline_with_documentation():
     assert validation["status"] == "passed"
     assert final_draft["metadata"]["validated"] is True
     assert final_draft["metadata"]["status"] == "validated"
+
+
+def test_full_build_reconciliation_with_store_scope():
+    builder = FullRebuildBuilder(llm_client=Mock())
+    schema = {
+        "tables": {
+            "stores": {"columns": [{"name": "store_id", "primary_key": True}, {"name": "store_name"}]},
+            "orders": {"columns": [{"name": "order_id", "primary_key": True}, {"name": "store_id"}]},
+            "products": {"columns": [{"name": "product_id", "primary_key": True}, {"name": "name"}]},
+        }
+    }
+    retail_policy = {
+        "enabled": True,
+        "userValueField": "StoreId",
+        "scopeParameter": "@UserStoreId",
+        "rules": [
+            {"table": "stores", "scopeColumn": "store_id", "type": "direct"},
+            {"table": "orders", "scopeColumn": "store_id", "type": "direct"},
+            {"table": "products", "joinTable": "orders", "joinFromColumn": "product_id", "joinToColumn": "product_id", "scopeColumn": "store_id", "type": "join"}
+        ]
+    }
+    build_input = SemanticLayerBuildInput(
+        schema=schema,
+        relationships=[],
+        rls_policy=retail_policy,
+        documentation="",
+        business_glossary="",
+    )
+    result = builder._reconcile_authoritative_metadata(
+        semantic_layer={"entities": []},
+        build_input=build_input,
+    )
+    entity_by_name = {e["mapping"]: e for e in result["entities"]}
+    assert entity_by_name["stores"]["security_scope"] == "store"
+    assert entity_by_name["orders"]["security_scope"] == "store"
+    assert entity_by_name["products"]["security_scope"] is None
+

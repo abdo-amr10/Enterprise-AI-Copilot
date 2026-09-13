@@ -31,4 +31,5 @@ class SemanticLayerBuildInput:
     relationship_graph: dict[str, Any] | None = None
     disconnected_entities: list[str] | None = None
     relationship_registry: dict[str, Any] | None = None
+    rls_policy: dict[str, Any] | None = None
 

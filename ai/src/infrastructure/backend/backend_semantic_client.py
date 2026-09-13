@@ -228,6 +228,31 @@ class BackendSemanticClient:
         self._cached_status_time = now
         return status
 
+    def get_rls_policy(self, layer_id: str) -> dict[str, Any] | None:
+        """Fetch the dynamic RLS policy for the specified semantic layer from Backend.
+
+        Calls GET /api/v1/semantic-layer/{layer_id}/rls-policy.
+
+        Args:
+            layer_id: Unique semantic layer UUID.
+
+        Returns:
+            Dictionary representing the RlsPolicyRequest contract, or None if not configured.
+        """
+        if not layer_id or not str(layer_id).strip():
+            return None
+        try:
+            payload = self._get(f"/api/v1/semantic-layer/{layer_id}/rls-policy")
+            if isinstance(payload, dict):
+                return payload
+            return None
+        except requests.HTTPError as error:
+            if error.response is not None and error.response.status_code == 404:
+                return None
+            return None
+        except Exception:
+            return None
+
     def download_index_artifact(self, revision_id: str) -> bytes | None:
         """Download the compiled semantic index artifact bundle ZIP from Backend.
 
