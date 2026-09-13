@@ -10,5 +10,6 @@ namespace EnterpriseAiCopilot.Application.DTOs.SemanticLayer
         public string? DocumentationFileId { get; set; }
         public string? GlossaryFileId { get; set; }
         public string? SampleDataFileId { get; set; }
+        public string? RlsPolicyFileId { get; set; }
     }
 }
