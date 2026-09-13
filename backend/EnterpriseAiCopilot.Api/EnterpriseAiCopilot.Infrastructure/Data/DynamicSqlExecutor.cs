@@ -147,7 +147,7 @@ namespace EnterpriseAiCopilot.Infrastructure.Data
             catch (SqlException ex)
             {
                 _logger.LogError(ex, "Database execution error during dynamic SQL execution.");
-                return Result<object>.Failure("DATABASE_EXECUTION_ERROR: An error occurred while executing the query.");
+                return Result<object>.Failure($"DATABASE_EXECUTION_ERROR: {ex.Message}");
             }
             catch (Exception ex)
             {
