@@ -14,6 +14,11 @@ export function fetchUsers({ id } = {}) {
   return request(`/api/v1/users${query}`)
 }
 
+// GET /api/v1/branches
+export function fetchBranches() {
+  return request('/api/v1/branches')
+}
+
 // Wraps the 4 confirmed backend endpoints (Swagger UI, runasp.net backend).
 // Request/response shapes are taken exactly from the Swagger schemas
 // provided — nothing here is invented or assumed.

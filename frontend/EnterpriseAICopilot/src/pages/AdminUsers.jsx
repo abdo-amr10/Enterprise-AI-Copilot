@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import AdminSidebar from '../components/AdminSidebar'
 import AdminTopBar from '../components/AdminTopBar'
 import ConfirmDialog from '../components/ConfirmDialog'
 import PasswordInput from '../components/PasswordInput'
-import { changeUserPassword, deleteUser, fetchUsers, registerUser, updateUserRole } from '../services/adminUsersService'
+import { changeUserPassword, deleteUser, fetchBranches, fetchUsers, registerUser, updateUserRole } from '../services/adminUsersService'
 import '../styles/admin.css'
 import '../styles/admin-pages.css'
 import '../styles/admin-overrides.css'
@@ -19,6 +19,16 @@ function userListFromResponse(response) {
   const data = response?.items || response?.users || response?.data || response
   if (Array.isArray(data)) return data
   return data?.items || data?.users || []
+}
+
+function branchListFromResponse(response) {
+  const data = Array.isArray(response) ? response : response?.items || response?.branches || response?.data || response
+  const items = Array.isArray(data) ? data : data?.items || data?.branches || []
+  return items.map((branch) => {
+    const id = branch?.branchId ?? branch?.id ?? branch?.value ?? branch?.code ?? branch?.branchName ?? branch?.name
+    const name = branch?.branchName ?? branch?.name ?? branch?.label ?? branch?.title ?? branch?.branchId ?? branch?.id
+    return { id: id === undefined || id === null ? '' : String(id), name: name === undefined || name === null ? '' : String(name) }
+  }).filter((branch) => branch.id && branch.name.trim())
 }
 
 function formatUserDate(value) {
@@ -54,9 +64,51 @@ function UserDirectory() {
 
 function AddUserForm() {
   const [form, setForm] = useState({ firstName: '', lastName: '', email: '', password: '', confirmPassword: '', role: 'normal', branchId: '' })
+  const [branchInput, setBranchInput] = useState('')
+  const [branches, setBranches] = useState([])
+  const [branchesStatus, setBranchesStatus] = useState('loading')
+  const [branchOpen, setBranchOpen] = useState(false)
+  const branchFieldRef = useRef(null)
   const [message, setMessage] = useState('')
   const [status, setStatus] = useState('idle')
   const update = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }))
+
+  useEffect(() => {
+    let active = true
+    fetchBranches()
+      .then((response) => {
+        if (!active) return
+        setBranches(branchListFromResponse(response))
+        setBranchesStatus('ready')
+      })
+      .catch(() => {
+        if (active) setBranchesStatus('error')
+      })
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    const closeOnOutsideClick = (event) => {
+      if (branchFieldRef.current && !branchFieldRef.current.contains(event.target)) setBranchOpen(false)
+    }
+    document.addEventListener('mousedown', closeOnOutsideClick)
+    return () => document.removeEventListener('mousedown', closeOnOutsideClick)
+  }, [])
+
+  const matchingBranches = branches.filter((branch) => branch.name.toLowerCase().includes(branchInput.trim().toLowerCase()))
+
+  function updateBranch(event) {
+    const value = event.target.value
+    setBranchInput(value)
+    setForm((current) => ({ ...current, branchId: value }))
+    setBranchOpen(true)
+  }
+
+  function selectBranch(branch) {
+    setBranchInput(branch.name)
+    setForm((current) => ({ ...current, branchId: String(branch.id) }))
+    setBranchOpen(false)
+  }
 
   async function submit(event) {
     event.preventDefault()
@@ -68,6 +120,7 @@ function AddUserForm() {
       await registerUser(form)
       setStatus('success'); setMessage(`${form.firstName} ${form.lastName} was added successfully.`)
       setForm({ firstName: '', lastName: '', email: '', password: '', confirmPassword: '', role: 'normal', branchId: '' })
+      setBranchInput('')
     } catch (error) { setStatus('error'); setMessage(error.message) }
   }
 
@@ -80,7 +133,16 @@ function AddUserForm() {
       <select aria-label="Access level" value={form.role} onChange={update('role')}>{ROLE_OPTIONS.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}</select>
       <PasswordInput aria-label="Password" placeholder="Password" value={form.password} onChange={update('password')} />
       <PasswordInput aria-label="Confirm password" placeholder="Confirm password" value={form.confirmPassword} onChange={update('confirmPassword')} />
-      <input aria-label="Branch" placeholder="Branch" value={form.branchId} onChange={update('branchId')} />
+      <div className="admin-branch-field" ref={branchFieldRef}>
+        <input aria-label="Branch" placeholder="Branch" value={branchInput} onFocus={() => setBranchOpen(true)} onChange={updateBranch} autoComplete="off" />
+        {branchOpen ? <div className="admin-branch-dropdown" role="listbox" aria-label="Available branches">
+          {branchesStatus === 'loading' ? <div className="admin-branch-state"><span className="admin-users-spinner" aria-hidden="true" />Loading branches…</div> : null}
+          {branchesStatus === 'error' ? <div className="admin-branch-state">Branches are unavailable. You can enter a value manually.</div> : null}
+          {branchesStatus === 'ready' && matchingBranches.length ? matchingBranches.map((branch) => <button type="button" role="option" className="admin-branch-option" key={`${branch.id}-${branch.name}`} onMouseDown={(event) => event.preventDefault()} onClick={() => selectBranch(branch)}><strong>{branch.name}</strong>{String(branch.id) !== branch.name ? <small>{branch.id}</small> : null}</button>) : null}
+          {branchesStatus === 'ready' && !branches.length ? <div className="admin-branch-state">No branches available. You can enter a value manually.</div> : null}
+          {branchesStatus === 'ready' && branches.length && !matchingBranches.length ? <div className="admin-branch-state">No matching branches. You can enter a value manually.</div> : null}
+        </div> : null}
+      </div>
     </div>
     <SubmitButton status={status}>Add user</SubmitButton><StatusMessage status={status} message={message} />
   </form>

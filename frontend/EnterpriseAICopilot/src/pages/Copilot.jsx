@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import AppShell from "../components/AppShell";
-import ChatQuestion from "../components/ChatQuestion";
-import ConversationFeedback from "../components/ConversationFeedback";
-import SummaryCard from "../components/SummaryCard";
-import { IconLoader, IconSend, IconSparkles } from "../components/icons";
+import { CopilotComposer, CopilotThread } from "../components/CopilotConversation";
+import { IconSparkles } from "../components/icons";
 import { useAuth } from "../context/useAuth";
 import { askCopilot, extractConversationId, fetchConversation, findConversationIdForQuestion, getConversationMessages } from "../services/copilotService";
+import { toTurns } from "../utils/copilotTurns";
 import "../styles/copilot.css";
 
 const suggestions = [
@@ -40,39 +39,7 @@ function saveActiveConversation(user, value) {
 }
 
 function timeNow() {
-  return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-function toTurns(messages) {
-  const turns = [];
-  messages.forEach((message, index) => {
-    const role = String(message?.role || message?.sender || "").toLowerCase();
-    const question = message?.question || (role === "user" ? message?.content : "");
-    if (question) {
-      const status = String(message?.status || "").toLowerCase();
-      turns.push({
-        id: message?.id || message?.messageId || message?.queryId || `question-${index}`,
-        question,
-        status: status === "failed" ? "failed" : "completed",
-        queryId: message?.queryId,
-        report: message?.result || message?.report || { textSummary: "" },
-        executionTimeMs: message?.executionTimeMs,
-        errorMessage: message?.message || "This question could not be completed.",
-        askedAt: message?.createdAt,
-      });
-      return;
-    }
-    const latestTurn = turns.at(-1);
-    if (!latestTurn) return;
-    const result = message?.result || message?.report;
-    latestTurn.status = String(message?.status || "").toLowerCase() === "failed" ? "failed" : "completed";
-    latestTurn.queryId = message?.queryId;
-    latestTurn.report = result || { textSummary: message?.content || message?.answer || "" };
-    latestTurn.executionTimeMs = message?.executionTimeMs;
-    latestTurn.errorMessage = message?.message || message?.content;
-    latestTurn.askedAt = message?.createdAt || latestTurn.askedAt;
-  });
-  return turns;
+  return new Date().toISOString();
 }
 
 export default function Copilot() {
@@ -83,7 +50,6 @@ export default function Copilot() {
   const [conversationId, setConversationId] = useState(null);
   const conversationRef = useRef([]);
   const turnsRef = useRef([]);
-  const threadEndRef = useRef(null);
 
   useEffect(() => {
     if (!user) return;
@@ -102,10 +68,11 @@ export default function Copilot() {
       .then((conversation) => {
         const messages = getConversationMessages(conversation);
         setConversationId(savedConversationId);
-        conversationRef.current = messages
-          .map((message) => ({ role: message?.role, content: message?.content || message?.answer || message?.question }))
-          .filter((message) => message.role && message.content);
         const restoredTurns = toTurns(messages);
+        conversationRef.current = restoredTurns.flatMap((turn) => [
+          { role: "user", content: turn.question },
+          { role: "assistant", content: turn.report?.textSummary || "Query completed." },
+        ]);
         if (restoredTurns.length) {
           turnsRef.current = restoredTurns;
           setTurns(restoredTurns);
@@ -121,10 +88,6 @@ export default function Copilot() {
         // turn the next question into a new conversation.
       });
   }, [user]);
-
-  useEffect(() => {
-    threadEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [turns]);
 
   const ask = async (value = question) => {
     const nextQuestion = value.trim();
@@ -154,7 +117,7 @@ export default function Copilot() {
 
       const askedAt = timeNow();
       if (response?.status === "Failed") {
-        const errorMessage = response.message || "I couldn’t complete that request.";
+        const errorMessage = response.errorMessage || response.message || "This question could not be completed.";
         conversationRef.current = [...conversationRef.current, { role: "user", content: nextQuestion }, { role: "assistant", content: errorMessage }];
         turnsRef.current = turnsRef.current.map((turn) => turn.id === turnId ? { ...turn, status: "failed", errorMessage, queryId: response.queryId, askedAt } : turn);
         setTurns(turnsRef.current);
@@ -163,7 +126,7 @@ export default function Copilot() {
       }
 
       const report = response?.report || response?.result || {};
-      conversationRef.current = [...conversationRef.current, { role: "user", content: nextQuestion }, { role: "assistant", content: report.textSummary || "" }];
+      conversationRef.current = [...conversationRef.current, { role: "user", content: nextQuestion }, { role: "assistant", content: report.textSummary || "Query completed." }];
       turnsRef.current = turnsRef.current.map((turn) => turn.id === turnId ? { ...turn, status: "completed", report, queryId: response?.queryId, executionTimeMs: response?.executionTimeMs, askedAt } : turn);
       setTurns(turnsRef.current);
       saveActiveConversation(user, { conversationId: nextConversationId || conversationId, turns: turnsRef.current, conversation: conversationRef.current });
@@ -194,9 +157,9 @@ export default function Copilot() {
   return (
     <AppShell active="copilot" title="Ask your data">
       <div className={`copilot-workspace${isEmpty ? "" : " has-thread"}`}>
-        {isEmpty ? <section className="copilot-empty-state"><span className="copilot-empty-icon"><IconSparkles aria-hidden="true" /></span><p className="copilot-kicker">Enterprise intelligence</p><h2>What would you like to know?</h2><p>Ask a question in plain language and Copilot will help you understand your business information.</p><div className="copilot-suggestions">{suggestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => ask(suggestion)}>{suggestion}</button>)}</div></section> : <section className="copilot-thread" aria-live="polite">{turns.map((turn) => <div key={turn.id} className="copilot-turn"><ChatQuestion role={user?.role}>{turn.question}</ChatQuestion>{turn.status === "processing" ? <article className="copilot-processing-message"><div className="copilot-processing-head"><span><IconSparkles aria-hidden="true" /> Copilot is working</span><IconLoader className="copilot-processing-loader" aria-hidden="true" /></div><p>Reviewing your question and preparing a clear answer.</p></article> : null}{turn.status === "completed" ? <SummaryCard question={turn.question} textSummary={turn.report?.textSummary} data={turn.report?.data} heroMetric={turn.report?.heroMetric} kpiCards={turn.report?.kpiCards} status="Completed" queryId={turn.queryId} executionTimeMs={turn.executionTimeMs} askedAt={turn.askedAt} /> : null}{turn.status === "failed" ? <ConversationFeedback title="I couldn’t complete that request.">{turn.errorMessage}</ConversationFeedback> : null}</div>)}<div ref={threadEndRef} /></section>}
+        {isEmpty ? <section className="copilot-empty-state"><span className="copilot-empty-icon"><IconSparkles aria-hidden="true" /></span><p className="copilot-kicker">Enterprise intelligence</p><h2>What would you like to know?</h2><p>Ask a question in plain language and Copilot will help you understand your business information.</p><div className="copilot-suggestions">{suggestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => ask(suggestion)}>{suggestion}</button>)}</div></section> : <CopilotThread turns={turns} role={user?.role} />}
       </div>
-      <form className="copilot-composer" onSubmit={(event) => { event.preventDefault(); ask(); }}><input aria-label="Ask a question" placeholder="Ask a question about your business..." value={question} onChange={(event) => setQuestion(event.target.value)} disabled={sending} /><button type="submit" aria-label="Send question" disabled={sending}><IconSend aria-hidden="true" /></button></form>
+      <CopilotComposer question={question} setQuestion={setQuestion} onSubmit={ask} sending={sending} />
       <p className="copilot-security-note">Your questions are handled within your secure workspace.</p>
       {!isEmpty ? <button className="copilot-new-question" type="button" onClick={startNewConversation} disabled={sending}>Start a new conversation</button> : null}
     </AppShell>

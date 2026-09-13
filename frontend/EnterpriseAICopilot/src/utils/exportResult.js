@@ -1,11 +1,18 @@
 import * as XLSX from "xlsx";
 
+function withoutQueryId(row) {
+  if (!row || typeof row !== "object" || Array.isArray(row)) return row;
+  return Object.fromEntries(
+    Object.entries(row).filter(([key]) => key.toLowerCase().replace(/[\s_-]/g, "") !== "queryid")
+  );
+}
+
 // Turns whatever `report.data` the backend returned into rows a
-// spreadsheet/table can render. Falls back to a single Question/Answer
-// row when the backend didn't return tabular data (a plain narrative
-// answer), so export always has something sensible to produce.
+// spreadsheet/table can render, excluding the internal query identifier.
+// Falls back to a single Question/Answer row when the backend didn't return
+// tabular data (a plain narrative answer).
 function toRows({ question, textSummary, data }) {
-  if (Array.isArray(data) && data.length > 0) return data;
+  if (Array.isArray(data) && data.length > 0) return data.map(withoutQueryId);
   return [{ Question: question, Answer: textSummary }];
 }
 
@@ -14,7 +21,7 @@ export function exportToExcel(payload) {
   const sheet = XLSX.utils.json_to_sheet(rows);
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, sheet, "Copilot answer");
-  XLSX.writeFile(workbook, `copilot-${payload.queryId || Date.now()}.xlsx`);
+  XLSX.writeFile(workbook, `copilot-${Date.now()}.xlsx`);
 }
 
 function escapeHtml(value) {
@@ -24,16 +31,17 @@ function escapeHtml(value) {
   );
 }
 
-function buildResultHtml({ question, textSummary, data, queryId, status }) {
+function buildResultHtml({ question, textSummary, data, status }) {
+  const rows = toRows({ question, textSummary, data });
   const hasTable = Array.isArray(data) && data.length > 0;
-  const columns = hasTable ? Object.keys(data[0]) : [];
+  const columns = hasTable ? Object.keys(rows[0]) : [];
 
   const tableHtml = hasTable
     ? `<table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:13px;margin-top:16px">
         <thead><tr>${columns
           .map((col) => `<th style="background:#00174b;color:#fff;text-align:left;padding:8px">${escapeHtml(col)}</th>`)
           .join("")}</tr></thead>
-        <tbody>${data
+        <tbody>${rows
           .map(
             (row) =>
               `<tr>${columns.map((col) => `<td style="padding:8px;border:1px solid #dbe1ee">${escapeHtml(row[col])}</td>`).join("")}</tr>`
@@ -51,7 +59,7 @@ function buildResultHtml({ question, textSummary, data, queryId, status }) {
     </style></head>
     <body>
       <h1>${escapeHtml(question)}</h1>
-      <p class="meta">Query ID: ${escapeHtml(queryId || "-")} · Status: ${escapeHtml(status || "-")}</p>
+      <p class="meta">Status: ${escapeHtml(status || "-")}</p>
       <p class="summary">${escapeHtml(textSummary)}</p>
       ${tableHtml}
     </body></html>`;
@@ -63,7 +71,7 @@ export function exportToWord(payload) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `copilot-${payload.queryId || Date.now()}.doc`;
+  link.download = `copilot-${Date.now()}.doc`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

@@ -2,6 +2,7 @@
 
 import { IconCheck, IconSparkles } from "./icons";
 import ExportMenu from "./ExportMenu";
+import { formatAskedAt } from "../utils/formatDate";
 import "../styles/summary-card.css";
 
 function humanizeKey(key) {
@@ -33,11 +34,11 @@ function formatExecutionTime(value) {
 // a single row with one field renders as a big headline number (like a
 // KPI), anything with more rows/columns renders as a real table, and if
 // there's no tabular data at all we just show the plain-language answer.
-export default function SummaryCard({ question, textSummary, data, heroMetric, kpiCards, status = "Completed", queryId, askedAt, executionTimeMs }) {
+export default function SummaryCard({ question, textSummary, data, heroMetric, kpiCards, status = "Completed", askedAt, executionTimeMs }) {
   const rows = Array.isArray(data) ? data : [];
   const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
   const isSingleMetric = rows.length === 1 && columns.length === 1;
-  const hasResult = Boolean(textSummary && textSummary.trim()) || rows.length > 0 || heroMetric || kpiCards?.length;
+  const hasDownloadableData = rows.length > 0;
 
   return (
     <article className={`summary-card${rows.length > 0 ? " has-table" : ""}`} aria-label="Copilot answer summary">
@@ -91,9 +92,9 @@ export default function SummaryCard({ question, textSummary, data, heroMetric, k
       <footer className="summary-card-footer">
         <span>
           {/*queryId ? `Query ID: ${queryId}` : "Based on the information available to you."*/}
-          {[askedAt, formatExecutionTime(executionTimeMs)].filter(Boolean).join(" · ")}
+          {[formatAskedAt(askedAt), formatExecutionTime(executionTimeMs)].filter(Boolean).join(" · ")}
         </span>
-        {hasResult ? <ExportMenu payload={{ question, textSummary, data: rows, queryId, status }} /> : null}
+        {hasDownloadableData ? <ExportMenu payload={{ question, textSummary, data: rows, status }} /> : null}
       </footer>
     </article>
   );

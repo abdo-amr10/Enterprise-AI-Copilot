@@ -14,3 +14,17 @@ export function formatHistoryDate(isoString) {
 
   return `${date.toLocaleDateString([], { month: "short", day: "numeric" })}, ${time}`;
 }
+
+export function formatAskedAt(isoString) {
+  if (!isoString) return "";
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) return String(isoString);
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
